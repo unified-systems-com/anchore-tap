@@ -90,7 +90,7 @@ Plugin-owned settings resolved at collection time: `base_url` (the API root incl
 | req-anchore-connection-2 | Secret Never Echoed | Proposed | The credential is absent from logs, scan-run properties and exception text, including when a request fails. | |
 | req-anchore-connection-3 | Scheme Is Declared | Proposed | The envelope names Basic, API key or bearer; an unknown scheme refuses the run before any request, and the bearer scheme uses a token supplied in the envelope, never one the client fetches. | The accepted schemes on the hosted service are not observed. |
 | req-anchore-connection-4 | HTTPS Only | Proposed | A `base_url` that is not `https://` is refused before any request, with no override: the credential travels with every call, and a FedRAMP deployment requires encryption in transit. An on-prem install that serves plain HTTP must be fronted by TLS. | Added in response to the review of anchore-tap PR 2. Anchore's on-prem docs show an `http://` example on port 8228; the plugin does not follow it. |
-| req-anchore-connection-5 | Redirects Never Carry The Credential | Proposed | The client does not follow a redirect to a different host or from `https` to `http`, and a redirect carries no `Authorization` header or API key beyond the original host. | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-connection-5 | Redirects Are Refused | Proposed | The client follows no redirect: a 3xx response is an error recorded on the run, so the credential can never reach another origin (host, port or scheme). | Added in response to the review of anchore-tap PR 2. A negative test redirects to the same host on another port and to another host, and expects the refusal before any second request. |
 | req-anchore-connection-6 | Account Is Required And In The Key | Proposed | The `account` setting is required; a run with none is refused before any request, and the scanner key always includes it. The effective account is read from `GET /account` and a mismatch with the setting is an error (`req-anchore-probe-4`). | Added in response to the review of anchore-tap PR 2. Whether Anchore reports the effective account, and whether the header is needed for a credential's own account, is unobserved. |
 
 ### The Read-Only Client
@@ -296,7 +296,7 @@ Reads `/sboms/native-json`, `/sboms/spdx-json` and `/sboms/cyclonedx-json` per i
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-sbom-1 | Three Formats Recorded | Proposed | For each image the native, SPDX and CycloneDX documents are each recorded as an `sbom_document`. | Ruled by George 2026-10-29: store all three formats. |
+| req-anchore-sbom-1 | Three Formats Recorded | Proposed | For each image and each repository source, the native, SPDX and CycloneDX documents are each recorded as an `sbom_document`. | Ruled by George 2026-10-29: store all three formats. |
 | req-anchore-sbom-2 | Only CycloneDX Parsed | Proposed | Only the CycloneDX document is parsed into packages; the other two are recorded unread. | |
 | req-anchore-sbom-3 | Never Marked Verified | Proposed | No Anchore document has `verified` true or a signer; the trust level names the source. | |
 | req-anchore-sbom-4 | Safe Until The Outcome Exists | Proposed | Until `computing_core` provides the source-authenticated outcome, documents are recorded and none is parsed. | Depends on a pending `computing_core` change. |
