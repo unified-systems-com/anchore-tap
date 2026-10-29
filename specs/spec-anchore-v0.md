@@ -145,7 +145,7 @@ The instance serves its spec at `/v2/openapi.json` (documented in Anchore's API 
 - **Error and stop, with no data written:** a path the plugin cannot work without is gone (the per-image vulnerability or SBOM read); a field the parser requires is removed or changes type; a new required parameter appears that the client does not send; or the credential can read neither the spec nor the data.
 - **Warn and continue, recorded on the scan run:** a whole scope is unavailable (for example the application family on an older on-prem install), recorded as *not read*; a field read optionally disappears; a new enum value the parser does not know appears; the instance version differs from the extract's.
 - **Pass:** only additive changes the plugin does not read.
-- **Spec not served:** warn and continue, recording that the self-test could not run. It is never recorded as passed.
+- **Spec not served:** the self-test cannot run, and that is never recorded as passed. If the scanner's previous run recorded the spec as served, its absence now is error-class (a gate that can be bypassed by not answering is not a gate). If the previous run did not record it as served, or there was no previous run, the run warns and continues, but only because every response is independently validated against the extract's response schemas before any node is written (`req-anchore-selftest-6`); the unvalidated path does not exist.
 
 #### Acceptance Criteria
 
@@ -154,7 +154,8 @@ The instance serves its spec at `/v2/openapi.json` (documented in Anchore's API 
 | req-anchore-selftest-1 | Runs First | Proposed | The self-test completes before any scope is read, and its verdict is on the scan run. | |
 | req-anchore-selftest-2 | Error Stops Without Writing | Proposed | An error-class difference ends the run before any node is written. | |
 | req-anchore-selftest-3 | Warn Marks The Scope Not Read | Proposed | A warn-class difference that removes a scope records that scope as not read and leaves its prior findings untouched. | Ties to `req-anchore-states`. |
-| req-anchore-selftest-4 | Absent Spec Is Not A Pass | Proposed | If the instance does not serve its spec, the run warns and records the self-test as not run. | |
+| req-anchore-selftest-4 | Absent Spec Is Not A Pass | Proposed | If the instance does not serve its spec, the self-test is recorded as not run, never as passed; the run errors if the scanner's previous run recorded the spec as served, and otherwise warns and continues. | The previous-run fact is a property of the scanner node. |
+| req-anchore-selftest-6 | Responses Validated Regardless | Proposed | Every response is validated against the extract's response schema before any node is written, with or without a self-test; a required scope that fails validation is an error, and an optional scope is recorded as not read. | Closes the gap an unserved spec would otherwise leave. |
 | req-anchore-selftest-5 | Same Reducer As The Committed Extract | Proposed | The committed extract and the live comparison come from one reducer, so a difference is never an artifact of two code paths. | |
 
 ### Contract Extract And Offline Tests
@@ -216,7 +217,7 @@ A scope the instance does not offer, a call that failed after its retries, an im
 | --- | --- | --- | --- | --- |
 | req-anchore-states-1 | Not Read Is Not Clean | Proposed | A scope or image not read in a run produces no resolved findings and is listed as not read on the run. | |
 | req-anchore-states-2 | Null Is Unobserved | Proposed | A field the response did not carry is `null`, never `""`, `0` or `false`. | |
-| req-anchore-states-3 | Resolve Only What Was Read | Proposed | A finding resolves only when its target was read successfully and no longer reports it. | |
+| req-anchore-states-3 | Resolve Only What Was Read | Proposed | A finding resolves only when its target was read successfully by the same scanner and that scanner no longer reports it. | |
 | req-anchore-states-4 | Unanalysed Image Has No Verdict | Proposed | An image in Anchore's inventory with no analysis results is recorded as having no verdict, not as clean. | Anchore's ECS page states such images "never gain vulnerability or policy results". |
 
 ### The Scope Walk
@@ -255,10 +256,10 @@ How Anchore's vulnerability results become `compliance_core` nodes. This plugin 
 
 #### Implementation
 
-- `compliance_core__compliance_scanner`: one per Anchore instance, `source` `anchore`, `scanner_key` derived from the instance's base URL host; the instance, version and account are recorded as the scanner's facts, not its key.
+- `compliance_core__compliance_scanner`: one per Anchore instance and account, `source` `anchore`, `scanner_key` derived from the base URL's host and the account together; the reported version is a fact on the scanner, not part of its key. Two accounts on one host are two scanners.
 - `compliance_core__compliance_scan_run`: one per collection, carrying the probe results, the self-test verdict and the lists of scopes not read.
 - `compliance_core__compliance_vulnerability`: keyed by `vuln_id`, the public record (CVE, else GHSA), with Anchore's other identifiers as aliases. Anchore's CVSS and URL data fill the vulnerability only through partial patches that never overwrite what another producer wrote, and an absent value is `null`.
-- `compliance_core__compliance_finding`: `source` `anchore`, `source_key` a compact JSON array of the vulnerability id, the image host's key and the package's key, never the run. `CONCERNS_COMPLIANCE_VULNERABILITY` carries the fix: `fixed_versions` and `fix_state` in Anchore's own words, with the existing tri-state meaning (absent means not observed; `[]` means looked and none). A finding attaches to the image, SBOM or package it concerns; the application graph reaches it by traversal and the finding is never copied under an application.
+- `compliance_core__compliance_finding`: `source` `anchore`, `source_key` a compact JSON array of the `scanner_key`, the vulnerability id, the image host's key and the package's key, never the run. The scanner is in the key so that two Anchore instances or accounts reporting the same assertion are two findings, and one instance's successful read can never resolve a finding another still reports. `CONCERNS_COMPLIANCE_VULNERABILITY` carries the fix: `fixed_versions` and `fix_state` in Anchore's own words, with the existing tri-state meaning (absent means not observed; `[]` means looked and none). A finding attaches to the image, SBOM or package it concerns; the application graph reaches it by traversal and the finding is never copied under an application.
 - **Severity (open, a review ask).** `compliance_core` has no severity field on the finding and derives bands from CVSS on the vulnerability. Anchore reports its own severity per finding. The ruling is that severity goes on the finding side, not the shared vulnerability node. The existing home for per-finding scanner facts is the properties of `CONCERNS_COMPLIANCE_VULNERABILITY`, which carries only `fixed_versions` and `fix_state` today; this plugin proposes an optional `severity` property there, a `compliance_core` change that does not exist yet. Until it lands, Anchore's severity is not stored, and a finding says so by having no severity, not by carrying a guess.
 
 #### Acceptance Criteria
@@ -269,6 +270,7 @@ How Anchore's vulnerability results become `compliance_core` nodes. This plugin 
 | req-anchore-findings-2 | Keyed By Assertion | Proposed | A finding's key names the vulnerability and its target, never the run; two runs reporting the same assertion are one finding. | |
 | req-anchore-findings-3 | Fix State Tri-State | Proposed | `fixed_versions` is the list when Anchore says fixed, `[]` when it says none, and absent when unknown. | Mirrors `grype-tap`. |
 | req-anchore-findings-4 | Not Copied Under Applications | Proposed | The same finding is never stored under an application, version or asset; the application graph reaches it by traversal. | Ruled by George 2026-10-29: findings stay on the image or SBOM. |
+| req-anchore-findings-6 | Instance In The Key | Proposed | A finding's key includes the scanner key (instance and account); the same assertion from two instances or accounts is two findings, and resolution is scoped to one scanner. | Raised in AI review of the spec PR. |
 | req-anchore-findings-5 | Severity Waits For A Home | Proposed | Anchore's severity is stored only once `compliance_core` has a per-finding home for it; until then it is not stored and the gap is documented. | A review ask. |
 
 ### SBOMs
