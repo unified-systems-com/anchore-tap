@@ -80,7 +80,7 @@ How the collector knows which Anchore to read and how to authenticate. The base 
 
 #### Implementation
 
-Plugin-owned settings resolved at collection time: `base_url` (the API root including `/v2`; the hosted URL and an on-prem `http(s)://<host>:<port>/v2` both fit), `account` (sent as `x-anchore-account` when set), `ca_bundle` (a path, optional), and a secret envelope holding the credential. Anchore documents Basic, API key (user `_api_key`), and OAuth2 bearer authentication; which of them the hosted service accepts is unknown until the trial (see the differences ledger), so the envelope names the scheme and the client supports the three. The secret kind and its minting guidance are wired through the `manage-secret` skill when the collector is built. Nothing in this section is read from a node, and the credential value never appears in a log, a scan-run field or an error message.
+Plugin-owned settings resolved at collection time: `base_url` (the API root including `/v2`; it must be `https://`, and the hosted URL and an on-prem `https://<host>:<port>/v2` both fit; plaintext is covered by `req-anchore-connection-4`), `account` (sent as `x-anchore-account` when set), `ca_bundle` (a path, optional), `annotation_allowlist` (annotation keys that may be stored; empty by default), `allow_plaintext_http` (off by default), and a secret envelope holding the credential. Anchore documents Basic, API key (user `_api_key`), and OAuth2 bearer authentication; which of them the hosted service accepts is unknown until the trial (see the differences ledger), so the envelope names the scheme and the client supports the three. The secret kind and its minting guidance are wired through the `manage-secret` skill when the collector is built. Nothing in this section is read from a node, and the credential value never appears in a log, a scan-run field or an error message.
 
 #### Acceptance Criteria
 
@@ -89,6 +89,7 @@ Plugin-owned settings resolved at collection time: `base_url` (the API root incl
 | req-anchore-connection-1 | Settings Are Not Nodes | Proposed | No node type declares a base URL, credential, account or CA-bundle field, and the collector reads none from the grid. | |
 | req-anchore-connection-2 | Secret Never Echoed | Proposed | The credential is absent from logs, scan-run properties and exception text, including when a request fails. | |
 | req-anchore-connection-3 | Scheme Is Declared | Proposed | The envelope names Basic, API key or bearer; an unknown scheme refuses the run before any request. | The accepted schemes on the hosted service are not observed. |
+| req-anchore-connection-4 | HTTPS Only By Default | Proposed | A `base_url` that is not `https://` is refused before any request, because the credential travels with every call. The one exception is an explicit operator setting `allow_plaintext_http`, off by default, for a loopback or lab on-prem install; with it set, the run records a warning and the credential is still never logged. | Raised in AI review of the spec PR. Anchore's on-prem docs show an `http://` example on port 8228. |
 
 ### The Read-Only Client
 ----
@@ -245,6 +246,7 @@ The vendor's `/query/*` reads and the account-wide listings that return the same
 | req-anchore-scope-walk-1 | Every Scope Walked | Proposed | Images, sources and application versions are each read when the instance offers them; one failing does not stop the others. | |
 | req-anchore-scope-walk-2 | Family Is Probed | Proposed | The collector records which application path family the instance serves and reads that one. | Which is current is unknown until the trial. |
 | req-anchore-scope-walk-3 | Only Extracted Paths | Proposed | The client calls only paths present in the committed extract. | A path outside it fails a test. |
+| req-anchore-scope-walk-4 | Account In Every Key | Proposed | Every Anchore-specific node key begins with the scanner key (host and account together), so two accounts on one instance never share a node, whether or not Anchore's identifiers are unique across accounts. | Raised in AI review of the spec PR; uniqueness across accounts is unobserved. |
 
 ### Findings And Vulnerabilities
 ----
@@ -307,9 +309,9 @@ Anchore's application is a small graph of four levels: an application, its versi
 
 Three Anchore-specific types, each with `anchore.area: inventory`:
 
-- `anchore_application`: key `(instance, application_id)`. Name, description, contact (name, email, phone, organization), the owning policy id, and the version count as Anchore reports it.
-- `anchore_app_version`: key `(instance, application_id, version_id)`. Name, description, status (`in_progress`, `released`, `eol`), release date. Policy results are `req-anchore-policy-result`.
-- `anchore_asset`: key `(instance, application_id, version_id, asset_id)`. Name, type (one of application, container, device, file, firmware, library, module, filesystem, virtual_machine_disk, unknown), reference, up to ten annotations.
+- `anchore_application`: key `(scanner_key, application_id)`. Name, description, contact (name, email, phone, organization), the owning policy id, and the version count as Anchore reports it.
+- `anchore_app_version`: key `(scanner_key, application_id, version_id)`. Name, description, status (`in_progress`, `released`, `eol`), release date. Policy results are `req-anchore-policy-result`.
+- `anchore_asset`: key `(scanner_key, application_id, version_id, asset_id)`. Name, type (one of application, container, device, file, firmware, library, module, filesystem, virtual_machine_disk, unknown), reference, and the annotations Anchore holds on it (at most ten, with keys up to 150 and values up to 1000 characters, set by Anchore's users; the same operator allowlist as Kubernetes annotations applies, empty by default, because a user-set value can hold anything).
 
 Edges: `HAS_VERSION__anchore` (application to version), `PRECEDES_VERSION__anchore` (a version to the one after it, from Anchore's previous-version pointer), `CONTAINS_ASSET__anchore` (version to asset), `REFERENCES_IMAGE__anchore` (asset to the image host) and `REFERENCES_SBOM__anchore` (asset to `sbom_document`). The image host is a `computing_core__host` with realm `oci-digest` and the manifest digest as `stable_id` (`computing-core-tap` pull request 60). An asset whose artifact carries a tag but no digest gets no image edge; the digest is unobserved and none is invented. The contact fields are personal data, and the plugin records only what Anchore returns; it asks for no more.
 
@@ -322,6 +324,7 @@ Edges: `HAS_VERSION__anchore` (application to version), `PRECEDES_VERSION__ancho
 | req-anchore-application-3 | Edges To Existing Nodes | Proposed | An asset's image edge targets the `computing_core` image host and its SBOM edge targets the `sbom_document`; neither is a new Anchore type. | |
 | req-anchore-application-4 | No Invented Digest | Proposed | An asset with no digest draws no image edge and is recorded with the digest unobserved. | |
 | req-anchore-application-5 | Dimensions | Proposed | The three types declare `anchore.area: inventory`. | |
+| req-anchore-application-6 | Annotations Only By Allowlist | Proposed | An asset's annotations are stored only for keys on the operator's `annotation_allowlist`, empty by default. | Raised in AI review of the spec PR; the same setting governs Kubernetes annotations. |
 
 ### VEX Annotations
 ----
@@ -333,7 +336,7 @@ A VEX annotation is a statement that says whether a vulnerability matters for a 
 
 #### Implementation
 
-One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(instance, scope_kind, scope_id, annotation_id)` where `scope_kind` is `image` or `app_version`. Fields: the vulnerability id; package name, version and type (the package scope is null when the annotation is about a whole image; what that means in practice is unobserved); `status` (`not_affected`, `affected`, `fixed`, `under_investigation`); `justification` (the six values Anchore defines); status notes; impact statement; action statement; additional details; and source (type `external` or `user`, and a name). Edges: `ANNOTATES_IMAGE__anchore` (to the image host) or `ANNOTATES_VERSION__anchore` (to the application version), according to scope; `ABOUT_VULNERABILITY__anchore` (to the `compliance_vulnerability`); and `ABOUT_PACKAGE__anchore` (to the `package`) when the package scope is present. Whether an application version inherits its images' annotations is unobserved; both scopes are stored as Anchore reports them and nothing is merged.
+One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_key, scope_kind, scope_id, annotation_id)` where `scope_kind` is `image` or `app_version`. Fields: the vulnerability id; package name, version and type (the package scope is null when the annotation is about a whole image; what that means in practice is unobserved); `status` (`not_affected`, `affected`, `fixed`, `under_investigation`); `justification` (the six values Anchore defines); status notes; impact statement; action statement; additional details; and source (type `external` or `user`, and a name). Edges: `ANNOTATES_IMAGE__anchore` (to the image host) or `ANNOTATES_VERSION__anchore` (to the application version), according to scope; `ABOUT_VULNERABILITY__anchore` (to the `compliance_vulnerability`); and `ABOUT_PACKAGE__anchore` (to the `package`) when the package scope is present. Whether an application version inherits its images' annotations is unobserved; both scopes are stored as Anchore reports them and nothing is merged.
 
 #### Acceptance Criteria
 
@@ -374,13 +377,13 @@ Anchore's runtime inventory says which images are running, and where. Two Anchor
 
 #### Implementation
 
-`GET /inventories` (documented: items of `inventory_type` ecs or kubernetes, `context`, `image_tag`, `image_digest`, `created_at`, `last_updated`, `last_seen`; filters `inventory_type`, `image_digest`, `context`). One Anchore-specific type `anchore_runtime_image` (`anchore.area: runtime`), key `(instance, inventory_type, context, image_digest)`, with the tag, the three timestamps, and an edge `OBSERVES_IMAGE__anchore` to the image host. The key is the digest, not the tag: the Kubernetes agent can fill a missing tag with the digest, so a tag can be synthetic. An item with no digest makes no node and is counted as unobserved on the run. A record that disappears from Anchore is not proof that a workload stopped; it may be expiry or an agent outage, so the plugin stores `last_seen` and never closes or deletes on absence.
+`GET /inventories` (documented: items of `inventory_type` ecs or kubernetes, `context`, `image_tag`, `image_digest`, `created_at`, `last_updated`, `last_seen`; filters `inventory_type`, `image_digest`, `context`). One Anchore-specific type `anchore_runtime_image` (`anchore.area: runtime`), key `(scanner_key, inventory_type, context, image_digest)`, with the tag, the three timestamps, and an edge `OBSERVES_IMAGE__anchore` to the image host. The key is the digest, not the tag: the Kubernetes agent can fill a missing tag with the digest, so a tag can be synthetic. An item with no digest makes no node and is counted as unobserved on the run. A record that disappears from Anchore is not proof that a workload stopped; it may be expiry or an agent outage, so the plugin stores `last_seen` and never closes or deletes on absence.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-inventory-1 | Keyed By Digest | Proposed | An image-in-use node is keyed by instance, inventory type, context and digest, and not by tag. | |
+| req-anchore-inventory-1 | Keyed By Digest | Proposed | An image-in-use node is keyed by scanner key, inventory type, context and digest, and not by tag. | |
 | req-anchore-inventory-2 | No Digest, No Node | Proposed | An inventory item with no digest creates no node; it is counted on the run. | |
 | req-anchore-inventory-3 | Absence Is Not Stopped | Proposed | A record missing from a later read is not deleted or marked stopped; `last_seen` is the only age signal. | |
 | req-anchore-inventory-4 | Joined To The Image Host | Proposed | Each node has `OBSERVES_IMAGE__anchore` to the `oci-digest` image host. | |
@@ -395,16 +398,17 @@ The Kubernetes side of the runtime inventory: the namespaces, nodes, pods and co
 
 #### Implementation
 
-Reads `GET /kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods` and `/kubernetes-containers` (documented; each takes a required `page` and an optional `page_size`, default 1000). Four Anchore-specific types, each `anchore.area: runtime`, each keyed by the instance and the cluster context together with the uid Anchore reports: `anchore_k8s_namespace` (uid, name, labels, annotations, last seen), `anchore_k8s_node` (uid, name, labels, annotations, kernel, Kubernetes, kubelet, kube-proxy and container-runtime versions, architecture, operating system, last seen), `anchore_k8s_pod` (id, name, labels, annotations, last seen) and `anchore_k8s_container` (id, name, context, image tag, image digest). Edges: `IN_NAMESPACE__anchore` (pod to namespace), `SCHEDULED_ON__anchore` (pod to node), `CONTAINS_CONTAINER__anchore` (pod to container), and `RUNS_IMAGE__computing_core` from the container to the image host (an existing edge with an open source). These four types are provisional: they exist because no Kubernetes vocabulary is on the grid, and a neutral one should replace them if it appears. The vendor's schema declares the nodes and pods list responses under a wrapper key named `namespaces`, which looks like a copy of the namespaces response; the real key is unobserved, and the contract tests are where the correction lands.
+Reads `GET /kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods` and `/kubernetes-containers` (documented; each takes a required `page` and an optional `page_size`, default 1000). Four Anchore-specific types, each `anchore.area: runtime`, each keyed by the scanner key and the cluster context together with the uid Anchore reports: `anchore_k8s_namespace` (uid, name, labels, last seen), `anchore_k8s_node` (uid, name, labels, kernel, Kubernetes, kubelet, kube-proxy and container-runtime versions, architecture, operating system, last seen), `anchore_k8s_pod` (id, name, labels, last seen) and `anchore_k8s_container` (id, name, context, image tag, image digest). Edges: `IN_NAMESPACE__anchore` (pod to namespace), `SCHEDULED_ON__anchore` (pod to node), `CONTAINS_CONTAINER__anchore` (pod to container), and `RUNS_IMAGE__computing_core` from the container to the image host (an existing edge with an open source). Kubernetes annotations are not stored by default: they are free-form maps that routinely hold tool configuration (a last-applied manifest, for example) and can carry secrets. An operator setting names the annotation keys to keep, an empty list by default (`req-anchore-inventory-kubernetes-5`); labels are stored. These four types are provisional: they exist because no Kubernetes vocabulary is on the grid, and a neutral one should replace them if it appears. The vendor's schema declares the nodes and pods list responses under a wrapper key named `namespaces`, which looks like a copy of the namespaces response; the real key is unobserved, and the contract tests are where the correction lands.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
 | req-anchore-inventory-kubernetes-1 | The Chain | Proposed | A container reaches its pod, its namespace, its node and its image host by the edges above. | |
-| req-anchore-inventory-kubernetes-2 | Identity Is The Reported Uid Within A Cluster | Proposed | Each type is keyed by instance, context and the uid or id Anchore reports, never by name. | Names are mutable. |
+| req-anchore-inventory-kubernetes-2 | Identity Is The Reported Uid Within A Cluster | Proposed | Each type is keyed by scanner key, context and the uid or id Anchore reports, never by name. | Names are mutable. |
 | req-anchore-inventory-kubernetes-3 | Wrapper Key Observed | Proposed | The parser's wrapper keys for the nodes and pods responses are set from a recorded response, not from the vendor schema. | |
 | req-anchore-inventory-kubernetes-4 | Provisional Types | Proposed | The four types are documented as provisional pending a neutral Kubernetes vocabulary. | |
+| req-anchore-inventory-kubernetes-5 | Annotations Only By Allowlist | Proposed | No Kubernetes annotation is stored unless its key is on the operator's allowlist, which is empty by default; labels are stored. | Raised in AI review of the spec PR. |
 
 ### Runtime Inventory: ECS
 ----
