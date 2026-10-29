@@ -155,8 +155,8 @@ The instance serves its spec at `/v2/openapi.json` (documented in Anchore's API 
 | req-anchore-selftest-2 | Error Stops Without Writing | Proposed | An error-class difference ends the run before any node is written. | |
 | req-anchore-selftest-3 | Warn Marks The Scope Not Read | Proposed | A warn-class difference that removes a scope records that scope as not read and leaves its prior findings untouched. | Ties to `req-anchore-states`. |
 | req-anchore-selftest-4 | Absent Spec Is Not A Pass | Proposed | If the instance does not serve its spec, the self-test is recorded as not run, never as passed; the run errors if the scanner's previous run recorded the spec as served, and otherwise warns and continues. | The previous-run fact is a property of the scanner node. |
-| req-anchore-selftest-6 | Responses Validated Regardless | Proposed | Every response is validated against the extract's response schema before any node is written, with or without a self-test; a required scope that fails validation is an error, and an optional scope is recorded as not read. | Closes the gap an unserved spec would otherwise leave. |
 | req-anchore-selftest-5 | Same Reducer As The Committed Extract | Proposed | The committed extract and the live comparison come from one reducer, so a difference is never an artifact of two code paths. | |
+| req-anchore-selftest-6 | Responses Validated Regardless | Proposed | Every response is validated against the extract's response schema before any node is written, with or without a self-test; a required scope that fails validation is an error, and an optional scope is recorded as not read. | Closes the gap an unserved spec would otherwise leave. |
 
 ### Contract Extract And Offline Tests
 ----
@@ -270,8 +270,8 @@ How Anchore's vulnerability results become `compliance_core` nodes. This plugin 
 | req-anchore-findings-2 | Keyed By Assertion | Proposed | A finding's key names the vulnerability and its target, never the run; two runs reporting the same assertion are one finding. | |
 | req-anchore-findings-3 | Fix State Tri-State | Proposed | `fixed_versions` is the list when Anchore says fixed, `[]` when it says none, and absent when unknown. | Mirrors `grype-tap`. |
 | req-anchore-findings-4 | Not Copied Under Applications | Proposed | The same finding is never stored under an application, version or asset; the application graph reaches it by traversal. | Ruled by George 2026-10-29: findings stay on the image or SBOM. |
-| req-anchore-findings-6 | Instance In The Key | Proposed | A finding's key includes the scanner key (instance and account); the same assertion from two instances or accounts is two findings, and resolution is scoped to one scanner. | Raised in AI review of the spec PR. |
 | req-anchore-findings-5 | Severity Waits For A Home | Proposed | Anchore's severity is stored only once `compliance_core` has a per-finding home for it; until then it is not stored and the gap is documented. | A review ask. |
+| req-anchore-findings-6 | Instance In The Key | Proposed | A finding's key includes the scanner key (instance and account); the same assertion from two instances or accounts is two findings, and resolution is scoped to one scanner. | Raised in AI review of the spec PR. |
 
 ### SBOMs
 ----
