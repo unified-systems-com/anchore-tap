@@ -80,7 +80,7 @@ How the collector knows which Anchore to read and how to authenticate. The base 
 
 #### Implementation
 
-Plugin-owned settings resolved at collection time: `base_url` (the API root including `/v2`; it must be `https://`, and the hosted URL and an on-prem `https://<host>:<port>/v2` both fit; plaintext is covered by `req-anchore-connection-4`), `account` (sent as `x-anchore-account` when set), `ca_bundle` (a path, optional), `annotation_allowlist` (annotation keys that may be stored; empty by default), `allow_plaintext_http` (off by default), and a secret envelope holding the credential. Anchore documents Basic, API key (user `_api_key`), and OAuth2 bearer authentication; which of them the hosted service accepts is unknown until the trial (see the differences ledger), so the envelope names the scheme and the client supports the three. The secret kind and its minting guidance are wired through the `manage-secret` skill when the collector is built. Nothing in this section is read from a node, and the credential value never appears in a log, a scan-run field or an error message.
+Plugin-owned settings resolved at collection time: `base_url` (the API root including `/v2`; it must be `https://`, and the hosted URL and an on-prem `https://<host>:<port>/v2` both fit; plaintext is covered by `req-anchore-connection-4`), `account` (required: the Anchore account the credential reads, and part of every key; sent as `x-anchore-account` where the instance needs it), `ca_bundle` (a path, optional), `annotation_allowlist` (annotation keys that may be stored; empty by default), and a secret envelope holding the credential. Anchore documents Basic, API key (user `_api_key`), and OAuth2 bearer authentication; which of them the hosted service accepts is unknown until the trial (see the differences ledger), so the envelope names the scheme and the client supports the three. The secret kind and its minting guidance are wired through the `manage-secret` skill when the collector is built. Nothing in this section is read from a node, and the credential value never appears in a log, a scan-run field or an error message.
 
 #### Acceptance Criteria
 
@@ -89,8 +89,9 @@ Plugin-owned settings resolved at collection time: `base_url` (the API root incl
 | req-anchore-connection-1 | Settings Are Not Nodes | Proposed | No node type declares a base URL, credential, account or CA-bundle field, and the collector reads none from the grid. | |
 | req-anchore-connection-2 | Secret Never Echoed | Proposed | The credential is absent from logs, scan-run properties and exception text, including when a request fails. | |
 | req-anchore-connection-3 | Scheme Is Declared | Proposed | The envelope names Basic, API key or bearer; an unknown scheme refuses the run before any request. | The accepted schemes on the hosted service are not observed. |
-| req-anchore-connection-4 | HTTPS Only By Default | Proposed | A `base_url` that is not `https://` is refused before any request, because the credential travels with every call. The one exception is an explicit operator setting `allow_plaintext_http`, off by default, and it applies only when the host in `base_url` is a loopback or private-range address (loopback, RFC 1918, or link-local), checked by the client at the start of the run; any other host is refused even with the setting on. With it set, the run records a warning and the credential is still never logged. | Raised in AI review of the spec PR. Anchore's on-prem docs show an `http://` example on port 8228. |
+| req-anchore-connection-4 | HTTPS Only | Proposed | A `base_url` that is not `https://` is refused before any request, with no override: the credential travels with every call, and a FedRAMP deployment requires encryption in transit. An on-prem install that serves plain HTTP must be fronted by TLS. | Raised in AI review of the spec PR. Anchore's on-prem docs show an `http://` example on port 8228; the plugin does not follow it. |
 | req-anchore-connection-5 | Redirects Never Carry The Credential | Proposed | The client does not follow a redirect to a different host or from `https` to `http`, and a redirect carries no `Authorization` header or API key beyond the original host. | Raised in AI review of the spec PR. |
+| req-anchore-connection-6 | Account Is Required And In The Key | Proposed | The `account` setting is required; a run with none is refused before any request, and the scanner key always includes it. Where the instance reports the effective account, a mismatch with the setting is an error. | Raised in AI review of the spec PR. Whether Anchore reports the effective account, and whether the header is needed for a credential's own account, is unobserved. |
 
 ### The Read-Only Client
 ----
@@ -456,7 +457,7 @@ The ledger below is the spec's section and is refreshed from the trial and from 
 | 8 | Feed freshness | `/system/feeds` | unknown | to observe |
 | 9 | Admin surface | `/system/*`, `/accounts*`, services, configuration | likely restricted or absent | unknown |
 | 10 | Analysis mode | centralized or distributed; malware needs centralized | unknown | documented; hosted unknown |
-| 11 | TLS | private CA likely | public CA likely | assumed |
+| 11 | TLS | private CA likely; plain HTTP is refused (`req-anchore-connection-4`) | public CA likely | assumed |
 | 12 | Rate limits and paging caps | none documented | unknown | to observe |
 | 13 | Runtime inventory | Kubernetes and ECS endpoints | unknown | to observe |
 | 14 | GraphQL reports | `/v2/reports/graphql`, can lag REST | unknown | documented |
