@@ -102,13 +102,13 @@ A small client over `requests` (a direct dependency of core already; no Anchore-
 
 #### Implementation
 
-`tap_plugin/anchore/client.py`. One `requests.Session` with TLS verification on (the configured CA bundle when set), a connect and read timeout on every call, bounded retry with backoff on connection errors, 429 and 5xx, and a `Retry-After` respect. Paging follows the cursor or page parameters each endpoint declares in the extract. The client defines `get` and nothing that sends a body or uses another verb; a test asserts the module contains no `post`, `put`, `patch` or `delete` call.
+`tap_plugin/anchore/client.py`. One `requests.Session` with TLS verification on (the configured CA bundle when set), a connect and read timeout on every call, bounded retry with backoff on connection errors, 429 and 5xx, and a `Retry-After` respect. Paging follows the cursor or page parameters each endpoint declares in the extract. The client defines `get` and nothing that sends a body or uses another verb; enforcement is at the transport, not by reading source: every request leaves through one function that sends through a `Session` whose adapter rejects any method but GET before anything is sent, and a negative test calls `session.request("POST", ...)` and expects the refusal. A source scan for other verbs is a secondary check, since it alone can be bypassed by an alias or by `Session.request(method=...)`.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-client-1 | GET Only | Proposed | The client module exposes no method that sends a non-GET request. | Test scans the module. |
+| req-anchore-client-1 | GET Only | Proposed | Every request passes through one transport that rejects any method but GET before sending; `session.request("POST", ...)`, an aliased method and a request from another module are each refused. | Negative tests for each; the source scan is secondary. |
 | req-anchore-client-2 | Verified TLS | Proposed | Certificate verification is on; it is turned off by no setting. | A private CA is the `ca_bundle` setting. |
 | req-anchore-client-3 | Bounded Retries | Proposed | Retries are limited in count and total time, and honour `Retry-After`; exhaustion is a recorded failure, not a silent empty result. | Ties to `req-anchore-states`. |
 
@@ -247,7 +247,8 @@ The vendor's `/query/*` reads and the account-wide listings that return the same
 | req-anchore-scope-walk-1 | Every Scope Walked | Proposed | Images, sources and application versions are each read when the instance offers them; one failing does not stop the others. | |
 | req-anchore-scope-walk-2 | Family Is Probed | Proposed | The collector records which application path family the instance serves and reads that one. | Which is current is unknown until the trial. |
 | req-anchore-scope-walk-3 | Only Extracted Paths | Proposed | The client calls only paths present in the committed extract. | A path outside it fails a test. |
-| req-anchore-scope-walk-4 | Account In Every Key | Proposed | Every Anchore-specific node key begins with the scanner key (host and account together), so two accounts on one instance never share a node, whether or not Anchore's identifiers are unique across accounts. | Raised in AI review of the spec PR; uniqueness across accounts is unobserved. |
+| req-anchore-scope-walk-4 | Account In Every Key | Proposed | Every Anchore-specific node key begins with the scanner key (canonical API root and account together), so two accounts on one instance never share a node, whether or not Anchore's identifiers are unique across accounts. | Raised in AI review of the spec PR; uniqueness across accounts is unobserved. |
+| req-anchore-scope-walk-5 | Distinct Roots Are Distinct Scanners | Proposed | The same host and account on a different port or API root yields a different scanner key; a test asserts it, and asserts the key carries no credential. | Raised in AI review of the spec PR. |
 
 ### Findings And Vulnerabilities
 ----
@@ -259,7 +260,7 @@ How Anchore's vulnerability results become `compliance_core` nodes. This plugin 
 
 #### Implementation
 
-- `compliance_core__compliance_scanner`: one per Anchore instance and account, `source` `anchore`, `scanner_key` derived from the base URL's host and the account together; the reported version is a fact on the scanner, not part of its key. Two accounts on one host are two scanners.
+- `compliance_core__compliance_scanner`: one per Anchore instance and account, `source` `anchore`, `scanner_key` derived from the canonical API root and the account together. The canonical API root is the scheme-less, lower-cased host, port and path of `base_url`, with no credentials, query or fragment (`anchore.example:8228/v2`), so installations on different ports or API roots of one host are different scanners, and so are two accounts on one root. The reported version is a fact on the scanner, not part of its key.
 - `compliance_core__compliance_scan_run`: one per collection, carrying the probe results, the self-test verdict and the lists of scopes not read.
 - `compliance_core__compliance_vulnerability`: keyed by `vuln_id`, the public record (CVE, else GHSA), with Anchore's other identifiers as aliases. Anchore's CVSS and URL data fill the vulnerability only through partial patches that never overwrite what another producer wrote, and an absent value is `null`.
 - `compliance_core__compliance_finding`: `source` `anchore`, `source_key` a compact JSON array of the `scanner_key`, the vulnerability id, the image host's key and the package's key, never the run. The scanner is in the key so that two Anchore instances or accounts reporting the same assertion are two findings, and one instance's successful read can never resolve a finding another still reports. `CONCERNS_COMPLIANCE_VULNERABILITY` carries the fix: `fixed_versions` and `fix_state` in Anchore's own words, with the existing tri-state meaning (absent means not observed; `[]` means looked and none). A finding attaches to the image, SBOM or package it concerns; the application graph reaches it by traversal and the finding is never copied under an application.
