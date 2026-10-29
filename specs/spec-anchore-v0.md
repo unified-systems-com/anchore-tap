@@ -91,7 +91,7 @@ Plugin-owned settings resolved at collection time: `base_url` (the API root incl
 | req-anchore-connection-3 | Scheme Is Declared | Proposed | The envelope names Basic, API key or bearer; an unknown scheme refuses the run before any request, and the bearer scheme uses a token supplied in the envelope, never one the client fetches. | The accepted schemes on the hosted service are not observed. |
 | req-anchore-connection-4 | HTTPS Only | Proposed | A `base_url` that is not `https://` is refused before any request, with no override: the credential travels with every call, and a FedRAMP deployment requires encryption in transit. An on-prem install that serves plain HTTP must be fronted by TLS. | Added in response to the review of anchore-tap PR 2. Anchore's on-prem docs show an `http://` example on port 8228; the plugin does not follow it. |
 | req-anchore-connection-5 | Redirects Never Carry The Credential | Proposed | The client does not follow a redirect to a different host or from `https` to `http`, and a redirect carries no `Authorization` header or API key beyond the original host. | Added in response to the review of anchore-tap PR 2. |
-| req-anchore-connection-6 | Account Is Required And In The Key | Proposed | The `account` setting is required; a run with none is refused before any request, and the scanner key always includes it. Where the instance reports the effective account, a mismatch with the setting is an error. | Added in response to the review of anchore-tap PR 2. Whether Anchore reports the effective account, and whether the header is needed for a credential's own account, is unobserved. |
+| req-anchore-connection-6 | Account Is Required And In The Key | Proposed | The `account` setting is required; a run with none is refused before any request, and the scanner key always includes it. The effective account is read from `GET /account` and a mismatch with the setting is an error (`req-anchore-probe-4`). | Added in response to the review of anchore-tap PR 2. Whether Anchore reports the effective account, and whether the header is needed for a credential's own account, is unobserved. |
 
 ### The Read-Only Client
 ----
@@ -123,7 +123,7 @@ Before reading data, the collector asks the instance what it is and how fresh it
 
 #### Implementation
 
-Reads `GET /status`, `GET /system` and `GET /system/feeds` (documented in the OpenAPI file; the hosted service may restrict the admin surface, which is why each is optional). Recorded on the scan run: the base URL host, the reported version, and the feed names with their last-sync times, each `null` when the instance did not answer. A feed older than a configured age records a warning on the run, and findings from it are still written, with the age visible.
+Reads `GET /account` first (documented: it returns the account of the authenticated user, with the configured `x-anchore-account` applied), and the run requires the returned account name to equal the configured `account`; a mismatch, or a failure to read it, ends the run before any scope is read (`req-anchore-probe-4`). Then reads `GET /status`, `GET /system` and `GET /system/feeds` (documented in the OpenAPI file; the hosted service may restrict the admin surface, which is why each is optional). Recorded on the scan run: the base URL host, the reported version, and the feed names with their last-sync times, each `null` when the instance did not answer. A feed older than a configured age records a warning on the run, and findings from it are still written, with the age visible.
 
 #### Acceptance Criteria
 
@@ -132,6 +132,7 @@ Reads `GET /status`, `GET /system` and `GET /system/feeds` (documented in the Op
 | req-anchore-probe-1 | Probe Before Data | Proposed | The probe runs before any scope is read, and its results are on the scan run. | |
 | req-anchore-probe-2 | A Refused Probe Is Null | Proposed | A probe call the instance refuses or does not offer leaves its field `null` and the run continues. | The hosted service's admin surface is unknown. |
 | req-anchore-probe-3 | Stale Feed Is Visible | Proposed | A feed older than the configured age is recorded on the run as a warning with its age; it does not silently pass. | |
+| req-anchore-probe-4 | Effective Account Verified | Proposed | The account returned by `GET /account` must equal the configured `account` before any scope is read; otherwise the run is an error and writes nothing. | Added in response to the review of anchore-tap PR 2. Whether the header is honoured, ignored or rejected for a non-admin credential is unobserved; the trial settles it with account A's credential and account B configured. |
 
 ### Per-Run Schema Self-Test
 ----
@@ -313,11 +314,11 @@ Anchore's application is a small graph of four levels: an application, its versi
 
 Three Anchore-specific types, each with `anchore.area: inventory`:
 
-- `anchore_application`: key `(scanner_key, application_id)`. Name, description, contact (name, email, phone, organization), the owning policy id, and the version count as Anchore reports it.
+- `anchore_application`: key `(scanner_key, application_id)`. Name, description, the organization name Anchore shows for it, the owning policy id, and the version count as Anchore reports it. The contact's name, email and phone are personal data and are not stored: the VDR use does not need them, and the plugin asks for no more than it uses.
 - `anchore_app_version`: key `(scanner_key, application_id, version_id)`. Name, description, status (`in_progress`, `released`, `eol`), release date. Policy results are `req-anchore-policy-result`.
 - `anchore_asset`: key `(scanner_key, application_id, version_id, asset_id)`. Name, type (one of application, container, device, file, firmware, library, module, filesystem, virtual_machine_disk, unknown), reference, and the annotations Anchore holds on it (at most ten, with keys up to 150 and values up to 1000 characters, set by Anchore's users; the same operator allowlist as Kubernetes annotations applies, empty by default, because a user-set value can hold anything).
 
-Edges: `HAS_VERSION__anchore` (application to version), `PRECEDES_VERSION__anchore` (a version to the one after it, from Anchore's previous-version pointer), `CONTAINS_ASSET__anchore` (version to asset), `REFERENCES_IMAGE__anchore` (asset to the image host) and `REFERENCES_SBOM__anchore` (asset to `sbom_document`). The image host is a `computing_core__host` with realm `oci-digest` and the manifest digest as `stable_id` (`computing-core-tap` pull request 60). An asset whose artifact carries a tag but no digest gets no image edge; the digest is unobserved and none is invented. The contact fields are personal data, and the plugin records only what Anchore returns; it asks for no more.
+Edges: `HAS_VERSION__anchore` (application to version), `PRECEDES_VERSION__anchore` (a version to the one after it, from Anchore's previous-version pointer), `CONTAINS_ASSET__anchore` (version to asset), `REFERENCES_IMAGE__anchore` (asset to the image host) and `REFERENCES_SBOM__anchore` (asset to `sbom_document`). The image host is a `computing_core__host` with realm `oci-digest` and the manifest digest as `stable_id` (`computing-core-tap` pull request 60). An asset whose artifact carries a tag but no digest gets no image edge; the digest is unobserved and none is invented. 
 
 #### Acceptance Criteria
 
@@ -329,6 +330,7 @@ Edges: `HAS_VERSION__anchore` (application to version), `PRECEDES_VERSION__ancho
 | req-anchore-application-4 | No Invented Digest | Proposed | An asset with no digest draws no image edge and is recorded with the digest unobserved. | |
 | req-anchore-application-5 | Dimensions | Proposed | The three types declare `anchore.area: inventory`. | |
 | req-anchore-application-6 | Annotations Only By Allowlist | Proposed | An asset's annotations are stored only for keys on the operator's `annotation_allowlist`, empty by default. | Added in response to the review of anchore-tap PR 2; the same setting governs Kubernetes annotations. |
+| req-anchore-application-7 | No Contact Personal Data | Proposed | An application's contact name, email and phone are not stored; only the organization name is. | Added in response to the review of anchore-tap PR 2; narrows the first draft. |
 
 ### VEX Annotations
 ----
@@ -340,7 +342,7 @@ A VEX annotation is a statement that says whether a vulnerability matters for a 
 
 #### Implementation
 
-One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_key, scope_kind, scope_id, annotation_id)` where `scope_kind` is `image` or `app_version`. Fields: the vulnerability id; package name, version and type (the package scope is null when the annotation is about a whole image; what that means in practice is unobserved); `status` (`not_affected`, `affected`, `fixed`, `under_investigation`); `justification` (the six values Anchore defines); status notes; impact statement; action statement; additional details; and source (type `external` or `user`, and a name). Edges: `ANNOTATES_IMAGE__anchore` (to the image host) or `ANNOTATES_VERSION__anchore` (to the application version), according to scope; `ABOUT_VULNERABILITY__anchore` (to the `compliance_vulnerability`); and `ABOUT_PACKAGE__anchore` (to the `package`) when the package scope is present. Whether an application version inherits its images' annotations is unobserved; both scopes are stored as Anchore reports them and nothing is merged.
+One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_key, scope_kind, scope_id, annotation_id)` where `scope_kind` is `image` or `app_version`. Fields: the vulnerability id; package name, version and type (the package scope is null when the annotation is about a whole image; what that means in practice is unobserved); `status` (`not_affected`, `affected`, `fixed`, `under_investigation`); `justification` (the six values Anchore defines); status notes; impact statement; action statement; additional details; and source (type `external` or `user`, and a name). Edges: `ANNOTATES_IMAGE__anchore` (to the image host) or `ANNOTATES_VERSION__anchore` (to the application version), according to scope; `ABOUT_VULNERABILITY__anchore` (to the `compliance_vulnerability`); and `ABOUT_PACKAGE__anchore` (to the `package`) when the package scope is present. The free-text fields (status notes, impact and action statements, additional details) are operator-authored VDR evidence and are the point of the type; they are stored as Anchore returns them, bounded to their column lengths, and are not redacted by this plugin, so the grid's own access control is what protects them and an operator should treat them as sensitive. Whether an application version inherits its images' annotations is unobserved; both scopes are stored as Anchore reports them and nothing is merged.
 
 #### Acceptance Criteria
 
@@ -351,6 +353,7 @@ One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_k
 | req-anchore-vex-3 | Linked To Neutral Nodes | Proposed | Each annotation has `ABOUT_VULNERABILITY__anchore`, and `ABOUT_PACKAGE__anchore` when its package scope is not null. | |
 | req-anchore-vex-4 | No Automatic VDR Mapping | Proposed | No VEX status is written into any VDR factor by this plugin. | Ruled by George 2026-10-28: VEX nodes link to the VDR nodes without automatic mapping; mapping belongs to the VDR plugins. |
 | req-anchore-vex-5 | Null Package Scope Kept | Proposed | A null package scope is stored as null and is not widened to every package of the image. | Meaning to be observed on the trial. |
+| req-anchore-vex-6 | Free Text Is Evidence, Not Redacted | Proposed | The free-text fields are stored as returned and bounded in length; no redaction is attempted, and the spec marks them sensitive. | Added in response to the review of anchore-tap PR 2. |
 
 ### Policy Results
 ----
