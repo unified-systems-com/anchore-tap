@@ -173,7 +173,7 @@ A committed extract of the part of Anchore's OpenAPI file this plugin consumes, 
 
 #### Implementation
 
-`tap_plugin/anchore/contract/extract.json` with a `description` on the top level and every entry, produced by `tap_plugin/anchore/contract/reduce.py` from an OpenAPI file: the consumed paths, their methods and parameters, and the response schemas they reference, resolved to the fields the parser reads. The source is Anchore's published file (documented version 2.20.0). Recorded responses from the trial instance, once they exist, are committed as fixtures beside it and replace assumed shapes. The reducer takes the OpenAPI file as data and never executes anything from it.
+`tap_plugin/anchore/contract/extract.json` with a `description` on the top level and every entry, produced by `tap_plugin/anchore/contract/reduce.py` from an OpenAPI file: the consumed paths, their methods and parameters, and the response schemas they reference, resolved to the fields the parser reads. The source is Anchore's published file (documented version 2.20.0). Recorded responses from the trial instance, once they exist, are committed as fixtures beside it and replace assumed shapes. The reducer takes the OpenAPI file as data and never executes anything from it. It is also the one component that parses a document supplied by a remote host (the vendor's published file in CI, an instance's own spec in the per-run self-test), so it is bounded: it resolves only local `#/...` references, rejects any `$ref` that names a URL or a file, refuses a document over a fixed size or nesting depth, detects reference cycles instead of following them, and performs no network or file access of its own.
 
 #### Acceptance Criteria
 
@@ -182,6 +182,7 @@ A committed extract of the part of Anchore's OpenAPI file this plugin consumes, 
 | req-anchore-contract-extract-1 | Generated, Not Typed | Proposed | The extract is the output of the reducer from an OpenAPI file; a test regenerates it from a committed copy of the source and compares. | |
 | req-anchore-contract-extract-2 | No Network In The Suite | Proposed | The plugin's tests open no socket; the client is exercised against recorded fixtures. | |
 | req-anchore-contract-extract-3 | Described Data | Proposed | The extract has a JSON Schema and a `description` on its top level and each entry. | Repository rule for structured data files. |
+| req-anchore-contract-extract-4 | Reducer Is Bounded | Proposed | The reducer rejects a remote or file `$ref`, a recursive reference, and a document over its size or depth limit, each without any secondary I/O; tests feed it each case. | Added in response to the review of anchore-tap PR 2. |
 
 ### Scheduled Drift Check
 ----
