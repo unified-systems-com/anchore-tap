@@ -89,10 +89,10 @@ Plugin-owned settings resolved at collection time: `base_url` (the API root incl
 | req-anchore-connection-1 | Settings Are Not Nodes | Proposed | No node type declares a base URL, credential, account or CA-bundle field, and the collector reads none from the grid. | |
 | req-anchore-connection-2 | Secret Never Echoed | Proposed | The credential is absent from logs, scan-run properties and exception text, including when a request fails. | |
 | req-anchore-connection-3 | Scheme Is Declared | Proposed | The envelope names Basic, API key or bearer; an unknown scheme refuses the run before any request, and the bearer scheme uses a token supplied in the envelope, never one the client fetches. | The accepted schemes on the hosted service are not observed. |
-| req-anchore-connection-4 | HTTPS Only | Proposed | A `base_url` that is not `https://` is refused before any request, with no override: the credential travels with every call, and a FedRAMP deployment requires encryption in transit. An on-prem install that serves plain HTTP must be fronted by TLS. | Added in response to the review of anchore-tap PR 2. Anchore's on-prem docs show an `http://` example on port 8228; the plugin does not follow it. |
-| req-anchore-connection-5 | Redirects Are Refused | Proposed | The client follows no redirect: a 3xx response is an error recorded on the run, so the credential can never reach another origin (host, port or scheme). | Added in response to the review of anchore-tap PR 2. A negative test redirects to the same host on another port and to another host, and expects the refusal before any second request. |
-| req-anchore-connection-6 | Account Is Required And In The Key | Proposed | The `account` setting is required; a run with none is refused before any request, and the scanner key always includes it. The effective account is read from `GET /account` and a mismatch with the setting is an error (`req-anchore-probe-4`). | Added in response to the review of anchore-tap PR 2. Whether Anchore reports the effective account, and whether the header is needed for a credential's own account, is unobserved. |
-| req-anchore-connection-7 | Strict Base URL | Proposed | A `base_url` with userinfo, a query or a fragment is refused before any request; host and scheme are lower-cased, the path is preserved as configured, and tests assert that `/v2` and `/V2`, and two different ports, give different scanner keys. | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-connection-4 | HTTPS Only | Proposed | A `base_url` that is not `https://` is refused before any request, with no override: the credential travels with every call, and a FedRAMP deployment requires encryption in transit. An on-prem install that serves plain HTTP must be fronted by TLS. | Anchore's on-prem docs show an `http://` example on port 8228; the plugin does not follow it. |
+| req-anchore-connection-5 | Redirects Are Refused | Proposed | The client follows no redirect: a 3xx response is an error recorded on the run, so the credential can never reach another origin (host, port or scheme). | A negative test redirects to the same host on another port and to another host, and expects the refusal before any second request. |
+| req-anchore-connection-6 | Account Is Required And In The Key | Proposed | The `account` setting is required; a run with none is refused before any request, and the scanner key always includes it. The effective account is read from `GET /account` and a mismatch with the setting is an error (`req-anchore-probe-4`). | Whether Anchore reports the effective account, and whether the header is needed for a credential's own account, is unobserved. |
+| req-anchore-connection-7 | Strict Base URL | Proposed | A `base_url` with userinfo, a query or a fragment is refused before any request; host and scheme are lower-cased, the path is preserved as configured, and tests assert that `/v2` and `/V2`, and two different ports, give different scanner keys. | One instance must have one key, however its URL is spelled. |
 
 ### The Read-Only Client
 ----
@@ -133,7 +133,7 @@ Reads `GET /account` first (documented: it returns the account of the authentica
 | req-anchore-probe-1 | Probe Before Data | Proposed | The probe runs before any scope is read, and its results are on the scan run. | |
 | req-anchore-probe-2 | A Refused Probe Is Null | Proposed | A probe call the instance refuses or does not offer leaves its field `null` and the run continues. | The hosted service's admin surface is unknown. |
 | req-anchore-probe-3 | Stale Feed Is Visible | Proposed | A feed older than the configured age is recorded on the run as a warning with its age; it does not silently pass. | |
-| req-anchore-probe-4 | Effective Account Verified | Proposed | The account returned by `GET /account` must equal the configured `account` before any scope is read; otherwise the run is an error and writes nothing. | Added in response to the review of anchore-tap PR 2. Whether the header is honoured, ignored or rejected for a non-admin credential is unobserved; the trial settles it with account A's credential and account B configured. |
+| req-anchore-probe-4 | Effective Account Verified | Proposed | The account returned by `GET /account` must equal the configured `account` before any scope is read; otherwise the run is an error and writes nothing. | Whether the header is honoured, ignored or rejected for a non-admin credential is unobserved; the trial settles it with account A's credential and account B configured. |
 
 ### Per-Run Schema Self-Test
 ----
@@ -182,7 +182,7 @@ A committed extract of the part of Anchore's OpenAPI file this plugin consumes, 
 | req-anchore-contract-extract-1 | Generated, Not Typed | Proposed | The extract is the output of the reducer from an OpenAPI file; a test regenerates it from a committed copy of the source and compares. | |
 | req-anchore-contract-extract-2 | No Network In The Suite | Proposed | The plugin's tests open no socket; the client is exercised against recorded fixtures. | |
 | req-anchore-contract-extract-3 | Described Data | Proposed | The extract has a JSON Schema and a `description` on its top level and each entry. | Repository rule for structured data files. |
-| req-anchore-contract-extract-4 | Reducer Is Bounded | Proposed | The reducer rejects a remote or file `$ref`, a recursive reference, and a document over its size or depth limit, each without any secondary I/O; tests feed it each case. | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-contract-extract-4 | Reducer Is Bounded | Proposed | The reducer rejects a remote or file `$ref`, a recursive reference, and a document over its size or depth limit, each without any secondary I/O; tests feed it each case. | The reducer reads a document from a source the plugin does not control. |
 
 ### Scheduled Drift Check
 ----
@@ -202,8 +202,8 @@ A scheduled GitHub workflow fetches Anchore's published OpenAPI file, reduces it
 | --- | --- | --- | --- | --- |
 | req-anchore-drift-ci-1 | Fails On Consumed Drift | Proposed | A change to a consumed path, method, parameter or response field fails the run. | |
 | req-anchore-drift-ci-2 | Reports Other Changes Without Failing | Proposed | A change outside the extract is listed in the run summary and does not fail. | |
-| req-anchore-drift-ci-3 | Read-Only Permissions | Proposed | The workflow grants `contents: read` and nothing else, and opens no issue. | Ruled by George 2026-10-29: the workflow only fails. |
-| req-anchore-drift-ci-4 | Lands With The Scaffold | Proposed | The workflow is added with the package scaffold, with the other CI callers. | Ruled by George 2026-10-29: CI callers land with the scaffold. |
+| req-anchore-drift-ci-3 | Read-Only Permissions | Proposed | The workflow grants `contents: read` and nothing else, and opens no issue. | The workflow only fails. |
+| req-anchore-drift-ci-4 | Lands With The Scaffold | Proposed | The workflow is added with the package scaffold, with the other CI callers. | CI callers land with the scaffold. |
 
 ### Three States And Resolution
 ----
@@ -225,7 +225,7 @@ A scope the instance does not offer, a call that failed after its retries, an im
 | req-anchore-states-2 | Null Is Unobserved | Proposed | A field the response did not carry is `null`, never `""`, `0` or `false`. | |
 | req-anchore-states-3 | Resolve Only What Was Read | Proposed | A finding resolves only when its target was read successfully by the same scanner and that scanner no longer reports it. | |
 | req-anchore-states-4 | Unanalysed Image Has No Verdict | Proposed | An image in Anchore's inventory with no analysis results is recorded as having no verdict, not as clean. | Anchore's ECS page states such images "never gain vulnerability or policy results". |
-| req-anchore-states-5 | Withdrawn, Not Deleted | Proposed | An Anchore-specific node that is an assertion or a structure (an annotation, an application, version or asset) and that a successful read of its scope no longer reports is marked `withdrawn` with the run that saw it gone, never deleted; a scope not read leaves its nodes `current` as they were. A consumer must not treat a withdrawn node as asserted. Runtime-observation nodes (`anchore_runtime_image` and the `anchore_k8s_*` types) are the exception and are never withdrawn: their absence can be expiry or an agent outage, so they carry `last_seen` only (`req-anchore-inventory-3`). | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-states-5 | Withdrawn, Not Deleted | Proposed | An Anchore-specific node that is an assertion or a structure (an annotation, an application, version or asset) and that a successful read of its scope no longer reports is marked `withdrawn` with the run that saw it gone, never deleted; a scope not read leaves its nodes `current` as they were. A consumer must not treat a withdrawn node as asserted. Runtime-observation nodes (`anchore_runtime_image` and the `anchore_k8s_*` types) are the exception and are never withdrawn: their absence can be expiry or an agent outage, so they carry `last_seen` only (`req-anchore-inventory-3`). | Absence is evidence only for the scope that was read. |
 
 ### The Scope Walk
 ----
@@ -252,8 +252,8 @@ The vendor's `/query/*` reads and the account-wide listings that return the same
 | req-anchore-scope-walk-1 | Every Scope Walked | Proposed | Images, sources and application versions are each read when the instance offers them; one failing does not stop the others. | |
 | req-anchore-scope-walk-2 | Family Is Probed | Proposed | The collector records which application path family the instance serves and reads that one. | Which is current is unknown until the trial. |
 | req-anchore-scope-walk-3 | Only Extracted Paths | Proposed | The client calls only paths present in the committed extract. | A path outside it fails a test. |
-| req-anchore-scope-walk-4 | Account In Every Key | Proposed | Every Anchore-specific node key begins with the scanner key (canonical API root and account together), so two accounts on one instance never share a node, whether or not Anchore's identifiers are unique across accounts. | Added in response to the review of anchore-tap PR 2; uniqueness across accounts is unobserved. |
-| req-anchore-scope-walk-5 | Distinct Roots Are Distinct Scanners | Proposed | The same host and account on a different port or API root yields a different scanner key; a test asserts it, and asserts the key carries no credential. | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-scope-walk-4 | Account In Every Key | Proposed | Every Anchore-specific node key begins with the scanner key (canonical API root and account together), so two accounts on one instance never share a node, whether or not Anchore's identifiers are unique across accounts. | Uniqueness across accounts is unobserved. |
+| req-anchore-scope-walk-5 | Distinct Roots Are Distinct Scanners | Proposed | The same host and account on a different port or API root yields a different scanner key; a test asserts it, and asserts the key carries no credential. | Two instances on one host must not share a scanner key. |
 
 ### Findings And Vulnerabilities
 ----
@@ -278,10 +278,10 @@ How Anchore's vulnerability results become `compliance_core` nodes. This plugin 
 | req-anchore-findings-1 | Neutral Types Only | Proposed | Scanner, scan run, vulnerability and finding nodes are `compliance_core`'s types; this plugin declares none of them. | |
 | req-anchore-findings-2 | Keyed By Assertion | Proposed | A finding's key names the vulnerability and its target, never the run; two runs reporting the same assertion are one finding. | |
 | req-anchore-findings-3 | Fix State Tri-State | Proposed | `fixed_versions` is the list when Anchore says fixed, `[]` when it says none, and absent when unknown. | Mirrors `grype-tap`. |
-| req-anchore-findings-4 | Not Copied Under Applications | Proposed | The same finding is never stored under an application, version or asset; the application graph reaches it by traversal. | Ruled by George 2026-10-29: findings stay on the image or SBOM. |
+| req-anchore-findings-4 | Not Copied Under Applications | Proposed | The same finding is never stored under an application, version or asset; the application graph reaches it by traversal. | Findings stay on the image or SBOM. |
 | req-anchore-findings-5 | Severity Waits For A Home | Proposed | Anchore's severity is stored only once `compliance_core` has a per-finding home for it; until then it is not stored and the gap is documented. | A review ask. |
-| req-anchore-findings-6 | Instance In The Key | Proposed | A finding's key includes the scanner key (instance and account); the same assertion from two instances or accounts is two findings, and resolution is scoped to one scanner. | Added in response to the review of anchore-tap PR 2. |
-| req-anchore-findings-7 | Source Findings Have A Key | Proposed | A finding read at source scope has a key built from target kind `source` and the source's Anchore id; it is never given an invented image identity and is never skipped. | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-findings-6 | Instance In The Key | Proposed | A finding's key includes the scanner key (instance and account); the same assertion from two instances or accounts is two findings, and resolution is scoped to one scanner. | Two instances or accounts can report the same assertion. |
+| req-anchore-findings-7 | Source Findings Have A Key | Proposed | A finding read at source scope has a key built from target kind `source` and the source's Anchore id; it is never given an invented image identity and is never skipped. | A finding at source scope has no image digest to borrow a key from. |
 
 ### SBOMs
 ----
@@ -299,7 +299,7 @@ Reads `/sboms/native-json`, `/sboms/spdx-json` and `/sboms/cyclonedx-json` per i
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-sbom-1 | Three Formats Recorded | Proposed | For each image and each repository source, the native, SPDX and CycloneDX documents are each recorded as an `sbom_document`. | Ruled by George 2026-10-29: store all three formats. |
+| req-anchore-sbom-1 | Three Formats Recorded | Proposed | For each image and each repository source, the native, SPDX and CycloneDX documents are each recorded as an `sbom_document`. | Store all three formats. |
 | req-anchore-sbom-2 | Only CycloneDX Parsed | Proposed | Only the CycloneDX document is parsed into packages; the other two are recorded unread. | |
 | req-anchore-sbom-3 | Never Marked Verified | Proposed | No Anchore document has `verified` true or a signer; the trust level names the source. | |
 | req-anchore-sbom-4 | Safe Until The Outcome Exists | Proposed | Until `computing_core` provides the source-authenticated outcome, documents are recorded and none is parsed. | Depends on a pending `computing_core` change. |
@@ -327,13 +327,13 @@ Edges: `HAS_VERSION__anchore` (application to version), `PRECEDES_VERSION__ancho
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-application-1 | Graph, Not Links In A Value | Proposed | The application, version and asset are three node types joined by the edges above; no node stores another node's id as a value to be followed. | Ruled by George 2026-10-29: map the application as a subgraph. |
+| req-anchore-application-1 | Graph, Not Links In A Value | Proposed | The application, version and asset are three node types joined by the edges above; no node stores another node's id as a value to be followed. | Map the application as a subgraph. |
 | req-anchore-application-2 | Version Chain | Proposed | `PRECEDES_VERSION__anchore` follows Anchore's previous-version pointer, and a missing pointer draws no edge. | |
 | req-anchore-application-3 | Edges To Existing Nodes | Proposed | An asset's image edge targets the `computing_core` image host and its SBOM edge targets the `sbom_document`; neither is a new Anchore type. | |
 | req-anchore-application-4 | No Invented Digest | Proposed | An asset with no digest draws no image edge and is recorded with the digest unobserved. | |
 | req-anchore-application-5 | Dimensions | Proposed | The three types declare `anchore.area: inventory`. | |
-| req-anchore-application-6 | Annotations Only By Allowlist | Proposed | An asset's annotations are stored only for keys on the operator's `annotation_allowlist`, empty by default. | Added in response to the review of anchore-tap PR 2; the same setting governs Kubernetes annotations. |
-| req-anchore-application-7 | No Contact Personal Data | Proposed | An application's contact name, email and phone are not stored; only the organization name is. | Added in response to the review of anchore-tap PR 2; narrows the first draft. |
+| req-anchore-application-6 | Annotations Only By Allowlist | Proposed | An asset's annotations are stored only for keys on the operator's `annotation_allowlist`, empty by default. | The same setting governs Kubernetes annotations. |
+| req-anchore-application-7 | No Contact Personal Data | Proposed | An application's contact name, email and phone are not stored; only the organization name is. | Contact details are personal data the evidence does not need. |
 
 ### VEX Annotations
 ----
@@ -351,13 +351,13 @@ One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_k
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-vex-1 | One Type, Scope In The Key | Proposed | A single `anchore_vex_annotation` type serves both scopes, with `scope_kind` and `scope_id` in its natural key. | Ruled by George 2026-10-29: one type; a later split is an accepted risk. |
+| req-anchore-vex-1 | One Type, Scope In The Key | Proposed | A single `anchore_vex_annotation` type serves both scopes, with `scope_kind` and `scope_id` in its natural key. | One type; a later split is an accepted risk. |
 | req-anchore-vex-2 | Scope Edge Matches Scope | Proposed | An image-scope annotation has `ANNOTATES_IMAGE__anchore` and no version edge, and the reverse for an application-version scope. | |
 | req-anchore-vex-3 | Linked To Neutral Nodes | Proposed | Each annotation has `ABOUT_VULNERABILITY__anchore`, and `ABOUT_PACKAGE__anchore` when its package scope is not null. | |
-| req-anchore-vex-4 | No Automatic VDR Mapping | Proposed | No VEX status is written into any VDR factor by this plugin. | Ruled by George 2026-10-28: VEX nodes link to the VDR nodes without automatic mapping; mapping belongs to the VDR plugins. |
+| req-anchore-vex-4 | No Automatic VDR Mapping | Proposed | No VEX status is written into any VDR factor by this plugin. | VEX nodes link to the VDR nodes without automatic mapping; mapping belongs to the VDR plugins. |
 | req-anchore-vex-5 | Null Package Scope Kept | Proposed | A null package scope is stored as null and is not widened to every package of the image. | Meaning to be observed on the trial. |
-| req-anchore-vex-6 | Free Text Is Evidence, Not Redacted | Proposed | The free-text fields are stored as returned and bounded in length; no redaction is attempted, and the spec marks them sensitive. | Added in response to the review of anchore-tap PR 2. Ruled by the author 2026-10-30: unredacted ingestion of these fields is approved. The content is operator-authored, bounded and marked sensitive, and what an operator writes into a VEX statement is the operator's responsibility; the plugin neither scans nor redacts it. Access control and retention are the grid's, not this plugin's. |
-| req-anchore-vex-7 | Withdrawn Annotations Stop Asserting | Proposed | An annotation Anchore no longer reports for a successfully read scope is marked `withdrawn` (`req-anchore-states-5`); a `not_affected` or `fixed` statement that has been withdrawn is not an assertion any VDR consumer may rely on. | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-vex-6 | Free Text Is Evidence, Not Redacted | Proposed | The free-text fields are stored as returned and bounded in length; no redaction or scanning is attempted, and the fields are described as operator-authored free text. | The free-text fields are operator-authored and can hold anything an operator typed. This plugin stores them as Anchore returns them and neither scans nor redacts them: the operator who writes a VEX statement is responsible for what it contains. The grid has no per-field classification that this plugin could set, so the fields are described as operator-authored in their `help_text` and in the README, and who can read them is the grid's read authorization, not this plugin's. |
+| req-anchore-vex-7 | Withdrawn Annotations Stop Asserting | Proposed | An annotation Anchore no longer reports for a successfully read scope is marked `withdrawn` (`req-anchore-states-5`); a `not_affected` or `fixed` statement that has been withdrawn is not an assertion any VDR consumer may rely on. | An annotation Anchore stops reporting must stop asserting. |
 
 ### Policy Results
 ----
@@ -419,7 +419,7 @@ Reads `GET /kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods` and 
 | req-anchore-inventory-kubernetes-2 | Identity Is The Reported Uid Within A Cluster | Proposed | Each type is keyed by scanner key, context and the uid or id Anchore reports, never by name. | Names are mutable. |
 | req-anchore-inventory-kubernetes-3 | Wrapper Key Observed | Proposed | The parser's wrapper keys for the nodes and pods responses are set from a recorded response, not from the vendor schema. | |
 | req-anchore-inventory-kubernetes-4 | Provisional Types | Proposed | The four types are documented as provisional pending a neutral Kubernetes vocabulary. | |
-| req-anchore-inventory-kubernetes-5 | Annotations Only By Allowlist | Proposed | No Kubernetes annotation is stored unless its key is on the operator's allowlist, which is empty by default; labels are stored. | Added in response to the review of anchore-tap PR 2. |
+| req-anchore-inventory-kubernetes-5 | Annotations Only By Allowlist | Proposed | No Kubernetes annotation is stored unless its key is on the operator's allowlist, which is empty by default; labels are stored. | The same setting governs application annotations. |
 
 ### Runtime Inventory: ECS
 ----
