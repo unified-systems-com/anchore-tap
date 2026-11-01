@@ -12,12 +12,15 @@ lives only in :class:`Auth`, whose ``repr`` omits it, and no message built here 
 
 import base64
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import jsonschema
+import requests
+from requests.auth import HTTPBasicAuth
 from tap.runtime_secrets import RuntimeSecretError, SecretEnvelope, load_secret_envelope
 from tap.secret_naming import SECRET_EXAMPLE_SUFFIX, SECRET_SUFFIX
 
@@ -71,7 +74,16 @@ class Auth:
         out: set[str] = set()
         if self._basic is not None:
             user, secret = self._basic
-            out.update({secret, base64.b64encode(f"{user}:{secret}".encode()).decode()})
+            out.add(secret)
+            # The header exactly as requests will send it (it encodes Latin-1), and the UTF-8 encoding
+            # a server might echo instead.
+            try:
+                prepared = requests.Request("GET", "https://redaction.invalid/").prepare()
+                HTTPBasicAuth(user, secret)(prepared)
+                out.add(str(prepared.headers["Authorization"]).removeprefix("Basic "))
+            except UnicodeEncodeError:
+                pass  # such a credential is refused at load and can never be sent in this form
+            out.add(base64.b64encode(f"{user}:{secret}".encode()).decode())
         if self._bearer is not None:
             out.update({self._bearer, f"Bearer {self._bearer}"})
         return tuple(sorted((f for f in out if f), key=len, reverse=True))
@@ -114,6 +126,11 @@ class Credential:
 
     def redact(self, text: str) -> tuple[str, int]:
         return self.auth.redact(text)
+
+    def mask_account(self, text: str) -> str:
+        """Replace the configured account name where it stands alone (not inside another word)."""
+        pattern = rf"(?<![A-Za-z0-9_-]){re.escape(self.account)}(?![A-Za-z0-9_-])"
+        return re.sub(pattern, "[account]", text)
 
     def redact_bytes(self, data: bytes) -> tuple[bytes, int]:
         return self.auth.redact_bytes(data)
@@ -189,6 +206,12 @@ def credential_from_envelope(envelope: SecretEnvelope) -> Credential:
     except ValueError as exc:
         raise CredentialError(qualified, str(exc)) from None
     scheme = data["scheme"]
+    secrets_to_send = [data.get(k) for k in ("username", "password", "key", "token") if data.get(k) is not None]
+    for value in secrets_to_send:
+        try:
+            value.encode("latin-1")
+        except UnicodeEncodeError:
+            raise CredentialError(qualified, "a credential field has characters HTTP headers cannot carry (Latin-1 only)") from None
     if scheme == "basic":
         auth = Auth(scheme, _basic=(data["username"], data["password"]))
     elif scheme == "api_key":

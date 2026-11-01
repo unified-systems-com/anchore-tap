@@ -426,3 +426,33 @@ class TestCoverageIsAccounted:
         monkeypatch.setattr(observe, "_context", with_extra)
         ctx, _, _ = observe_run(tmp_path)
         assert any(line.template == extra and line.status == "not read" for line in ctx.lines)
+
+
+class TestAccountNameStaysOutOfTheReport:
+    def test_an_instance_that_reflects_the_account_name_does_not_get_it_printed(self, tmp_path):
+        routes = anchore_routes()
+        spec = json.loads(routes["/openapi.json"].content)
+        spec["info"]["version"] = "acct"
+        spec["paths"]["/acct"] = {"get": {"responses": {"200": {"description": "ok"}}}}
+        routes["/openapi.json"] = response(200, json.dumps(spec))
+        routes["/system"] = response(200, {"acct": 1, "ok": "acct"})
+        ctx, _, text = observe_run(tmp_path, routes=routes)
+        import re
+
+        assert not re.search(r"(?<![A-Za-z0-9_-])acct(?![A-Za-z0-9_-])", text) and "[account]" in text
+
+    def test_a_latin_one_credential_echoed_by_the_instance_is_redacted_from_recordings(self, tmp_path):
+        import requests as rq
+        from requests.auth import HTTPBasicAuth
+
+        password = "p\u00e4ss\u00e9"
+        c = cred.credential_from_envelope(envelope(payload=data(password=password)))
+        prepared = rq.Request("GET", "https://x.invalid/").prepare()
+        HTTPBasicAuth("reader", password)(prepared)
+        sent = prepared.headers["Authorization"]
+        routes = anchore_routes()
+        routes["/account"] = response(200, {"echo": sent}, {"X-Echo": sent})
+        transport = FakeTransport(routes)
+        ctx = observe.run(c, out_root=tmp_path / "rec", transport=transport, sleep=lambda s: None, stdout=io.StringIO())
+        recordings = "".join(p.read_text(encoding="utf-8") for p in ctx.out_dir.glob("*.json"))
+        assert sent.removeprefix("Basic ") not in recordings and password not in recordings

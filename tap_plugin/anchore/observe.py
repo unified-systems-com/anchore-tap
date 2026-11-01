@@ -447,8 +447,9 @@ def account_for_every_consumed_operation(ctx: Context) -> None:
 
 def render(ctx: Context, stdout: TextIO) -> None:
     def clean(text: Any, limit: int = 240) -> str:
-        """Instance-derived text: the credential redacted first, then reduced to printable characters."""
-        return safe(ctx.credential.redact(str(text))[0], limit)
+        """Instance-derived text: the credential redacted and the account masked, then reduced to printable characters."""
+        redacted = ctx.credential.mask_account(ctx.credential.redact(str(text))[0])
+        return safe(redacted, limit)
 
     print(f"\nObserved {ctx.credential.qualified} (scheme {ctx.credential.scheme}); recordings in {ctx.out_dir}\n", file=stdout)
     print(f"{'step':<12}{'status':<10}{'ms':>6}{'bytes':>10}  {'content-type':<28}request", file=stdout)

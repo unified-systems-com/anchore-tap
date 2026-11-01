@@ -163,3 +163,32 @@ class TestRedactionCannotReproduceTheCredential:
     def test_an_ordinary_secret_is_replaced_by_the_labelled_marker(self):
         auth = cred.Auth("basic", _basic=("u", SECRET))
         assert auth.redact(f"x {SECRET} y")[0] == f"x {cred.REDACTED} y"
+
+
+class TestLatinOneCredentials:
+    """requests sends Basic credentials as Latin-1; redaction must cover the bytes actually sent."""
+
+    def test_the_form_redacted_is_the_header_requests_sends(self):
+        import requests
+        from requests.auth import HTTPBasicAuth
+
+        auth = cred.Auth("basic", _basic=("us\u00e9r", "p\u00e4ss\u00e9"))
+        prepared = requests.Request("GET", "https://x.invalid/").prepare()
+        HTTPBasicAuth("us\u00e9r", "p\u00e4ss\u00e9")(prepared)
+        sent = prepared.headers["Authorization"]
+        text, n = auth.redact(f"echo: {sent}")
+        assert n >= 1 and sent.removeprefix("Basic ") not in text
+
+    def test_a_character_headers_cannot_carry_is_refused_at_load(self):
+        with pytest.raises(cred.CredentialError) as err:
+            cred.credential_from_envelope(envelope(payload=data(password="pw\u20ac")))
+        assert "Latin-1" in str(err.value) and "pw" not in str(err.value)
+
+    def test_a_latin_one_secret_loads(self):
+        assert cred.credential_from_envelope(envelope(payload=data(password="p\u00e9"))).auth.basic == ("reader", "p\u00e9")
+
+
+class TestAccountMask:
+    def test_a_standalone_account_name_is_masked_and_a_longer_word_is_not(self):
+        c = cred.credential_from_envelope(envelope(payload=data(account="acct")))
+        assert c.mask_account("v acct x acct, acct-2 acctual (acct)") == "v [account] x [account], acct-2 acctual ([account])"
