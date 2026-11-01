@@ -18,7 +18,7 @@ dynamic = ["version"]
 # transport (req-anchore-client); it uses the system OpenSSL through Python's ssl module.
 dependencies = [
     "computing-core-tap",
-    "requests>=2.32",
+    "requests>=2.34.2,<3",
 ]
 
 [project.entry-points."tap.plugins"]
