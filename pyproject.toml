@@ -1,0 +1,48 @@
+# TAP Anchore plugin: package-mode distribution, standalone from the first commit.
+#
+# Identity chain (pre-boot conformance gate enforces agreement):
+#   slug             = "anchore"
+#   distribution     = "anchore-tap"                (the -tap convention)
+#   import namespace = "tap_plugin.anchore"         (PEP 420: no tap_plugin/__init__.py)
+#   entry-point key  = "anchore"                    (== slug)
+#
+# Spec: specs/spec-anchore-v0.md.
+[project]
+name = "anchore-tap"
+description = "TAP Anchore plugin: Anchore Enterprise vulnerability findings, SBOMs, VEX statements and inventory, read from its REST API onto the grid."
+requires-python = ">=3.14"
+dynamic = ["version"]
+
+# Tier-0 dependencies (req-tap-plugin-arch-dependencies-1). computing_core owns the image host,
+# package and sbom_document types the Anchore nodes link to. The HTTP client's `requests` joins
+# this list with the client requirement (req-anchore-client), not before.
+dependencies = [
+    "computing-core-tap",
+]
+
+[project.entry-points."tap.plugins"]
+anchore = "tap_plugin.anchore.apps:AnchoreConfig"
+
+# Developer-mode deps: the plugin's OWN dev closure (req-tap-plugin-arch-dev-deps); PEP 735,
+# never installed by boot, never in the wheel.
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-django>=4.9",
+    "factory-boy>=3.3",
+]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+# VCS-derived PEP 440 version (req-tap-plugin-arch-versioning-1); no hand-maintained field.
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
+
+# PEP 420 namespace build: ship tap_plugin/anchore/* with no tap_plugin/__init__.py.
+[tool.hatch.build.targets.wheel]
+only-include = ["tap_plugin/anchore"]
