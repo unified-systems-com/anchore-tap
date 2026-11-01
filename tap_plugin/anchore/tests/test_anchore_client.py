@@ -159,7 +159,7 @@ class TestRetries:
 
 
 class TestPaths:
-    @pytest.mark.parametrize("path", ["images", "http://evil/x", "/a/../b", "/a b", "/a?x=1", "/a#f", "//host/x"[:0] + "/a\n"])
+    @pytest.mark.parametrize("path", ["images", "http://evil/x", "/a/../b", "/a/%2e%2e/b", "/a/%252e%252e/b", "/a/./b", "/a b", "/a?x=1", "/a#f", "/a\n"])
     def test_bad_paths_are_refused(self, path):
         client, transport, _ = make(default=response(200))
         with pytest.raises(cl.BadPath):
@@ -208,6 +208,11 @@ class TestOriginBinding:
             "https://anchore.example:8228/v2evil/images",
             "https://anchore.example:8228/other/images",
             "https://anchore.example:8228",
+            "https://anchore.example:8228/v2/%2e%2e/account",
+            "https://anchore.example:8228/v2/%2E%2E/account",
+            "https://anchore.example:8228/v2/%252e%252e/account",
+            "https://anchore.example:8228/v2/images/../../account",
+            "https://anchore.example:8228/v2/images%5c..%5caccount",
         ],
     )
     @pytest.mark.parametrize("scheme", ["basic", "bearer"])
@@ -217,6 +222,11 @@ class TestOriginBinding:
         with pytest.raises((cl.OriginRefused, requests.exceptions.InvalidURL)):
             client.session.get(url)
         assert transport.calls == []
+
+    def test_a_plain_dot_segment_is_normalised_by_requests_and_stays_inside_the_root(self):
+        client, transport, _ = make(default=response(200))
+        client.session.get("https://anchore.example:8228/v2/./images")
+        assert transport.calls[0].url == "https://anchore.example:8228/v2/images"
 
     def test_the_configured_root_is_accepted(self):
         client, transport, _ = make(default=response(200))

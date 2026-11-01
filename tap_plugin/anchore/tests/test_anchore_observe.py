@@ -283,3 +283,29 @@ class TestFailureNotes:
         assert failed and DIGEST not in text and "RequestFailed" in text
         recordings = "".join(p.read_text(encoding="utf-8") for p in ctx.out_dir.glob("*.json"))
         assert DIGEST in recordings  # the full message is kept in the private recording
+
+
+class TestAtomicPrivateWrites:
+    def test_a_recording_is_never_readable_by_others_even_for_an_instant(self, tmp_path, monkeypatch):
+        """The file is created owner-only from the first byte, so a permissive umask cannot expose it."""
+        seen = []
+        real_open = observe.os.open
+
+        def spy(path, flags, mode=0o777, *a, **k):
+            seen.append(mode)
+            return real_open(path, flags, mode, *a, **k)
+
+        monkeypatch.setattr(observe.os, "open", spy)
+        old = observe.os.umask(0o000)
+        try:
+            ctx, _, _ = observe_run(tmp_path)
+        finally:
+            observe.os.umask(old)
+        assert seen and set(seen) == {0o600}
+        assert all(stat.S_IMODE(p.stat().st_mode) == 0o600 for p in ctx.out_dir.glob("*.json"))
+
+    def test_write_private_refuses_to_overwrite(self, tmp_path):
+        target = tmp_path / "x.json"
+        observe.write_private(target, "a")
+        with pytest.raises(FileExistsError):
+            observe.write_private(target, "b")

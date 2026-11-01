@@ -530,7 +530,7 @@ The plugin runs in a FIPS-mode TAP deployment. It needs only `requests`, which i
 
 #### Implementation
 
-The manifest declares `[fips] status = "compatible"` after `validate_plugin --strict` reports no non-validated crypto provider. No native binary ships (AnchoreCTL is not used). If a dependency later introduces one, the declaration changes to `uses-nonvalidated` with a reason, in the same change.
+The manifest declares `[fips] status = "compatible"` after `validate_plugin --strict` reports no non-validated crypto provider. No native binary ships (AnchoreCTL is not used). If a dependency later introduces one, the declaration changes to `uses-nonvalidated` with a reason, in the same change. TLS is performed by system OpenSSL through Python's `ssl` module. The root certificates it trusts are, by default, the `certifi` bundle that `requests` ships with and not the operating system's store (the environment's CA settings are ignored by design); an instance behind a private CA, or a deployment that must trust only a chosen set, names a PEM file as `ca_bundle` in its envelope. Whether the default bundle is acceptable in a FedRAMP deployment is a deployment decision, to be recorded in the differences ledger.
 
 #### Acceptance Criteria
 

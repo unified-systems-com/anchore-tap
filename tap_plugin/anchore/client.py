@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 import requests
 from requests.adapters import BaseAdapter, HTTPAdapter
@@ -88,6 +88,27 @@ class Reply:
         return self.headers.get("content-type")
 
 
+def _plain_remainder(remainder: str) -> bool:
+    """True when what follows the API root is an ordinary path.
+
+    A string prefix is not enough: ``/v2/%2e%2e/account`` starts with the root but a server or proxy
+    that decodes it reaches ``/account``. The remainder is decoded (repeatedly, so a double encoding
+    cannot hide) and refused if any segment is a dot segment or if it holds a backslash, a NUL
+    or a control character.
+    """
+    text = remainder
+    for _ in range(4):
+        decoded = unquote(text)
+        if decoded == text:
+            break
+        text = decoded
+    else:
+        return False
+    if any(ord(ch) < 32 or ch == "\\" for ch in text):
+        return False
+    return all(segment not in (".", "..") for segment in text.split("/"))
+
+
 class _GetOnlyAdapter(BaseAdapter):
     """Wraps a real adapter and refuses everything but an https GET to the configured API root.
 
@@ -106,7 +127,7 @@ class _GetOnlyAdapter(BaseAdapter):
         url = str(request.url)
         if not url.lower().startswith("https://"):
             raise InsecureRefused("a request that is not https is refused")
-        if not url.startswith(self._prefix):
+        if not url.startswith(self._prefix) or not _plain_remainder(urlsplit(url).path[len(urlsplit(self._prefix).path):]):
             raise OriginRefused("a request outside the configured Anchore API root is refused")
         return self._inner.send(request, **kwargs)
 
@@ -151,8 +172,8 @@ def fill(template: str, **values: str) -> str:
 def _check_path(path: str) -> None:
     if not path.startswith("/") or "://" in path or "?" in path or "#" in path:
         raise BadPath("a request path must be a plain path beginning with /")
-    if any(part == ".." for part in path.split("/")) or any(ch.isspace() or ord(ch) < 32 for ch in path):
-        raise BadPath("a request path must not contain .. or whitespace")
+    if not _plain_remainder(path) or any(ch.isspace() or ord(ch) < 32 for ch in path):
+        raise BadPath("a request path must not contain dot segments, encoded dot segments or whitespace")
 
 
 class ReadOnlyClient:

@@ -18,6 +18,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import re
 import sys
 from collections.abc import Callable
@@ -68,6 +69,13 @@ class Context:
     answers: list[str] = field(default_factory=list)
     counter: int = 0
     redactions: int = 0
+
+
+def write_private(path: Path, text: str) -> None:
+    """Create ``path`` owner-only from the first byte, so there is no window in which it is readable."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def _load_json(path: Path) -> Any:
@@ -193,8 +201,7 @@ def fetch(ctx: Context, step: str, template: str, *, values: dict[str, str] | No
     record["credential_redactions"] = redactions
     ctx.redactions += redactions
     target = ctx.out_dir / f"{ctx.counter:03d}-{_slug(template)}.json"
-    target.write_text(json.dumps(record, indent=1, ensure_ascii=False), encoding="utf-8")
-    target.chmod(0o600)
+    write_private(target, json.dumps(record, indent=1, ensure_ascii=False))
     if reply is None:
         ctx.lines.append(Line(step, template, "failed", None, None, None, failure or ""))
         return None
