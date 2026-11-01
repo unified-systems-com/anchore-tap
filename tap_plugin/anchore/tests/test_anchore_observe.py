@@ -177,6 +177,7 @@ class TestCommand:
         assert observe.main(["--list"], stdout=out, transport=transport) == 0
         text = out.getvalue()
         assert "anchore:demo: scheme basic" in text and "anchore:broken: NOT USABLE" in text and SECRET not in text
+        assert "acct" not in text  # the account name is not printed
         assert transport.calls == []
 
     def test_dry_run_sends_nothing(self, tmp_path, monkeypatch):
@@ -211,3 +212,22 @@ class TestAccept:
         _, transport, _ = observe_run(tmp_path)
         xml = [c for c in transport.calls if str(c.url).endswith("/vex/cyclonedx-xml")]
         assert len(xml) == 1 and xml[0].headers["Accept"] == "application/xml"
+
+
+class TestHostileInstance:
+    def test_control_characters_from_an_instance_never_reach_the_terminal(self, tmp_path):
+        routes = anchore_routes()
+        routes["/system"] = response(200, {"version\x1b[31m": "5\x07", "ok": True})
+        routes["/images"] = response(200, {"images\x1b]0;pwned\x07": [{"imageDigest": DIGEST, "analysis_status": "analyzed", "x\x1b[2J": 1}]})
+        spec = json.loads(routes["/openapi.json"].content)
+        spec["info"]["version"] = "9\x1b[31m.0\x07"
+        spec["paths"]["/new\x1b[2Jpath"] = {"get": {"responses": {"200": {"description": "ok"}}}}
+        del spec["paths"]["/status"]
+        routes["/openapi.json"] = response(200, json.dumps(spec))
+        _, _, text = observe_run(tmp_path, routes=routes)
+        assert "version 9?[31m.0?" in text  # the instance's version string, cleaned
+        assert "\x1b" not in text and "\x07" not in text
+
+    def test_safe_bounds_and_cleans(self):
+        assert observe.safe("a\x1b[0mb") == "a?[0mb"
+        assert len(observe.safe("x" * 1000)) == 240

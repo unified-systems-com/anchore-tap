@@ -150,7 +150,7 @@ An instrument for the first sessions against a real instance, and for any later 
 | --- | --- | --- | --- | --- |
 | req-anchore-observe-1 | Only The Consumed List | Proposed | Every request is a GET to a path in the consumed list or the instance's spec; a path outside it is refused before any request. | Excluded endpoints stay unreachable. |
 | req-anchore-observe-2 | Local And Private | Proposed | Recordings are written under a directory outside any repository with owner-only permissions, and nothing is written to the grid. | The repository is public. |
-| req-anchore-observe-3 | Nothing Sensitive Printed Or Saved | Proposed | The report and the recordings contain no credential in any form, and the report contains no body, account name or image name. | Header names are recorded, never credential-bearing values. |
+| req-anchore-observe-3 | Nothing Sensitive Printed Or Saved | Proposed | The report and the recordings contain no credential in any form, and the report contains no body, account name or image name; `--list` shows an envelope's key, scheme and base URL only. Text that came from an instance is stripped of non-printable characters and bounded before it is printed, so a hostile instance cannot inject terminal control sequences. | Header names are recorded, never credential-bearing values. |
 | req-anchore-observe-4 | Not Read Is Recorded | Proposed | A step with a missing prerequisite or an unknowable required parameter is recorded as not read with the reason, never as empty. | Three states. |
 | req-anchore-observe-5 | Dry Run Sends Nothing | Proposed | `--dry-run` and `--list` send no request. | |
 

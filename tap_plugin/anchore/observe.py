@@ -83,6 +83,16 @@ def _json_body(reply: Reply) -> Any | None:
         return None
 
 
+def safe(text: Any, limit: int = 240) -> str:
+    """Make text that came from an instance safe to print: printable characters only, bounded.
+
+    A hostile or broken instance can put control characters or terminal escape sequences in a
+    field name, a version or a spec path; none of it reaches the terminal.
+    """
+    cleaned = "".join(ch if ch.isprintable() else "?" for ch in str(text))
+    return cleaned if len(cleaned) <= limit else cleaned[: limit - 3] + "..."
+
+
 def shape(value: Any) -> str:
     """A compact description of a JSON value: its type, its keys, and the first list it holds."""
     if isinstance(value, list):
@@ -353,11 +363,11 @@ def render(ctx: Context, stdout: TextIO) -> None:
     for line in ctx.lines:
         ms = "" if line.elapsed_ms is None else str(line.elapsed_ms)
         size = "" if line.size is None else str(line.size)
-        note = f"  [{line.note}]" if line.note else ""
-        print(f"{line.step:<12}{line.status:<10}{ms:>6}{size:>10}  {(line.content_type or '')[:27]:<28}GET {line.template}{note}", file=stdout)
+        note = f"  [{safe(line.note, 160)}]" if line.note else ""
+        print(f"{line.step:<12}{safe(line.status, 12):<10}{ms:>6}{size:>10}  {safe(line.content_type or '', 27):<28}GET {line.template}{note}", file=stdout)
     print("\nAnswers to the open questions:", file=stdout)
     for answer in ctx.answers:
-        print(f"  - {answer}", file=stdout)
+        print(f"  - {safe(answer)}", file=stdout)
 
 
 def run(credential: Credential, *, max_images: int = 1, account_header: bool = True, out_root: Path | None = None, transport: BaseAdapter | None = None, sleep: Callable[[float], None] | None = None, stdout: TextIO | None = None) -> Context:
@@ -395,7 +405,7 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, out_roo
     usable, errors = discover(root)
     if args.list or not args.key:
         for c in usable:
-            print(f"{c.qualified}: scheme {c.scheme}, account {c.account}, root {c.base_url}", file=stdout)
+            print(f"{c.qualified}: scheme {c.scheme}, root {c.base_url}", file=stdout)
         for e in errors:
             print(f"{e.qualified}: NOT USABLE - {e.reason}", file=stdout)
         if not usable and not errors:
