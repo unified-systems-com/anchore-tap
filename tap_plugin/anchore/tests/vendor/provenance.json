@@ -1,0 +1,11 @@
+{
+  "description": "Where tests/vendor/openapi-2.20.0.json came from, so the committed copy can be checked against the vendor's artifact. The JSON is the vendor's YAML converted by the Ruby line below; it is test input, the baseline the drift check compares an upstream file against, and the source the committed extract is regenerated from.",
+  "source_url": "https://docs.anchore.com/current/docs/api/specs/anchore_api_swagger.yaml",
+  "fetched": "2026-10-28",
+  "openapi_version": "3.0.1",
+  "api_version": "2.20.0",
+  "license": "Apache-2.0 (stated in the file's info block)",
+  "yaml_sha256": "910d7e7a821f512227ba5acd2d8aeb0d00c9c5ffae239857f1890abc2194eb7e",
+  "json_sha256": "b6dba0a873cf93a5f926e5d028d57067188c0ed5febe5365264ec7c81f8efe47",
+  "conversion": "ruby -ryaml -rjson -rdate -e 'doc = YAML.safe_load(File.read(ARGV[0]), permitted_classes: [Date, Time], aliases: false); File.write(ARGV[1], JSON.generate(doc))' anchore_api_swagger.yaml openapi-2.20.0.json"
+}

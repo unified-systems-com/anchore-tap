@@ -3,6 +3,7 @@ req-anchore-drift-ci). Pure Python: no database, no network.
 """
 
 import copy
+import hashlib
 import io
 import json
 import socket
@@ -14,6 +15,7 @@ import pytest
 from tap_plugin.anchore.contract import build, diff, drift, reduce
 
 CONTRACT = Path(build.__file__).resolve().parent
+VENDOR = Path(__file__).resolve().parent / "vendor"
 
 # Endpoints ruled out of v0 (secret-bearing, credential, admin or bulk-file). No consumed
 # operation may start with, or contain, any of these.
@@ -57,7 +59,7 @@ def _json(name):
 
 
 def _source():
-    return reduce.load_document((CONTRACT / "openapi-2.20.0.json").read_bytes())
+    return reduce.load_document((VENDOR / "openapi-2.20.0.json").read_bytes())
 
 
 class TestGenerated:
@@ -215,7 +217,7 @@ class TestDriftCommand:
         return code, out.getvalue()
 
     def test_unchanged_upstream_exits_zero(self):
-        code, text = self._run((CONTRACT / "openapi-2.20.0.json").read_bytes())
+        code, text = self._run((VENDOR / "openapi-2.20.0.json").read_bytes())
         assert code == 0 and "Nothing the plugin consumes has changed" in text
 
     def test_drifted_upstream_exits_one_and_names_the_field(self):
@@ -234,3 +236,36 @@ class TestDriftCommand:
         import inspect
 
         assert set(inspect.signature(drift.main).parameters) == {"stdin", "stdout"}
+
+
+class TestOutsideTheExtract:
+    def test_modified_unconsumed_operation_is_listed(self):
+        """req-anchore-drift-ci-2: a change to an operation the plugin does not read is reported."""
+        consumed = {(e["method"], e["path"]) for e in _json("consumed.json")["operations"]}
+        baseline = _source()
+        fresh = copy.deepcopy(baseline)
+        path = next(p for p, item in fresh["paths"].items() if "get" in item and ("get", p) not in consumed)
+        fresh["paths"][path]["get"].setdefault("parameters", []).append({"name": "zz", "in": "query", "schema": {"type": "string"}})
+        other = diff.other_changes(baseline, fresh, consumed)
+        assert f"GET {path}: changed outside the extract" in other
+
+    def test_reworded_unconsumed_operation_is_not_listed(self):
+        consumed = {(e["method"], e["path"]) for e in _json("consumed.json")["operations"]}
+        baseline = _source()
+        fresh = copy.deepcopy(baseline)
+        path = next(p for p, item in fresh["paths"].items() if "get" in item and ("get", p) not in consumed)
+        fresh["paths"][path]["get"]["summary"] = "A reworded sentence"
+        assert diff.other_changes(baseline, fresh, consumed) == []
+
+    def test_reporting_cap_holds_for_added_keys(self):
+        out: list[str] = []
+        diff._walk({}, {str(i): i for i in range(1000)}, "x", out)
+        assert len(out) <= diff.MAX_REPORTED
+
+
+class TestProvenance:
+    def test_committed_copy_matches_its_recorded_hash(self):
+        provenance = json.loads((VENDOR / "provenance.json").read_text(encoding="utf-8"))
+        digest = hashlib.sha256((VENDOR / "openapi-2.20.0.json").read_bytes()).hexdigest()
+        assert digest == provenance["json_sha256"]
+        assert provenance["description"] and provenance["source_url"].startswith("https://")

@@ -3,7 +3,7 @@
     python -m tap_plugin.anchore.contract.build > extract.json.new && mv extract.json.new extract.json
     python -m tap_plugin.anchore.contract.build --check   # exit 1 when extract.json is stale
 
-Reads only the three committed files beside this module and takes no path from its arguments or
+Reads only the three committed files (consumed.json and extract.json beside this module, the source copy under tests/vendor) and takes no path from its arguments or
 from any file's content: it prints the extract and the caller decides where it goes
 (req-anchore-contract-extract-1).
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 from tap_plugin.anchore.contract.reduce import load_document, reduce_document
 
 HERE = Path(__file__).resolve().parent
-SOURCE = HERE / "openapi-2.20.0.json"
+SOURCE = HERE.parent / "tests" / "vendor" / "openapi-2.20.0.json"
 CONSUMED = HERE / "consumed.json"
 EXTRACT = HERE / "extract.json"
 

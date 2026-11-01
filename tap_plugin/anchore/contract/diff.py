@@ -5,6 +5,8 @@ Standard library only, no I/O: the caller passes parsed documents.
 
 from typing import Any
 
+from tap_plugin.anchore.contract.reduce import reduce_document
+
 MAX_REPORTED = 200
 
 
@@ -13,6 +15,8 @@ def _walk(a: Any, b: Any, where: str, out: list[str]) -> None:
         return
     if isinstance(a, dict) and isinstance(b, dict):
         for key in sorted(set(a) | set(b)):
+            if len(out) >= MAX_REPORTED:
+                return
             if key not in b:
                 out.append(f"{where}/{key}: removed")
             elif key not in a:
@@ -21,6 +25,8 @@ def _walk(a: Any, b: Any, where: str, out: list[str]) -> None:
                 _walk(a[key], b[key], f"{where}/{key}", out)
     elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
         for index, (x, y) in enumerate(zip(a, b, strict=True)):
+            if len(out) >= MAX_REPORTED:
+                return
             _walk(x, y, f"{where}[{index}]", out)
     elif a != b:
         out.append(f"{where}: changed")
@@ -53,7 +59,12 @@ def operation_keys(doc: dict[str, Any]) -> set[tuple[str, str]]:
 
 
 def other_changes(baseline: dict[str, Any], fresh: dict[str, Any], consumed: set[tuple[str, str]]) -> list[str]:
-    """Operations added or removed outside the consumed set, plus a version change."""
+    """Differences outside the consumed set: a version change, operations added or removed, and
+    operations present in both whose parameters or 2xx response schemas changed.
+
+    The unconsumed operations are reduced with the same reducer as the consumed ones, so a
+    reworded description is not a change here either.
+    """
     out: list[str] = []
     old_v = (baseline.get("info") or {}).get("version")
     new_v = (fresh.get("info") or {}).get("version")
@@ -62,4 +73,9 @@ def other_changes(baseline: dict[str, Any], fresh: dict[str, Any], consumed: set
     before, after = operation_keys(baseline), operation_keys(fresh)
     out.extend(f"{m.upper()} {p}: added upstream" for m, p in sorted(after - before - consumed))
     out.extend(f"{m.upper()} {p}: removed upstream" for m, p in sorted(before - after - consumed))
+    both = sorted((before & after) - consumed)
+    pseudo = {"operations": [{"description": "outside the extract", "method": m, "path": p} for m, p in both]}
+    old_ops = {(o["method"], o["path"]): o for o in reduce_document(baseline, pseudo)["operations"]}
+    new_ops = {(o["method"], o["path"]): o for o in reduce_document(fresh, pseudo)["operations"]}
+    out.extend(f"{m.upper()} {p}: changed outside the extract" for (m, p) in both if old_ops[(m, p)] != new_ops[(m, p)])
     return out[:MAX_REPORTED]
