@@ -247,6 +247,10 @@ class ReadOnlyClient:
                 reply = self._once(url, path, params, headers, attempt, started + TOTAL_BUDGET_SECONDS, remaining)
             except (requests.ConnectionError, requests.Timeout) as exc:
                 reply, reason = None, type(exc).__name__
+            except requests.RequestException as exc:
+                # A malformed or truncated stream (ChunkedEncodingError, ContentDecodingError) or a
+                # malformed URL is not retried, and is never allowed to escape as a bare requests error.
+                raise RequestFailed(f"{self._credential.qualified}: GET {path} failed: {type(exc).__name__}", last) from None
             if reply is not None:
                 last = reply
                 if reply.status != 429 and not 500 <= reply.status < 600:

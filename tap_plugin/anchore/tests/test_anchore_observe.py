@@ -375,3 +375,54 @@ class TestRecordingsStayOutOfRepositories:
         with pytest.raises(FileExistsError):
             observe.run(credential(), out_root=root, transport=FakeTransport(anchore_routes()), sleep=lambda s: None, stdout=io.StringIO())
         assert list(victim.iterdir()) == []
+
+
+class TestFailureContainment:
+    def test_a_broken_stream_is_recorded_and_the_observation_goes_on(self, tmp_path):
+        from tap_plugin.anchore.tests.fakes import BrokenStream
+
+        routes = anchore_routes()
+        routes["/system"] = BrokenStream(requests.exceptions.ChunkedEncodingError("bad chunk"))
+        ctx, _, text = observe_run(tmp_path, routes=routes)
+        broken = [line for line in ctx.lines if line.template == "/system"]
+        assert broken and broken[0].status == "failed" and "RequestFailed" in broken[0].note
+        assert any(line.template == "/images" and line.status == "200" for line in ctx.lines)
+        assert "Answers to the open questions" in text
+
+    def test_an_unexpected_error_in_a_read_is_recorded_not_raised(self, tmp_path, monkeypatch):
+        real = observe.ReadOnlyClient.get
+        calls = {"n": 0}
+
+        def flaky(self, path, **kw):
+            calls["n"] += 1
+            if path == "/status":
+                raise RuntimeError("surprise")
+            return real(self, path, **kw)
+
+        monkeypatch.setattr(observe.ReadOnlyClient, "get", flaky)
+        ctx, _, _ = observe_run(tmp_path)
+        line = next(line for line in ctx.lines if line.template == "/status")
+        assert line.status == "failed" and "unexpected RuntimeError" in line.note
+
+
+class TestCoverageIsAccounted:
+    def test_every_consumed_operation_appears_as_read_or_not_read(self, tmp_path):
+        ctx, _, text = observe_run(tmp_path)
+        consumed = {o["path"] for o in json.loads(CONSUMED.read_text(encoding="utf-8"))["operations"]}
+        listed = {line.template for line in ctx.lines}
+        assert consumed <= listed
+        assert any(line.step == "coverage" and line.status == "not read" and "not requested" in line.note for line in ctx.lines)
+        assert "/apps/{app_id}/versions/{version_id}/packages-by-vulnerability" in text
+
+    def test_an_operation_added_to_the_consumed_list_is_reported_not_silently_skipped(self, tmp_path, monkeypatch):
+        extra = "/brand-new-consumed"
+        original = observe._context
+
+        def with_extra(*a, **k):
+            ctx = original(*a, **k)
+            ctx.consumed = ctx.consumed | {extra}
+            return ctx
+
+        monkeypatch.setattr(observe, "_context", with_extra)
+        ctx, _, _ = observe_run(tmp_path)
+        assert any(line.template == extra and line.status == "not read" for line in ctx.lines)

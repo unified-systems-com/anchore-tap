@@ -81,3 +81,17 @@ def anchore_routes() -> dict[str, Any]:
         "/sources": response(200, {"sources": []}),
         "/apps": response(200, {"items": []}),
     }
+
+
+class BrokenStream(requests.Response):
+    """A response whose body fails part-way, as a truncated or mis-encoded stream does."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.status_code = 200
+        self.headers.update({"content-type": "application/json"})
+        self.raw = io.BytesIO(b"")
+        self._error = error
+
+    def iter_content(self, chunk_size=1, decode_unicode=False):
+        raise self._error

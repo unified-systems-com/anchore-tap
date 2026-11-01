@@ -208,10 +208,10 @@ def fetch(ctx: Context, step: str, template: str, *, values: dict[str, str] | No
     redactions = 0
     try:
         reply = ctx.client.get(path, params=params, account_header=use_header, accept=accept)
-    except ClientError as exc:
+    except Exception as exc:  # noqa: BLE001 - one broken response must not end the whole observation
         # The full message (which names the path) goes into the recording only; what is printed
         # is the class of failure, so no image or source identifier reaches the terminal.
-        failure = type(exc).__name__
+        failure = type(exc).__name__ if isinstance(exc, ClientError) else f"unexpected {type(exc).__name__}"
         record["error"], n = ctx.credential.redact(str(exc))
         redactions += n
         reply = getattr(exc, "reply", None)
@@ -434,6 +434,17 @@ PLAN: tuple[tuple[str, str], ...] = (
 )
 
 
+def account_for_every_consumed_operation(ctx: Context) -> None:
+    """List each consumed operation this fixed order did not request as *not read*, so coverage can be seen.
+
+    Without this, an operation added to the consumed list that no step names would be neither read
+    nor reported.
+    """
+    seen = {line.template for line in ctx.lines}
+    for template in sorted(ctx.consumed - seen):
+        ctx.lines.append(Line("coverage", template, "not read", None, None, None, "not requested in this fixed order"))
+
+
 def render(ctx: Context, stdout: TextIO) -> None:
     def clean(text: Any, limit: int = 240) -> str:
         """Instance-derived text: the credential redacted first, then reduced to printable characters."""
@@ -468,6 +479,7 @@ def run(credential: Credential, *, max_images: int = 1, account_header: bool = T
         step_sources(ctx)
         step_apps(ctx)
         step_inventory(ctx)
+        account_for_every_consumed_operation(ctx)
     render(ctx, stdout)
     return ctx
 

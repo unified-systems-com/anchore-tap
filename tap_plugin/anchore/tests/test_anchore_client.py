@@ -272,3 +272,14 @@ class TestBudgetAroundBlockingCalls:
         with pytest.raises(cl.RequestFailed):
             client.get("/images")
         assert len(transport.calls) <= 2
+
+
+class TestBrokenStreams:
+    @pytest.mark.parametrize("error", [requests.exceptions.ChunkedEncodingError("bad chunk"), requests.exceptions.ContentDecodingError("bad encoding"), requests.exceptions.InvalidURL("bad")])
+    def test_other_requests_errors_become_a_client_error_not_a_bare_exception(self, error):
+        from tap_plugin.anchore.tests.fakes import BrokenStream
+
+        client, transport, sleeps = make(default=BrokenStream(error))
+        with pytest.raises(cl.RequestFailed) as err:
+            client.get("/images")
+        assert type(error).__name__ in str(err.value) and len(transport.calls) == 1 and sleeps == []
