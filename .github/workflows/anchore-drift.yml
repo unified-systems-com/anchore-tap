@@ -50,4 +50,6 @@ jobs:
           ' "$RUNNER_TEMP/upstream.yaml" "$RUNNER_TEMP/upstream.json"
 
       - name: Compare with the committed extract
-        run: python3 -m tap_plugin.anchore.contract.drift --fresh "$RUNNER_TEMP/upstream.json" --summary "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -euo pipefail
+          python3 -m tap_plugin.anchore.contract.drift < "$RUNNER_TEMP/upstream.json" | tee -a "$GITHUB_STEP_SUMMARY"

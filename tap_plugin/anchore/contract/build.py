@@ -1,9 +1,11 @@
 """Regenerate (or check) the committed extract from the committed source copy.
 
-    python -m tap_plugin.anchore.contract.build           # rewrite extract.json
+    python -m tap_plugin.anchore.contract.build > extract.json.new && mv extract.json.new extract.json
     python -m tap_plugin.anchore.contract.build --check   # exit 1 when extract.json is stale
 
-Reads only the three committed files beside this module (req-anchore-contract-extract-1).
+Reads only the three committed files beside this module and takes no path from its arguments or
+from any file's content: it prints the extract and the caller decides where it goes
+(req-anchore-contract-extract-1).
 """
 
 import argparse
@@ -36,10 +38,10 @@ def main(argv: list[str] | None = None) -> int:
     fresh = build()
     if args.check:
         if EXTRACT.read_text(encoding="utf-8") != fresh:
-            print("extract.json is stale: run python -m tap_plugin.anchore.contract.build", file=sys.stderr)
+            print("extract.json is stale: regenerate it (see this module's docstring)", file=sys.stderr)
             return 1
         return 0
-    EXTRACT.write_text(fresh, encoding="utf-8")
+    sys.stdout.write(fresh)
     return 0
 
 

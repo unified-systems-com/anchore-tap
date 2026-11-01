@@ -1,19 +1,19 @@
 """Compare Anchore's published OpenAPI file with the committed extract (req-anchore-drift-ci).
 
-    python -m tap_plugin.anchore.contract.drift --fresh upstream.json [--summary FILE]
+    python -m tap_plugin.anchore.contract.drift < upstream.json | tee -a "$GITHUB_STEP_SUMMARY"
 
-``upstream.json`` is the vendor's file already converted to JSON. Exit 1 when anything the
-plugin consumes changed; other changes are listed and do not fail. No network, no credential.
+Standard input is the vendor's file already converted to JSON; the markdown summary goes to
+standard output. No path comes from an argument. Exit 1 when anything the plugin consumes
+changed; other changes are listed and do not fail. Exit 2 when the input cannot be read. No
+network, no credential.
 """
 
-import argparse
 import json
 import sys
-from pathlib import Path
 
 from tap_plugin.anchore.contract.build import CONSUMED, EXTRACT, SOURCE
 from tap_plugin.anchore.contract.diff import diff_extracts, other_changes
-from tap_plugin.anchore.contract.reduce import ReducerError, load_document, reduce_document
+from tap_plugin.anchore.contract.reduce import MAX_DOCUMENT_BYTES, ReducerError, load_document, reduce_document
 
 
 def compare(fresh_doc: dict, consumed: dict, committed_extract: dict, baseline_doc: dict) -> tuple[list[str], list[str]]:
@@ -37,13 +37,11 @@ def render_summary(drift: list[str], other: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--fresh", required=True, type=Path, help="the vendor's file, converted to JSON")
-    parser.add_argument("--summary", type=Path, help="append a markdown summary to this file")
-    args = parser.parse_args(argv)
+def main(stdin=None, stdout=None) -> int:
+    stdin = stdin if stdin is not None else sys.stdin.buffer
+    stdout = stdout if stdout is not None else sys.stdout
     try:
-        fresh_doc = load_document(args.fresh.read_bytes())
+        fresh_doc = load_document(stdin.read(MAX_DOCUMENT_BYTES + 1))
         baseline_doc = load_document(SOURCE.read_bytes())
         consumed = json.loads(CONSUMED.read_text(encoding="utf-8"))
         committed = json.loads(EXTRACT.read_text(encoding="utf-8"))
@@ -51,11 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     except ReducerError as exc:
         print(f"cannot read the upstream file: {exc}", file=sys.stderr)
         return 2
-    summary = render_summary(drift, other)
-    print(summary)
-    if args.summary:
-        with args.summary.open("a", encoding="utf-8") as handle:
-            handle.write(summary)
+    stdout.write(render_summary(drift, other))
     return 1 if drift else 0
 
 

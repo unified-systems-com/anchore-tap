@@ -3,6 +3,7 @@ req-anchore-drift-ci). Pure Python: no database, no network.
 """
 
 import copy
+import io
 import json
 import socket
 from pathlib import Path
@@ -203,3 +204,33 @@ class TestDrift:
         a = {"operations": [{"method": "get", "path": "/p", "x": list(range(1000))}]}
         b = {"operations": [{"method": "get", "path": "/p", "x": [i + 1 for i in range(1000)]}]}
         assert len(diff.diff_extracts(a, b)) <= diff.MAX_REPORTED
+
+
+class TestDriftCommand:
+    """The command reads standard input and writes standard output; it takes no path."""
+
+    def _run(self, doc_bytes):
+        out = io.StringIO()
+        code = drift.main(stdin=io.BytesIO(doc_bytes), stdout=out)
+        return code, out.getvalue()
+
+    def test_unchanged_upstream_exits_zero(self):
+        code, text = self._run((CONTRACT / "openapi-2.20.0.json").read_bytes())
+        assert code == 0 and "Nothing the plugin consumes has changed" in text
+
+    def test_drifted_upstream_exits_one_and_names_the_field(self):
+        doc = _source()
+        schemas = doc["components"]["schemas"]
+        target = next(n for n, s in schemas.items() if "suggested_fix_version" in s.get("properties", {}))
+        schemas[target]["properties"]["suggested_fix_version"] = {"type": "integer"}
+        code, text = self._run(json.dumps(doc).encode())
+        assert code == 1 and "suggested_fix_version" in text
+
+    def test_unreadable_input_exits_two(self):
+        code, text = self._run(b'{"a":')
+        assert code == 2 and text == ""
+
+    def test_command_accepts_no_path_argument(self):
+        import inspect
+
+        assert set(inspect.signature(drift.main).parameters) == {"stdin", "stdout"}
