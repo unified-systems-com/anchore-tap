@@ -28,6 +28,22 @@ assumptions.
 `specs/spec-anchore-v0.md`: identity, philosophy, every requirement with acceptance criteria, the model
 catalog and the edge types.
 
+## A first session against an Anchore instance
+
+The observation command reads an instance, records every raw response in `~/anchore-recordings/`
+(private, outside any repository) and prints which open questions it answered. It is read-only and
+writes nothing to the grid.
+
+1. Copy one of `tap_plugin/anchore/schemas/examples/*.secret.example.json` (basic, API key or bearer) to
+   `anchore-<name>.secret.json` under a **private** secrets directory (not the shared `~/tap-secrets`),
+   rename its `key` to match the file, and fill in a **read-only** credential. Never commit it, and never paste
+   it into chat.
+2. From a core checkout with a virtualenv holding `requests`, `jsonschema` and `django`:
+   `TAP_SECRETS_ROOT=<private dir> PYTHONPATH=<core checkout>:<this checkout> python -m tap_plugin.anchore.observe --list`
+   then `--key <name> --dry-run`, then `--key <name>`.
+3. Run it once per credential scheme and per instance. Recordings stay local; commit a fixture only after
+   reviewing a trimmed copy.
+
 ## Standing it up
 
 The plugin's own tests run in the stack described by `tap_plugin/anchore/boot/ci.boot.json`:

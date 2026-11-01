@@ -1,0 +1,253 @@
+"""The read-only Anchore client (req-anchore-client, req-anchore-connection).
+
+A small client over ``requests`` that can only read. Every request leaves through one session
+whose adapters refuse any method but GET and any URL that is not https before anything is sent;
+a redirect is an error, never followed, so the credential can never reach another origin;
+certificate verification is on and nothing turns it off; the environment's proxy, netrc and CA
+settings are ignored. A response over the size cap is refused. Retries are bounded in count and
+in total time and honour ``Retry-After``; exhausting them raises, never returns an empty result.
+
+No message built here contains the credential: errors name ``anchore:<key>`` and a class of
+failure, and the credential is held only by the session's auth.
+"""
+
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import quote
+
+import requests
+from requests.adapters import BaseAdapter, HTTPAdapter
+
+from tap_plugin.anchore.credential import Credential
+
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+CONNECT_TIMEOUT = 10
+READ_TIMEOUT = 60
+MAX_ATTEMPTS = 3
+BACKOFF_SECONDS = (1.0, 3.0)
+MAX_RETRY_AFTER = 30
+TOTAL_BUDGET_SECONDS = 120
+ACCOUNT_HEADER = "x-anchore-account"
+
+# Response headers that can carry credentials; never kept.
+_DROPPED_HEADERS = frozenset({"set-cookie", "authorization", "proxy-authorization", "www-authenticate-token"})
+
+
+class ClientError(Exception):
+    """Base of every error this client raises."""
+
+
+class WriteRefused(ClientError):
+    """A request that is not a GET was refused before it was sent."""
+
+
+class InsecureRefused(ClientError):
+    """A request that is not https was refused before it was sent."""
+
+
+class RedirectRefused(ClientError):
+    """The server answered with a redirect, which is never followed."""
+
+
+class ResponseTooLarge(ClientError):
+    """The response is over the size cap."""
+
+
+class BadPath(ClientError):
+    """A request path is not a plain API path."""
+
+
+class RequestFailed(ClientError):
+    """Retries were exhausted. ``reply`` holds the last response when there was one."""
+
+    def __init__(self, message: str, reply: "Reply | None" = None) -> None:
+        super().__init__(message)
+        self.reply = reply
+
+
+@dataclass(frozen=True)
+class Reply:
+    """One response. Headers exclude anything that can carry a credential."""
+
+    status: int
+    headers: dict[str, str]
+    body: bytes
+    elapsed_ms: int
+    path: str
+    attempts: int = 1
+    request_headers: tuple[str, ...] = field(default=(), repr=False)
+
+    @property
+    def content_type(self) -> str | None:
+        return self.headers.get("content-type")
+
+
+class _GetOnlyAdapter(BaseAdapter):
+    """Wraps a real adapter and refuses everything but an https GET before it is sent."""
+
+    def __init__(self, inner: BaseAdapter) -> None:
+        super().__init__()
+        self._inner = inner
+
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
+        if request.method != "GET":
+            raise WriteRefused(f"{request.method} is refused: this client only reads")
+        if not str(request.url).lower().startswith("https://"):
+            raise InsecureRefused("a request that is not https is refused")
+        return self._inner.send(request, **kwargs)
+
+    def close(self) -> None:
+        self._inner.close()
+
+
+class _Session(requests.Session):
+    """Never follows a redirect, and never trusts the environment."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.trust_env = False
+
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
+        kwargs["allow_redirects"] = False
+        response = super().send(request, **kwargs)
+        if 300 <= response.status_code < 400 and response.status_code != 304:
+            response.close()
+            raise RedirectRefused(f"a {response.status_code} redirect is refused and not followed")
+        return response
+
+
+def fill(template: str, **values: str) -> str:
+    """Fill a path template such as ``/images/{image_digest}/vuln/{vuln_type}`` with quoted values."""
+    out = template
+    for name, value in values.items():
+        if not value:
+            raise BadPath(f"empty value for {name}")
+        out = out.replace("{" + name + "}", quote(str(value), safe=":"))
+    if "{" in out or "}" in out:
+        raise BadPath("a path parameter was not filled")
+    return out
+
+
+def _check_path(path: str) -> None:
+    if not path.startswith("/") or "://" in path or "?" in path or "#" in path:
+        raise BadPath("a request path must be a plain path beginning with /")
+    if any(part == ".." for part in path.split("/")) or any(ch.isspace() or ord(ch) < 32 for ch in path):
+        raise BadPath("a request path must not contain .. or whitespace")
+
+
+class ReadOnlyClient:
+    """GET reads of one Anchore instance and account."""
+
+    def __init__(
+        self,
+        credential: Credential,
+        *,
+        transport: BaseAdapter | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+        max_bytes: int = MAX_RESPONSE_BYTES,
+        timeout: tuple[float, float] = (CONNECT_TIMEOUT, READ_TIMEOUT),
+        max_attempts: int = MAX_ATTEMPTS,
+    ) -> None:
+        self._credential = credential
+        self._sleep = sleep
+        self._clock = clock
+        self._max_bytes = max_bytes
+        self._timeout = timeout
+        self._max_attempts = max_attempts
+        session = _Session()
+        adapter = _GetOnlyAdapter(transport if transport is not None else HTTPAdapter(max_retries=0))
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.verify = credential.ca_bundle or True
+        session.headers["Accept"] = "application/json"
+        auth = credential.auth
+        if auth.basic is not None:
+            session.auth = auth.basic
+        elif auth.bearer_header is not None:
+            session.headers["Authorization"] = auth.bearer_header
+        self._session = session
+
+    @property
+    def session(self) -> requests.Session:
+        """The underlying session, exposed so tests can prove it refuses writes."""
+        return self._session
+
+    def close(self) -> None:
+        self._session.close()
+
+    def __enter__(self) -> "ReadOnlyClient":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def get(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        accept: str = "application/json",
+        account_header: bool = True,
+    ) -> Reply:
+        """GET ``path`` under the instance's API root."""
+        _check_path(path)
+        headers = {"Accept": accept}
+        if account_header:
+            headers[ACCOUNT_HEADER] = self._credential.account
+        url = self._credential.base_url + path
+        started = self._clock()
+        last: Reply | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            reason: str | None = None
+            try:
+                reply = self._once(url, path, params, headers, attempt)
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                reply, reason = None, type(exc).__name__
+            if reply is not None:
+                last = reply
+                if reply.status != 429 and not 500 <= reply.status < 600:
+                    return reply
+                reason = f"HTTP {reply.status}"
+            if attempt == self._max_attempts or self._clock() - started > TOTAL_BUDGET_SECONDS:
+                raise RequestFailed(f"{self._credential.qualified}: GET {path} failed after {attempt} attempt(s): {reason}", last)
+            self._sleep(self._delay(reply, attempt))
+        raise RequestFailed(f"{self._credential.qualified}: GET {path} failed", last)  # pragma: no cover
+
+    def _delay(self, reply: Reply | None, attempt: int) -> float:
+        base = BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)]
+        if reply is not None:
+            retry_after = reply.headers.get("retry-after", "")
+            if retry_after.isdigit():
+                return float(min(int(retry_after), MAX_RETRY_AFTER))
+        return base
+
+    def _once(self, url: str, path: str, params: dict[str, Any] | None, headers: dict[str, str], attempt: int) -> Reply:
+        started = self._clock()
+        response = self._session.get(url, params=params, headers=headers, timeout=self._timeout, stream=True)
+        try:
+            declared = response.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > self._max_bytes:
+                raise ResponseTooLarge(f"{self._credential.qualified}: GET {path} declares {declared} bytes, over the {self._max_bytes} cap")
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in response.iter_content(65536):
+                size += len(chunk)
+                if size > self._max_bytes:
+                    raise ResponseTooLarge(f"{self._credential.qualified}: GET {path} is over the {self._max_bytes}-byte cap")
+                chunks.append(chunk)
+            kept = {k.lower(): v for k, v in response.headers.items() if k.lower() not in _DROPPED_HEADERS}
+            sent = tuple(sorted(k.lower() for k in response.request.headers))
+            return Reply(
+                status=response.status_code,
+                headers=kept,
+                body=b"".join(chunks),
+                elapsed_ms=int((self._clock() - started) * 1000),
+                path=path,
+                attempts=attempt,
+                request_headers=sent,
+            )
+        finally:
+            response.close()

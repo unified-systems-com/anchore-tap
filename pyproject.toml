@@ -14,10 +14,11 @@ requires-python = ">=3.14"
 dynamic = ["version"]
 
 # Tier-0 dependencies (req-tap-plugin-arch-dependencies-1). computing_core owns the image host,
-# package and sbom_document types the Anchore nodes link to. The HTTP client's `requests` joins
-# this list with the client requirement (req-anchore-client), not before.
+# package and sbom_document types the Anchore nodes link to. `requests` is the read-only client's
+# transport (req-anchore-client); it uses the system OpenSSL through Python's ssl module.
 dependencies = [
     "computing-core-tap",
+    "requests>=2.32",
 ]
 
 [project.entry-points."tap.plugins"]

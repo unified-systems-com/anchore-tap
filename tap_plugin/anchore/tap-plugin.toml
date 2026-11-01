@@ -15,9 +15,8 @@ depends_on = [
 ]
 
 # The author's DECLARED crypto posture (req-tap-plugin-manifest-v0-fips; spec-fips.md declare-vs-decide).
-# The scaffold has no crypto dependency. The HTTP client (`requests`) arrives with req-anchore-client;
-# it uses the system OpenSSL through Python's ssl module, and this declaration is re-checked
-# against validate_plugin's crypto-providers report in that change.
+# The HTTP client (`requests`, req-anchore-client) uses the system OpenSSL through Python's ssl
+# module; validate_plugin's crypto-providers report finds no non-validated provider in it.
 [fips]
 status = "compatible"
 
