@@ -109,6 +109,12 @@ class _Session(requests.Session):
         super().__init__()
         self.trust_env = False
 
+    def get_adapter(self, url: str) -> requests.adapters.BaseAdapter:
+        """Only an https URL has an adapter; any other scheme is refused before anything is sent."""
+        if not url.lower().startswith("https://"):
+            raise InsecureRefused("a request that is not https is refused")
+        return super().get_adapter(url)
+
     def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         kwargs["allow_redirects"] = False
         response = super().send(request, **kwargs)
@@ -160,7 +166,6 @@ class ReadOnlyClient:
         session = _Session()
         adapter = _GetOnlyAdapter(transport if transport is not None else HTTPAdapter(max_retries=0))
         session.mount("https://", adapter)
-        session.mount("http://", adapter)
         session.verify = credential.ca_bundle or True
         session.headers["Accept"] = "application/json"
         auth = credential.auth
