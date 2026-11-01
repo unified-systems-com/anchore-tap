@@ -192,3 +192,42 @@ class TestNothingLeaks:
         c = cred.credential_from_envelope(envelope(payload=data(ca_bundle="/etc/ssl/private-ca.pem")))
         client = cl.ReadOnlyClient(c, transport=FakeTransport())
         assert client.session.verify == "/etc/ssl/private-ca.pem"
+
+
+class TestOriginBinding:
+    """The session holds the credential, so it can only be used against the configured API root."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://attacker.example/",
+            "https://attacker.example/v2/images",
+            "https://anchore.example:9999/v2/images",
+            "https://anchore.example/v2/images",
+            "https://anchore.example:8228.attacker.example/v2/images",
+            "https://anchore.example:8228/v2evil/images",
+            "https://anchore.example:8228/other/images",
+            "https://anchore.example:8228",
+        ],
+    )
+    @pytest.mark.parametrize("scheme", ["basic", "bearer"])
+    def test_the_public_session_cannot_send_the_credential_elsewhere(self, scheme, url):
+        client, transport, _ = make(scheme, default=response(200))
+        # Either our refusal or requests' own refusal of a malformed URL; in both nothing is sent.
+        with pytest.raises((cl.OriginRefused, requests.exceptions.InvalidURL)):
+            client.session.get(url)
+        assert transport.calls == []
+
+    def test_the_configured_root_is_accepted(self):
+        client, transport, _ = make(default=response(200))
+        assert client.session.get("https://anchore.example:8228/v2/images").status_code == 200
+        assert len(transport.calls) == 1
+
+
+class TestStreamingDeadline:
+    def test_a_response_that_drips_past_the_budget_is_cut_off(self):
+        ticks = iter([0.0, 0.0, 1.0, cl.TOTAL_BUDGET_SECONDS + 5.0, cl.TOTAL_BUDGET_SECONDS + 6.0, cl.TOTAL_BUDGET_SECONDS + 7.0] + [cl.TOTAL_BUDGET_SECONDS + 9.0] * 20)
+        client, transport, _ = make(default=response(200, b"x" * 200_000, {"content-length": "200000"}), clock=lambda: next(ticks), max_attempts=1)
+        with pytest.raises(cl.RequestFailed) as err:
+            client.get("/images")
+        assert "budget" in str(err.value) and len(transport.calls) == 1

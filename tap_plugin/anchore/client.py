@@ -47,6 +47,10 @@ class InsecureRefused(ClientError):
     """A request that is not https was refused before it was sent."""
 
 
+class OriginRefused(ClientError):
+    """A request to anywhere but the configured Anchore API root was refused before it was sent."""
+
+
 class RedirectRefused(ClientError):
     """The server answered with a redirect, which is never followed."""
 
@@ -85,17 +89,25 @@ class Reply:
 
 
 class _GetOnlyAdapter(BaseAdapter):
-    """Wraps a real adapter and refuses everything but an https GET before it is sent."""
+    """Wraps a real adapter and refuses everything but an https GET to the configured API root.
 
-    def __init__(self, inner: BaseAdapter) -> None:
+    The session holds the credential, so the adapter that every request passes through is also
+    where a request to any other host, port or path root is stopped before it is sent.
+    """
+
+    def __init__(self, inner: BaseAdapter, api_root: str) -> None:
         super().__init__()
         self._inner = inner
+        self._prefix = api_root.rstrip("/") + "/"
 
     def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         if request.method != "GET":
             raise WriteRefused(f"{request.method} is refused: this client only reads")
-        if not str(request.url).lower().startswith("https://"):
+        url = str(request.url)
+        if not url.lower().startswith("https://"):
             raise InsecureRefused("a request that is not https is refused")
+        if not url.startswith(self._prefix):
+            raise OriginRefused("a request outside the configured Anchore API root is refused")
         return self._inner.send(request, **kwargs)
 
     def close(self) -> None:
@@ -164,7 +176,7 @@ class ReadOnlyClient:
         self._timeout = timeout
         self._max_attempts = max_attempts
         session = _Session()
-        adapter = _GetOnlyAdapter(transport if transport is not None else HTTPAdapter(max_retries=0))
+        adapter = _GetOnlyAdapter(transport if transport is not None else HTTPAdapter(max_retries=0), credential.base_url)
         session.mount("https://", adapter)
         session.verify = credential.ca_bundle or True
         session.headers["Accept"] = "application/json"
@@ -208,7 +220,7 @@ class ReadOnlyClient:
         for attempt in range(1, self._max_attempts + 1):
             reason: str | None = None
             try:
-                reply = self._once(url, path, params, headers, attempt)
+                reply = self._once(url, path, params, headers, attempt, started + TOTAL_BUDGET_SECONDS)
             except (requests.ConnectionError, requests.Timeout) as exc:
                 reply, reason = None, type(exc).__name__
             if reply is not None:
@@ -229,7 +241,7 @@ class ReadOnlyClient:
                 return float(min(int(retry_after), MAX_RETRY_AFTER))
         return base
 
-    def _once(self, url: str, path: str, params: dict[str, Any] | None, headers: dict[str, str], attempt: int) -> Reply:
+    def _once(self, url: str, path: str, params: dict[str, Any] | None, headers: dict[str, str], attempt: int, deadline: float) -> Reply:
         started = self._clock()
         response = self._session.get(url, params=params, headers=headers, timeout=self._timeout, stream=True)
         try:
@@ -239,6 +251,8 @@ class ReadOnlyClient:
             chunks: list[bytes] = []
             size = 0
             for chunk in response.iter_content(65536):
+                if self._clock() > deadline:
+                    raise RequestFailed(f"{self._credential.qualified}: GET {path} exceeded the {TOTAL_BUDGET_SECONDS}-second budget while streaming")
                 size += len(chunk)
                 if size > self._max_bytes:
                     raise ResponseTooLarge(f"{self._credential.qualified}: GET {path} is over the {self._max_bytes}-byte cap")

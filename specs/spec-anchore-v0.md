@@ -131,6 +131,7 @@ A small client over `requests` (a direct dependency of core already; no Anchore-
 | req-anchore-client-1 | GET Only | Proposed | Every request passes through one transport that rejects any method but GET before sending; `session.request("POST", ...)`, an aliased method and a request from another module are each refused. | Negative tests for each; the source scan is secondary. |
 | req-anchore-client-2 | Verified TLS | Proposed | Certificate verification is on; it is turned off by no setting. | A private CA is the `ca_bundle` setting. |
 | req-anchore-client-3 | Bounded Retries | Proposed | Retries are limited in count and total time, and honour `Retry-After`; exhaustion is a recorded failure, not a silent empty result. | Ties to `req-anchore-states`. |
+| req-anchore-client-4 | Bound To The API Root | Proposed | The adapter refuses any request whose URL is not under the configured API root, so the session that holds the credential cannot be used against another host, port or path root; tests drive the public session at each. | A direct session call must not exfiltrate the credential. |
 
 ### The Trial Observation Command
 ----
@@ -150,7 +151,7 @@ An instrument for the first sessions against a real instance, and for any later 
 | --- | --- | --- | --- | --- |
 | req-anchore-observe-1 | Only The Consumed List | Proposed | Every request is a GET to a path in the consumed list or the instance's spec; a path outside it is refused before any request. | Excluded endpoints stay unreachable. |
 | req-anchore-observe-2 | Local And Private | Proposed | Recordings are written under a directory outside any repository with owner-only permissions, and nothing is written to the grid. | The repository is public. |
-| req-anchore-observe-3 | Nothing Sensitive Printed Or Saved | Proposed | The report and the recordings contain no credential in any form, and the report contains no body, account name or image name; `--list` shows an envelope's key, scheme and base URL only. Text that came from an instance is stripped of non-printable characters and bounded before it is printed, so a hostile instance cannot inject terminal control sequences. | Header names are recorded, never credential-bearing values. |
+| req-anchore-observe-3 | Nothing Sensitive Printed Or Saved | Proposed | The report and the recordings contain no credential in any form, and the report contains no body, account name or image name; `--list` shows an envelope's key, scheme and base URL only. Text that came from an instance is stripped of non-printable characters and bounded before it is printed, so a hostile instance cannot inject terminal control sequences. A credential an instance echoes back, in any form this client sends it in (the secret, its Basic encoding, its Bearer header), is replaced before anything is saved and the count is reported; a transformed copy cannot be recognised and is not covered. A failed read prints its class of failure, never the path or identifier. | Header names are recorded, never credential-bearing values. |
 | req-anchore-observe-4 | Not Read Is Recorded | Proposed | A step with a missing prerequisite or an unknowable required parameter is recorded as not read with the reason, never as empty. | Three states. |
 | req-anchore-observe-5 | Dry Run Sends Nothing | Proposed | `--dry-run` and `--list` send no request. | |
 

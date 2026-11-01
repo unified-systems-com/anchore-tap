@@ -10,6 +10,7 @@ It imports no Django and no ``tap_*`` app: the envelope file is read with core's
 lives only in :class:`Auth`, whose ``repr`` omits it, and no message built here contains a value.
 """
 
+import base64
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,9 @@ SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "anchore_api_credent
 
 # The documented user name an Anchore API key is presented under.
 API_KEY_USER = "_api_key"
+
+# What replaces a credential found in text an instance returned.
+REDACTED = "[REDACTED:credential]"
 
 
 class CredentialError(Exception):
@@ -58,6 +62,32 @@ class Auth:
         """The Authorization header value for the bearer scheme, else None."""
         return f"Bearer {self._bearer}" if self._bearer is not None else None
 
+    def _forms(self) -> tuple[str, ...]:
+        """Every form this credential is sent in, longest first, so a redaction takes the whole form."""
+        out: set[str] = set()
+        if self._basic is not None:
+            user, secret = self._basic
+            out.update({secret, base64.b64encode(f"{user}:{secret}".encode()).decode()})
+        if self._bearer is not None:
+            out.update({self._bearer, f"Bearer {self._bearer}"})
+        return tuple(sorted((f for f in out if f), key=len, reverse=True))
+
+    def redact(self, text: str) -> tuple[str, int]:
+        """Replace every form of the credential in ``text``; returns the text and how many were replaced."""
+        count = 0
+        for form in self._forms():
+            count += text.count(form)
+            text = text.replace(form, REDACTED)
+        return text, count
+
+    def redact_bytes(self, data: bytes) -> tuple[bytes, int]:
+        count = 0
+        for form in self._forms():
+            raw = form.encode("utf-8")
+            count += data.count(raw)
+            data = data.replace(raw, REDACTED.encode("ascii"))
+        return data, count
+
 
 @dataclass(frozen=True)
 class Credential:
@@ -71,6 +101,12 @@ class Credential:
     annotation_allowlist: tuple[str, ...]
     scanner_key: str
     auth: Auth = field(repr=False)
+
+    def redact(self, text: str) -> tuple[str, int]:
+        return self.auth.redact(text)
+
+    def redact_bytes(self, data: bytes) -> tuple[bytes, int]:
+        return self.auth.redact_bytes(data)
 
     def __repr__(self) -> str:
         return f"Credential(qualified={self.qualified!r}, account={self.account!r}, scheme={self.scheme!r}, root={canonical_root(self.base_url)!r})"

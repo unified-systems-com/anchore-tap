@@ -231,3 +231,55 @@ class TestHostileInstance:
     def test_safe_bounds_and_cleans(self):
         assert observe.safe("a\x1b[0mb") == "a?[0mb"
         assert len(observe.safe("x" * 1000)) == 240
+
+
+class TestEchoedCredential:
+    """An instance that echoes the credential must not get it written into a recording."""
+
+    def _echo_routes(self, scheme):
+        forms = {
+            "basic": [SECRET, base64.b64encode(f"reader:{SECRET}".encode()).decode()],
+            "api_key": [SECRET, base64.b64encode(f"_api_key:{SECRET}".encode()).decode()],
+            "bearer": [SECRET, f"Bearer {SECRET}"],
+        }[scheme]
+        routes = anchore_routes()
+        routes["/account"] = response(200, {"name": "demo", "echo": forms[0], "auth": forms[1]}, {"X-Echo-Authorization": forms[1]})
+        return routes
+
+    @pytest.mark.parametrize("scheme", ["basic", "api_key", "bearer"])
+    def test_every_form_is_redacted_from_body_and_headers(self, tmp_path, scheme):
+        ctx, _, text = observe_run(tmp_path, scheme=scheme, routes=self._echo_routes(scheme))
+        recordings = "".join(p.read_text(encoding="utf-8") for p in ctx.out_dir.glob("*.json"))
+        assert SECRET not in recordings and SECRET not in text
+        assert "[REDACTED:credential]" in recordings and ctx.redactions >= 4
+        assert "occurrence(s) of the credential" in text
+        assert "demo" in recordings  # the rest of the body is kept
+
+    def test_a_clean_run_reports_no_redactions(self, tmp_path):
+        ctx, _, text = observe_run(tmp_path)
+        assert ctx.redactions == 0 and "occurrence(s) of the credential" not in text
+
+
+class TestPrivateRoot:
+    def test_the_recordings_root_is_owner_only_too(self, tmp_path):
+        ctx, _, _ = observe_run(tmp_path)
+        root = ctx.out_dir.parent
+        assert stat.S_IMODE(root.stat().st_mode) == 0o700 and stat.S_IMODE(ctx.out_dir.stat().st_mode) == 0o700
+
+    def test_an_existing_listable_root_is_tightened(self, tmp_path):
+        root = tmp_path / "rec"
+        root.mkdir(mode=0o755)
+        root.chmod(0o755)
+        observe_run(tmp_path)
+        assert stat.S_IMODE(root.stat().st_mode) == 0o700
+
+
+class TestFailureNotes:
+    def test_a_failed_read_prints_the_class_of_failure_not_the_identifier(self, tmp_path):
+        routes = anchore_routes()
+        routes[f"/images/{DIGEST}/vuln/all"] = requests.ConnectionError("down")
+        ctx, _, text = observe_run(tmp_path, routes=routes)
+        failed = [line for line in ctx.lines if line.status == "failed"]
+        assert failed and DIGEST not in text and "RequestFailed" in text
+        recordings = "".join(p.read_text(encoding="utf-8") for p in ctx.out_dir.glob("*.json"))
+        assert DIGEST in recordings  # the full message is kept in the private recording

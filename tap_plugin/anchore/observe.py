@@ -2,9 +2,10 @@
 
 This is an instrument, not the collector. It makes GET requests only, through the read-only
 client; takes every path from the committed consumed list (plus the instance's own spec); saves
-each raw response to a private directory under the home directory, outside any repository; and
-prints which open questions the responses answered. It writes nothing to the grid and prints no
-response body, no credential, and no account or image name.
+each raw response to a private directory under the home directory, outside any repository
+(a credential an instance echoes back, in any form it is sent in, is redacted first); and prints
+which open questions the responses answered. It writes nothing to the grid and prints no response
+body, no credential, and no account or image name.
 
     python -m tap_plugin.anchore.observe --list
     python -m tap_plugin.anchore.observe --key <envelope key> [--max-images 1] [--no-account-header] [--dry-run]
@@ -66,6 +67,7 @@ class Context:
     lines: list[Line] = field(default_factory=list)
     answers: list[str] = field(default_factory=list)
     counter: int = 0
+    redactions: int = 0
 
 
 def _load_json(path: Path) -> Any:
@@ -165,24 +167,38 @@ def fetch(ctx: Context, step: str, template: str, *, values: dict[str, str] | No
     ctx.counter += 1
     record: dict[str, Any] = {"step": step, "template": template, "path": path, "params": params or {}, "account_header_sent": use_header}
     reply: Reply | None = None
+    failure: str | None = None
+    redactions = 0
     try:
         reply = ctx.client.get(path, params=params, account_header=use_header, accept=accept)
     except ClientError as exc:
-        record["error"] = str(exc)
+        # The full message (which names the path) goes into the recording only; what is printed
+        # is the class of failure, so no image or source identifier reaches the terminal.
+        failure = type(exc).__name__
+        record["error"], n = ctx.credential.redact(str(exc))
+        redactions += n
         reply = getattr(exc, "reply", None)
     if reply is not None:
-        record.update(status=reply.status, headers=reply.headers, elapsed_ms=reply.elapsed_ms, attempts=reply.attempts, request_header_names=list(reply.request_headers), body_bytes=len(reply.body))
+        headers: dict[str, str] = {}
+        for name, value in reply.headers.items():
+            headers[name], n = ctx.credential.redact(value)
+            redactions += n
+        body, n = ctx.credential.redact_bytes(reply.body)
+        redactions += n
+        record.update(status=reply.status, headers=headers, elapsed_ms=reply.elapsed_ms, attempts=reply.attempts, request_header_names=list(reply.request_headers), body_bytes=len(reply.body))
         try:
-            record["body_text"] = reply.body.decode("utf-8")
+            record["body_text"] = body.decode("utf-8")
         except UnicodeDecodeError:
-            record["body_base64"] = base64.b64encode(reply.body).decode("ascii")
+            record["body_base64"] = base64.b64encode(body).decode("ascii")
+    record["credential_redactions"] = redactions
+    ctx.redactions += redactions
     target = ctx.out_dir / f"{ctx.counter:03d}-{_slug(template)}.json"
     target.write_text(json.dumps(record, indent=1, ensure_ascii=False), encoding="utf-8")
     target.chmod(0o600)
     if reply is None:
-        ctx.lines.append(Line(step, template, "failed", None, None, None, record.get("error", "")[:120]))
+        ctx.lines.append(Line(step, template, "failed", None, None, None, failure or ""))
         return None
-    note = "" if "error" not in record else record["error"][:120]
+    note = failure or ""
     ctx.lines.append(Line(step, template, str(reply.status), reply.elapsed_ms, len(reply.body), reply.content_type, note))
     return reply if reply.status == 200 else None
 
@@ -332,8 +348,12 @@ def _out_dir(credential: Credential, root: Path | None) -> Path:
     base = root if root is not None else Path.home() / RECORDINGS_DIRNAME
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     name = f"{stamp}-{hashlib.sha256(credential.qualified.encode()).hexdigest()[:8]}"
+    # The root is made owner-only as well as the per-run directory: mkdir's mode is not applied to
+    # parents, and a listable root would show run times and hash prefixes on a shared host.
+    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    base.chmod(0o700)
     target = base / name
-    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target.mkdir(exist_ok=True, mode=0o700)
     target.chmod(0o700)
     return target
 
@@ -365,6 +385,8 @@ def render(ctx: Context, stdout: TextIO) -> None:
         size = "" if line.size is None else str(line.size)
         note = f"  [{safe(line.note, 160)}]" if line.note else ""
         print(f"{line.step:<12}{safe(line.status, 12):<10}{ms:>6}{size:>10}  {safe(line.content_type or '', 27):<28}GET {line.template}{note}", file=stdout)
+    if ctx.redactions:
+        print(f"\n{ctx.redactions} occurrence(s) of the credential were found in what the instance returned and redacted from the recordings.", file=stdout)
     print("\nAnswers to the open questions:", file=stdout)
     for answer in ctx.answers:
         print(f"  - {safe(answer)}", file=stdout)
