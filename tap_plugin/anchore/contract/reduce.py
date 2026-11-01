@@ -89,6 +89,21 @@ class _Resolver:
         if self.nodes > MAX_NODES:
             raise ReducerError(f"document expands past {MAX_NODES} nodes")
 
+    def _size(self, value: Any) -> int:
+        """Count the JSON values in ``value``, stopping once the budget is clearly spent."""
+        count = 0
+        stack = [value]
+        while stack:
+            node = stack.pop()
+            count += 1
+            if count > MAX_NODES:
+                raise ReducerError(f"document expands past {MAX_NODES} nodes")
+            if isinstance(node, dict):
+                stack.extend(node.values())
+            elif isinstance(node, list):
+                stack.extend(node)
+        return count
+
     def lookup(self, ref: Any) -> Any:
         if not isinstance(ref, str) or not ref.startswith("#/"):
             raise ReducerError(f"only local '#/...' references are resolved, got {ref!r}")
@@ -131,6 +146,10 @@ class _Resolver:
                 if key == "additionalProperties" and isinstance(value, dict):
                     value, inner = self.schema(value, stack, depth + 1)
                     cyclic = cyclic or inner
+                else:
+                    # A kept value (an enum, a default) appears in the output as it stands, so
+                    # it is charged by what it holds, not as one node.
+                    self._tick(self._size(value) - 1)
                 out[key] = value
         if isinstance(node.get("properties"), dict):
             props: dict[str, Any] = {}

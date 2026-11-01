@@ -317,3 +317,13 @@ class TestReviewFixes:
         text = drift.render_summary([], ["version: x`\n## Forged status"])
         assert "\n## Forged" not in text and "`## " not in text
         assert text.count("`") % 2 == 0
+
+    def test_large_kept_values_are_charged_by_what_they_hold(self, monkeypatch):
+        """A big enum named by several operations costs its length each time, not one node."""
+        doc = self._shared_doc()
+        doc["components"]["schemas"]["Big"] = {"enum": list(range(1000))}
+        monkeypatch.setattr(reduce, "MAX_NODES", 3000)
+        with pytest.raises(reduce.ReducerError):
+            reduce.reduce_document(doc, self.CONSUMED)
+        monkeypatch.setattr(reduce, "MAX_NODES", 100_000)
+        reduce.reduce_document(doc, self.CONSUMED)
