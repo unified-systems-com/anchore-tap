@@ -1,6 +1,7 @@
 """The read-only client (req-anchore-client-*, req-anchore-connection-2/-4/-5). No socket is opened."""
 
 import base64
+import io
 import socket
 
 import pytest
@@ -283,3 +284,47 @@ class TestBrokenStreams:
         with pytest.raises(cl.RequestFailed) as err:
             client.get("/images")
         assert type(error).__name__ in str(err.value) and len(transport.calls) == 1 and sleeps == []
+
+
+class TestArrivalByArrival:
+    def _drip(self, clock_state, step, chunks=50):
+        class Drip(io.BytesIO):
+            def __init__(self):
+                super().__init__(b"")
+                self.n = 0
+
+            def read1(self, amt=-1, decode_content=None):
+                self.n += 1
+                clock_state[0] += step
+                return b"x" if self.n <= chunks else b""
+
+        r = response(200, b"")
+        r._content_consumed = False
+        r._content = False
+        r.raw = Drip()
+        r.headers.pop("content-length", None)
+        return r
+
+    def test_a_peer_that_drips_a_byte_at_a_time_is_cut_off_at_the_deadline(self):
+        now = [0.0]
+        transport = FakeTransport(default=self._drip(now, 30.0, chunks=500))
+        credential = cred.credential_from_envelope(envelope())
+        client = cl.ReadOnlyClient(credential, transport=transport, clock=lambda: now[0], sleep=lambda d: None, max_attempts=1)
+        with pytest.raises(cl.RequestFailed) as err:
+            client.get("/images")
+        assert "budget" in str(err.value)
+        assert now[0] < cl.TOTAL_BUDGET_SECONDS + 60  # overshoot is at most one read
+
+    def test_a_real_urllib3_response_is_read_and_decoded(self):
+        import gzip
+
+        import urllib3.response
+
+        body = gzip.compress(b'{"ok": true, "pad": "' + b"y" * 200_000 + b'"}')
+        raw = urllib3.response.HTTPResponse(body=io.BytesIO(body), headers={"content-encoding": "gzip", "content-type": "application/json"}, status=200, preload_content=False)
+        r = requests.Response()
+        r.status_code, r.raw = 200, raw
+        r.headers.update({"content-encoding": "gzip", "content-type": "application/json"})
+        client, _, _ = make(default=r)
+        reply = client.get("/images")
+        assert reply.status == 200 and reply.body.startswith(b'{"ok": true') and len(reply.body) > 200_000

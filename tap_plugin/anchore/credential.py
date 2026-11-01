@@ -28,8 +28,12 @@ SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "anchore_api_credent
 # The documented user name an Anchore API key is presented under.
 API_KEY_USER = "_api_key"
 
-# What replaces a credential found in text an instance returned.
+# What replaces a credential found in text an instance returned. The first candidate is used
+# unless it would itself contain a form of the credential (a password that is the word
+# "credential" or "REDACTED" would otherwise survive its own redaction); then the next, and as a
+# last resort the match is removed.
 REDACTED = "[REDACTED:credential]"
+_MARKERS = (REDACTED, "[redacted]", "[#]", "#", "\u2588", "")
 
 
 class CredentialError(Exception):
@@ -72,20 +76,26 @@ class Auth:
             out.update({self._bearer, f"Bearer {self._bearer}"})
         return tuple(sorted((f for f in out if f), key=len, reverse=True))
 
+    def _marker(self) -> str:
+        forms = self._forms()
+        return next((m for m in _MARKERS if not any(f in m for f in forms)), "")
+
     def redact(self, text: str) -> tuple[str, int]:
-        """Replace every form of the credential in ``text``; returns the text and how many were replaced."""
-        count = 0
+        """Replace every form of the credential in ``text``; returns the text and how many were replaced.
+
+        Longest form first, and the replacement is chosen so that it contains no form.
+        """
+        marker, count = self._marker(), 0
         for form in self._forms():
             count += text.count(form)
-            text = text.replace(form, REDACTED)
+            text = text.replace(form, marker)
         return text, count
 
     def redact_bytes(self, data: bytes) -> tuple[bytes, int]:
-        count = 0
-        for form in self._forms():
-            raw = form.encode("utf-8")
-            count += data.count(raw)
-            data = data.replace(raw, REDACTED.encode("ascii"))
+        marker, count = self._marker().encode("utf-8"), 0
+        for form in (f.encode("utf-8") for f in self._forms()):
+            count += data.count(form)
+            data = data.replace(form, marker)
         return data, count
 
 

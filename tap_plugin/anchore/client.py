@@ -157,6 +157,29 @@ class _Session(requests.Session):
         return response
 
 
+def _arrivals(response: requests.Response) -> Any:
+    """Yield the body as it arrives, one read at a time.
+
+    ``iter_content(n)`` waits until n bytes have arrived, so a peer that sends a byte less often
+    than the read timeout could hold one call open for hours and the deadline would never be
+    looked at. ``read1`` returns whatever one read produced, so the caller sees every arrival
+    and the overshoot past the deadline is at most one read timeout.
+    """
+    raw = response.raw
+    reader = getattr(raw, "read1", None)
+    if reader is None:
+        yield from response.iter_content(65536)
+        return
+    while True:
+        try:
+            data = reader(65536, decode_content=True)
+        except TypeError:  # a plain file-like object (as in tests) takes no decode_content
+            data = reader(65536)
+        if not data:
+            return
+        yield data
+
+
 def fill(template: str, **values: str) -> str:
     """Fill a path template such as ``/images/{image_digest}/vuln/{vuln_type}`` with quoted values."""
     out = template
@@ -284,7 +307,7 @@ class ReadOnlyClient:
                 raise ResponseTooLarge(f"{self._credential.qualified}: GET {path} declares {declared} bytes, over the {self._max_bytes} cap")
             chunks: list[bytes] = []
             size = 0
-            for chunk in response.iter_content(65536):
+            for chunk in _arrivals(response):
                 if self._clock() > deadline:
                     raise RequestFailed(f"{self._credential.qualified}: GET {path} exceeded the {TOTAL_BUDGET_SECONDS}-second budget while streaming")
                 size += len(chunk)

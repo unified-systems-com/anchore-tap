@@ -147,3 +147,19 @@ class TestDiscover:
 
         text = " ".join(str(p) for p in patterns.CREDENTIAL_PATTERNS).lower()
         assert "anchore" not in text and "_api_key" not in text
+
+
+class TestRedactionCannotReproduceTheCredential:
+    @pytest.mark.parametrize("secret", ["credential", "REDACTED", "[REDACTED:credential]", "redacted", "[redacted]", "#", "[", "\u2588", "a", "Bearer"])
+    def test_the_replacement_never_contains_the_credential(self, secret):
+        auth = cred.Auth("basic", _basic=("u", secret))
+        text, n = auth.redact(f"before {secret} after {secret}")
+        assert n >= 2
+        for form in auth._forms():
+            assert form not in text
+        data, m = auth.redact_bytes(f"x{secret}y".encode())
+        assert m >= 1 and all(form.encode() not in data for form in auth._forms())
+
+    def test_an_ordinary_secret_is_replaced_by_the_labelled_marker(self):
+        auth = cred.Auth("basic", _basic=("u", SECRET))
+        assert auth.redact(f"x {SECRET} y")[0] == f"x {cred.REDACTED} y"

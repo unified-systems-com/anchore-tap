@@ -83,6 +83,15 @@ def anchore_routes() -> dict[str, Any]:
     }
 
 
+class _FailingRaw(io.BytesIO):
+    def __init__(self, error: Exception) -> None:
+        super().__init__(b"")
+        self._error = error
+
+    def read1(self, *args: Any, **kwargs: Any) -> bytes:
+        raise self._error
+
+
 class BrokenStream(requests.Response):
     """A response whose body fails part-way, as a truncated or mis-encoded stream does."""
 
@@ -90,7 +99,7 @@ class BrokenStream(requests.Response):
         super().__init__()
         self.status_code = 200
         self.headers.update({"content-type": "application/json"})
-        self.raw = io.BytesIO(b"")
+        self.raw = _FailingRaw(error)
         self._error = error
 
     def iter_content(self, chunk_size=1, decode_unicode=False):
