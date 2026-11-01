@@ -50,7 +50,7 @@ Six consequences shape v0:
 
 | RID | Name | Status | Notes |
 | --- | --- | --- | --- |
-| req-anchore-connection | [Connection And Credential](#connection-and-credential) | Proposed | Base URL, credential, account and CA bundle are operator settings and the secret envelope; never fields on a node |
+| req-anchore-connection | [Connection And Credential](#connection-and-credential) | Proposed | One operator-owned secret envelope per Anchore instance and account holds the credential and its connection settings; never fields on a node |
 | req-anchore-client | [The Read-Only Client](#the-read-only-client) | Proposed | A thin `requests` client, GET only, cursor paging, timeouts, backoff, TLS verification on |
 | req-anchore-probe | [Probe And Provenance](#probe-and-provenance) | Proposed | Version, status and feed freshness read first and recorded on the scan run |
 | req-anchore-selftest | [Per-Run Schema Self-Test](#per-run-schema-self-test) | Proposed | The instance's own spec is checked against the committed extract before any data is read; error, warn or pass |
@@ -76,11 +76,23 @@ RID: `req-anchore-connection`
 
 Status: `Proposed`
 
-How the collector knows which Anchore to read and how to authenticate. The base URL, the credential, the account to scope to and an optional CA bundle are operator settings and the secret envelope, never fields on a grid node: whoever can edit a node must not be able to point a credential at another host (the same rule `grype-tap` states for its settings).
+How the collector knows which Anchore to read and how to authenticate. The base URL, the account to scope to, an optional CA bundle and the credential live together in one operator-owned secret envelope per Anchore instance and account, never in a field on a grid node: whoever can edit a node must not be able to point a credential at another host (the same rule `grype-tap` states for its settings), and keeping the host and the credential in one file means editing a second file cannot redirect it either.
 
 #### Implementation
 
-Plugin-owned settings resolved at collection time: `base_url` (the API root including `/v2`; it must be `https://`, and the hosted URL and an on-prem `https://<host>:<port>/v2` both fit; plaintext is covered by `req-anchore-connection-4`), `account` (required: the Anchore account the credential reads, and part of every key; sent as `x-anchore-account` where the instance needs it), `ca_bundle` (a path, optional), `annotation_allowlist` (annotation keys that may be stored; empty by default), and a secret envelope holding the credential. Anchore documents Basic, API key (user `_api_key`), and OAuth2 bearer authentication; which of them the hosted service accepts is unknown until the trial (see the differences ledger), so the envelope names the scheme and the client supports the three. The bearer scheme is a token already minted and held in the envelope: the client never calls a token endpoint, because obtaining a token is a POST and the client sends only GET. Minting and renewing the token is the operator's, out of band. The secret kind and its minting guidance are wired through the `manage-secret` skill when the collector is built. Nothing in this section is read from a node, and the credential value never appears in a log, a scan-run field or an error message.
+The secret is a plugin secret, not a core one: its consumer is the Anchore collector, so the envelope's scope is `anchore` (the consumer, never the issuer), its key is chosen by the operator to name the instance and account, and the file is `<key>.secret.json` under the secrets root, never in a repository. Its kind is `anchore_api_credential`, a kind this plugin owns: the collector validates `data` against the plugin's JSON Schema (`tap_plugin/anchore/schemas/anchore_api_credential.schema.json`, strict, a `description` on the top level and every field) with `require_secret_kind` before any request. `data` holds:
+
+- `base_url`: the API root including `/v2`; it must be `https://` (`req-anchore-connection-4`), and the hosted URL and an on-prem `https://<host>:<port>/v2` both fit. Required.
+- `account`: the Anchore account the credential reads, part of every key; sent as `x-anchore-account` where the instance needs it. Required.
+- `ca_bundle`: the absolute path of a PEM file on the host, never its contents. Optional.
+- `annotation_allowlist`: annotation keys that may be stored; empty by default. Optional.
+- `scheme`: `basic`, `api_key` or `bearer`, which selects the credential fields and admits no others. `basic` has `username` and `password`; `api_key` has `key`, sent as the user `_api_key` that Anchore documents; `bearer` has `token`, a token already minted and held in the envelope. The client never calls a token endpoint, because obtaining a token is a POST and the client sends only GET; minting and renewing the token is the operator's, out of band, and a change to any value takes effect on restart.
+
+The envelope's description states the least-privilege shape: a read-only Anchore role for the named account. Which of the three schemes the hosted service accepts, and what a read-only credential can read, is unknown until the trial (see the differences ledger).
+
+The collector reads every envelope in scope `anchore`; each one is one Anchore instance and account and yields one scanner, whose key is derived from the canonical root of `base_url` and the account (`req-anchore-scope-walk-4`). Whether the collector is configured is a health probe on the presence of at least one envelope, not a flag on a file. An envelope that fails validation fails only its own instance's run, visibly, naming `anchore:<key>`; other instances still run.
+
+These credentials are undetectable by the secret scanner: a password, an Anchore API key and a bearer token carry no issuer prefix, so no `CredentialPattern` is added and no entropy rule is used (an entropy rule was measured to produce only false positives). Protection rests on the envelope layer, the leak guard and `.gitignore`, and on redaction: the credential is passed to `requests` as an auth tuple or a header, never interpolated into a URL, any object holding it omits it from its `__repr__`, and a failure names `anchore:<key>`, never a value. Nothing in this section is read from a node, and the credential value never appears in a log, a scan-run field or an error message.
 
 #### Acceptance Criteria
 
@@ -93,6 +105,11 @@ Plugin-owned settings resolved at collection time: `base_url` (the API root incl
 | req-anchore-connection-5 | Redirects Are Refused | Proposed | The client follows no redirect: a 3xx response is an error recorded on the run, so the credential can never reach another origin (host, port or scheme). | A negative test redirects to the same host on another port and to another host, and expects the refusal before any second request. |
 | req-anchore-connection-6 | Account Is Required And In The Key | Proposed | The `account` setting is required; a run with none is refused before any request, and the scanner key always includes it. The effective account is read from `GET /account` and a mismatch with the setting is an error (`req-anchore-probe-4`). | Whether Anchore reports the effective account, and whether the header is needed for a credential's own account, is unobserved. |
 | req-anchore-connection-7 | Strict Base URL | Proposed | A `base_url` with userinfo, a query or a fragment is refused before any request; host and scheme are lower-cased, the path is preserved as configured, and tests assert that `/v2` and `/V2`, and two different ports, give different scanner keys. | One instance must have one key, however its URL is spelled. |
+| req-anchore-connection-8 | One Envelope Per Instance And Account | Proposed | Each Anchore instance and account is one envelope in scope `anchore` holding its settings and credential together; the collector reads every envelope in that scope, and no setting is read from a node or a second file. | Editing another file must not redirect a credential. |
+| req-anchore-connection-9 | Duplicate Scanner Key Is Refused | Proposed | Two envelopes that yield the same scanner key (the same canonical root and account) refuse the run before any request, naming both keys. | A finding set from two credentials for one scanner would be ambiguous. |
+| req-anchore-connection-10 | Strict Credential Schema | Proposed | The `anchore_api_credential` data schema is strict: the fields of the named scheme only, none missing, every field described; a wrong kind or shape fails that instance's run before any request, naming `anchore:<key>` and never a value. | The consumer owns kind validation. |
+| req-anchore-connection-11 | Undetectability Is Recorded | Proposed | The spec states that these credentials have no scannable shape and that no pattern or entropy rule covers them; a test asserts no `CredentialPattern` was added for them. | Silence would look like coverage. |
+| req-anchore-connection-12 | No Credential In A URL Or A Repr | Proposed | The credential reaches `requests` as an auth tuple or header only; no URL, `__repr__`, log line or exception text contains it, and a test fails a request with each scheme and searches all of them. | Extends `req-anchore-connection-2`. |
 
 ### The Read-Only Client
 ----
