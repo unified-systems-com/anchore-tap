@@ -1,0 +1,27 @@
+manifest_version = "0"
+plugin_version = "0.1.0" # x-release-please-version
+requires_tap = ">=0.3.0"
+slug = "anchore"
+name = "TAP Anchore"
+description = "Anchore Enterprise vulnerability findings, SBOMs, VEX statements and inventory, read from its REST API and held on the grid as Anchore returns them."
+
+# Tier-1 load order (req-tap-plugin-arch-dependencies). The Anchore nodes link to computing_core's
+# image host, package and sbom_document, and the SBOM parser is computing_core's. Nothing in this
+# scaffold imports it yet; the declaration is the plan, and the first change that imports or
+# names a computing_core type makes it observed. Linking to compliance_core's vulnerability by
+# edge (req-anchore-findings) is a vocabulary reference to review when those edges are added.
+depends_on = [
+  { slug = "computing_core", note = "image host (oci-digest realm), package and sbom_document the Anchore nodes link to; the SBOM parser" },
+]
+
+# The author's DECLARED crypto posture (req-tap-plugin-manifest-v0-fips; spec-fips.md declare-vs-decide).
+# The scaffold has no crypto dependency. The HTTP client (`requests`) arrives with req-anchore-client;
+# it uses the system OpenSSL through Python's ssl module, and this declaration is re-checked
+# against validate_plugin's crypto-providers report in that change.
+[fips]
+status = "compatible"
+
+[[boot.records]]
+name = "ci"
+description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
+sha256 = "24dc80af3120756f29bb716ea3d5bb33f0284db5f35da6417fa90defa36fcf09"
