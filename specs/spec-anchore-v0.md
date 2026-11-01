@@ -52,6 +52,7 @@ Six consequences shape v0:
 | --- | --- | --- | --- |
 | req-anchore-connection | [Connection And Credential](#connection-and-credential) | Proposed | One operator-owned secret envelope per Anchore instance and account holds the credential and its connection settings; never fields on a node |
 | req-anchore-client | [The Read-Only Client](#the-read-only-client) | Proposed | A thin `requests` client, GET only, cursor paging, timeouts, backoff, TLS verification on |
+| req-anchore-observe | [The Trial Observation Command](#the-trial-observation-command) | Proposed | A read-only command that records what an instance returns, in a fixed order, locally, so shapes are observed before they are parsed |
 | req-anchore-probe | [Probe And Provenance](#probe-and-provenance) | Proposed | Version, status and feed freshness read first and recorded on the scan run |
 | req-anchore-selftest | [Per-Run Schema Self-Test](#per-run-schema-self-test) | Proposed | The instance's own spec is checked against the committed extract before any data is read; error, warn or pass |
 | req-anchore-contract-extract | [Contract Extract And Offline Tests](#contract-extract-and-offline-tests) | Proposed | A script-generated extract of the consumed paths and schemas, and tests against it with no network |
@@ -121,7 +122,7 @@ A small client over `requests` (a direct dependency of core already; no Anchore-
 
 #### Implementation
 
-`tap_plugin/anchore/client.py`. One `requests.Session` with TLS verification on (the configured CA bundle when set), a connect and read timeout on every call, bounded retry with backoff on connection errors, 429 and 5xx, and a `Retry-After` respect. Paging follows the cursor or page parameters each endpoint declares in the extract. The client defines `get` and nothing that sends a body or uses another verb; enforcement is at the transport, not by reading source: every request leaves through one function that sends through a `Session` whose adapter rejects any method but GET before anything is sent, and a negative test calls `session.request("POST", ...)` and expects the refusal. A source scan for other verbs is a secondary check, since it alone can be bypassed by an alias or by `Session.request(method=...)`.
+`tap_plugin/anchore/client.py`. One `requests.Session` with TLS verification on (the configured CA bundle when set), a connect and read timeout on every call, bounded retry with backoff on connection errors, 429 and 5xx, and a `Retry-After` respect. Paging follows the cursor or page parameters each endpoint declares in the extract. The client defines `get` and nothing that sends a body or uses another verb; enforcement is at the transport, not by reading source: every request leaves through one `Session` subclass whose `send` rejects any method but GET, any URL that is not https or is outside the configured API root, and any override of certificate verification, client certificate or proxies, before anything is sent. The guards are in `send`, so remounting an adapter does not bypass them, and the client does not expose its session; negative tests post, remount, and override `verify`. A source scan for other verbs is a secondary check, since it alone can be bypassed by an alias or by `Session.request(method=...)`.
 
 #### Acceptance Criteria
 
@@ -130,6 +131,30 @@ A small client over `requests` (a direct dependency of core already; no Anchore-
 | req-anchore-client-1 | GET Only | Proposed | Every request passes through one transport that rejects any method but GET before sending; `session.request("POST", ...)`, an aliased method and a request from another module are each refused. | Negative tests for each; the source scan is secondary. |
 | req-anchore-client-2 | Verified TLS | Proposed | Certificate verification is on; it is turned off by no setting. | A private CA is the `ca_bundle` setting. |
 | req-anchore-client-3 | Bounded Retries | Proposed | Retries are limited in count and total time, and honour `Retry-After`; exhaustion is a recorded failure, not a silent empty result. | Ties to `req-anchore-states`. |
+| req-anchore-client-4 | Bound To The API Root | Proposed | The adapter refuses any request whose URL is not under the configured API root, so the session that holds the credential cannot be used against another host, port or path root; tests drive the public session at each. | A direct session call must not exfiltrate the credential. |
+
+### The Trial Observation Command
+----
+RID: `req-anchore-observe`
+
+Status: `Proposed`
+
+An instrument for the first sessions against a real instance, and for any later one: it reads an instance through the read-only client in a fixed order, records every raw response locally, and prints which of the open questions in the differences ledger the responses answered. It is not the collector and writes nothing to the grid. It exists so that shapes are observed before they are parsed.
+
+#### Implementation
+
+`tap_plugin/anchore/observe.py`, run as `python -m tap_plugin.anchore.observe --list` to see the envelopes and `--key <key>` to observe one (`--dry-run` prints the plan and sends nothing). It uses `credential.discover` and `client.ReadOnlyClient`, and takes every path from `contract/consumed.json` plus the instance's own `/openapi.json`. The order is: `/account` with and without the account header, the probe reads, the instance's spec compared with the committed extract by the same reducer, the first page of images and one sampled image's findings, SBOMs, VEX, annotations and policy check, then sources, application versions and the inventory lists. A response is saved as one JSON file with its status, the headers that cannot carry a credential, the names (never the values) of the request headers, and the body, under a private directory in the home directory outside any repository; the report prints shapes, counts and statuses, never a body, a credential, or an account or image name. A step whose prerequisite is missing, or whose operation needs a parameter the command cannot know, is recorded as *not read* with the reason. Recordings are never committed; a fixture is committed only after the operator has reviewed a trimmed copy.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-observe-1 | Only The Consumed List | Proposed | Every request is a GET to a path in the consumed list or the instance's spec; a path outside it is refused before any request. | Excluded endpoints stay unreachable. |
+| req-anchore-observe-2 | Local And Private | Proposed | Recordings are written under a directory outside any repository with owner-only permissions, and nothing is written to the grid. | The repository is public. |
+| req-anchore-observe-3 | Nothing Sensitive Printed Or Saved | Proposed | The report and the recordings contain no credential in any form, and the report contains no body, account name or image name; `--list` shows an envelope's key, scheme and base URL only. Text that came from an instance is stripped of non-printable characters and bounded before it is printed, so a hostile instance cannot inject terminal control sequences. A credential an instance echoes back, in any form this client sends it in (the secret, its Basic header exactly as `requests` encodes it and as UTF-8, its Bearer header), is replaced before anything is saved and the count is reported; a transformed copy cannot be recognised and is not covered. A credential with characters an HTTP header cannot carry (outside Latin-1) is refused at load. The configured account name, where it stands alone in text an instance supplied, is masked in the printed report. A failed read prints its class of failure, never the path or identifier. | Header names are recorded, never credential-bearing values. |
+| req-anchore-observe-4 | Not Read Is Recorded | Proposed | A step with a missing prerequisite or an unknowable required parameter is recorded as not read with the reason, never as empty. | Three states. |
+| req-anchore-observe-5 | Dry Run Sends Nothing | Proposed | `--dry-run` and `--list` send no request. | |
+| req-anchore-observe-6 | Every Consumed Operation Is Accounted For | Proposed | Each operation in the consumed list appears in the report as read or as not read, so an operation no step requests is visible; a broken response, including a malformed stream, is recorded as a failed read and the observation continues. | Coverage must not shrink silently. |
 
 ### Probe And Provenance
 ----
@@ -506,7 +531,7 @@ The plugin runs in a FIPS-mode TAP deployment. It needs only `requests`, which i
 
 #### Implementation
 
-The manifest declares `[fips] status = "compatible"` after `validate_plugin --strict` reports no non-validated crypto provider. No native binary ships (AnchoreCTL is not used). If a dependency later introduces one, the declaration changes to `uses-nonvalidated` with a reason, in the same change.
+The manifest declares `[fips] status = "compatible"` after `validate_plugin --strict` reports no non-validated crypto provider. No native binary ships (AnchoreCTL is not used). If a dependency later introduces one, the declaration changes to `uses-nonvalidated` with a reason, in the same change. TLS is performed by system OpenSSL through Python's `ssl` module. The root certificates it trusts are, by default, the `certifi` bundle that `requests` ships with and not the operating system's store (the environment's CA settings are ignored by design); an instance behind a private CA, or a deployment that must trust only a chosen set, names a PEM file as `ca_bundle` in its envelope. Whether the default bundle is acceptable in a FedRAMP deployment is a deployment decision, to be recorded in the differences ledger.
 
 #### Acceptance Criteria
 
