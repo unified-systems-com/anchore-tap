@@ -35,6 +35,12 @@ _SCHEMA_KEYS = (
     "minItems",
     "maxItems",
     "additionalProperties",
+    "default",
+    "const",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+    "uniqueItems",
 )
 _SCHEMA_LIST_KEYS = ("allOf", "anyOf", "oneOf")
 _METHODS = ("get", "put", "post", "delete", "patch", "head", "options")
@@ -76,10 +82,10 @@ class _Resolver:
     def __init__(self, doc: dict[str, Any]) -> None:
         self.doc = doc
         self.nodes = 0
-        self._memo: dict[str, tuple[Any, bool]] = {}
+        self._memo: dict[str, tuple[Any, bool, int]] = {}
 
-    def _tick(self) -> None:
-        self.nodes += 1
+    def _tick(self, count: int = 1) -> None:
+        self.nodes += count
         if self.nodes > MAX_NODES:
             raise ReducerError(f"document expands past {MAX_NODES} nodes")
 
@@ -106,10 +112,16 @@ class _Resolver:
             if ref in stack:
                 return {"$recursive": ref}, True
             if ref in self._memo:
-                return self._memo[ref]
+                # A cached subtree still appears in the output once more, so it is charged
+                # what it cost the first time; otherwise many operations naming one large
+                # schema would expand far past the budget.
+                resolved, cyclic, size = self._memo[ref]
+                self._tick(size)
+                return resolved, cyclic
+            before = self.nodes
             resolved, cyclic = self.schema(self.lookup(ref), stack + (ref,), depth + 1)
             if not cyclic:
-                self._memo[ref] = (resolved, cyclic)
+                self._memo[ref] = (resolved, cyclic, self.nodes - before)
             return resolved, cyclic
         out: dict[str, Any] = {}
         cyclic = False
@@ -204,6 +216,8 @@ def reduce_document(doc: dict[str, Any], consumed: dict[str, Any]) -> dict[str, 
         record["operation_id"] = op.get("operationId")
         record["parameters"] = params
         record["responses"] = resolver.responses(op.get("responses"))
+        if entry.get("never_request"):
+            record["never_request"] = entry["never_request"]
         operations.append(record)
     return {
         "description": (

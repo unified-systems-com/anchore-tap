@@ -24,16 +24,22 @@ def compare(fresh_doc: dict, consumed: dict, committed_extract: dict, baseline_d
     return drift, other_changes(baseline_doc, fresh_doc, consumed_keys)
 
 
+def _clean(text: str) -> str:
+    """Make a string from the upstream file safe to print inside a markdown code span."""
+    kept = "".join(ch if ch.isprintable() and ch != "`" else " " for ch in str(text))
+    return kept[:300]
+
+
 def render_summary(drift: list[str], other: list[str]) -> str:
     lines = ["## Anchore API drift", ""]
     if drift:
         lines += ["### Changed in what the plugin consumes (this fails the run)", ""]
-        lines += [f"- `{d}`" for d in drift]
+        lines += [f"- `{_clean(d)}`" for d in drift]
     else:
         lines += ["Nothing the plugin consumes has changed.", ""]
     if other:
         lines += ["", "### Changed outside what the plugin consumes (listed, does not fail)", ""]
-        lines += [f"- `{o}`" for o in other]
+        lines += [f"- `{_clean(o)}`" for o in other]
     return "\n".join(lines) + "\n"
 
 

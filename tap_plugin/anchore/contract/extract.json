@@ -339,7 +339,8 @@
        "all",
        "active",
        "deleting"
-      ]
+      ],
+      "default": "active"
      }
     }
    ],
@@ -850,7 +851,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
      }
     },
     {
@@ -858,7 +860,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
      }
     },
     {
@@ -866,7 +869,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": true
      }
     }
    ],
@@ -1577,7 +1581,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": true
      }
     },
     {
@@ -1585,7 +1590,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
      }
     },
     {
@@ -1593,7 +1599,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
      }
     },
     {
@@ -2957,6 +2964,14 @@
       }
      }
     }
+   ],
+   "never_request": [
+    {
+     "parameter": "content_type",
+     "values": [
+      "files"
+     ]
+    }
    ]
   },
   {
@@ -4237,6 +4252,14 @@
       }
      }
     }
+   ],
+   "never_request": [
+    {
+     "parameter": "content_type",
+     "values": [
+      "files"
+     ]
+    }
    ]
   },
   {
@@ -4332,7 +4355,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
      }
     },
     {
@@ -4739,7 +4763,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     },
     {
@@ -4764,6 +4789,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -4806,7 +4832,8 @@
            }
           },
           "description": {
-           "type": "string"
+           "type": "string",
+           "default": ""
           },
           "name": {
            "type": "string"
@@ -4838,7 +4865,8 @@
            }
           },
           "version_count": {
-           "type": "integer"
+           "type": "integer",
+           "default": 0
           }
          }
         }
@@ -4938,7 +4966,8 @@
         }
        },
        "description": {
-        "type": "string"
+        "type": "string",
+        "default": ""
        },
        "name": {
         "type": "string"
@@ -4970,7 +4999,8 @@
         }
        },
        "version_count": {
-        "type": "integer"
+        "type": "integer",
+        "default": 0
        }
       }
      }
@@ -5017,7 +5047,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     },
     {
@@ -5055,6 +5086,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -5064,10 +5096,12 @@
          ],
          "properties": {
           "asset_count": {
-           "type": "integer"
+           "type": "integer",
+           "default": 0
           },
           "description": {
-           "type": "string"
+           "type": "string",
+           "default": ""
           },
           "name": {
            "type": "string"
@@ -5199,10 +5233,12 @@
       ],
       "properties": {
        "asset_count": {
-        "type": "integer"
+        "type": "integer",
+        "default": 0
        },
        "description": {
-        "type": "string"
+        "type": "string",
+        "default": ""
        },
        "name": {
         "type": "string"
@@ -5314,7 +5350,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     },
     {
@@ -5359,6 +5396,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -5378,10 +5416,12 @@
            "type": "object",
            "properties": {
             "item_count": {
-             "type": "integer"
+             "type": "integer",
+             "default": 0
             },
             "items": {
              "type": "array",
+             "default": [],
              "items": {
               "type": "object",
               "required": [
@@ -5590,7 +5630,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     },
     {
@@ -5640,6 +5681,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -5659,10 +5701,12 @@
            "type": "object",
            "properties": {
             "item_count": {
-             "type": "integer"
+             "type": "integer",
+             "default": 0
             },
             "items": {
              "type": "array",
+             "default": [],
              "items": {
               "type": "object",
               "required": [
@@ -5888,10 +5932,12 @@
         "type": "object",
         "properties": {
          "item_count": {
-          "type": "integer"
+          "type": "integer",
+          "default": 0
          },
          "items": {
           "type": "array",
+          "default": [],
           "items": {
            "type": "object",
            "required": [
@@ -6129,7 +6175,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     }
    ],
@@ -6145,6 +6192,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -6155,6 +6203,7 @@
          "properties": {
           "licenses": {
            "type": "array",
+           "default": [],
            "items": {
             "type": "object",
             "required": [
@@ -6256,7 +6305,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     },
     {
@@ -6280,6 +6330,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -6290,10 +6341,12 @@
          ],
          "properties": {
           "asset_count": {
-           "type": "integer"
+           "type": "integer",
+           "default": 0
           },
           "cvss_assessments": {
            "type": "array",
+           "default": [],
            "items": {
             "type": "object",
             "required": [
@@ -6382,6 +6435,7 @@
           },
           "fix_versions": {
            "type": "array",
+           "default": [],
            "items": {
             "type": "object",
             "required": [
@@ -6403,7 +6457,8 @@
            }
           },
           "kev": {
-           "type": "boolean"
+           "type": "boolean",
+           "default": false
           },
           "name": {
            "type": "string"
@@ -6574,7 +6629,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     }
    ],
@@ -6590,6 +6646,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -6598,7 +6655,8 @@
          ],
          "properties": {
           "assets_affected": {
-           "type": "integer"
+           "type": "integer",
+           "default": 0
           },
           "result": {
            "type": "object",
@@ -6754,7 +6812,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     }
    ],
@@ -6770,6 +6829,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -6779,7 +6839,8 @@
          ],
          "properties": {
           "assets_affected": {
-           "type": "integer"
+           "type": "integer",
+           "default": 0
           },
           "details": {
            "type": "object",
@@ -6958,7 +7019,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     }
    ],
@@ -6974,6 +7036,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -6983,7 +7046,8 @@
          ],
          "properties": {
           "assets_affected": {
-           "type": "integer"
+           "type": "integer",
+           "default": 0
           },
           "details": {
            "type": "object",
@@ -7445,7 +7509,8 @@
         "type": "object",
         "properties": {
          "total_findings": {
-          "type": "integer"
+          "type": "integer",
+          "default": 0
          }
         }
        },
@@ -7520,7 +7585,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     }
    ],
@@ -7536,6 +7602,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -7554,6 +7621,7 @@
           },
           "cvss_assessments": {
            "type": "array",
+           "default": [],
            "items": {
             "type": "object",
             "required": [
@@ -7638,6 +7706,7 @@
           },
           "fix_versions": {
            "type": "array",
+           "default": [],
            "items": {
             "type": "object",
             "required": [
@@ -7659,7 +7728,8 @@
            }
           },
           "kev": {
-           "type": "boolean"
+           "type": "boolean",
+           "default": false
           },
           "last_found": {
            "type": "string",
@@ -7833,7 +7903,8 @@
      "schema": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 1000,
+      "default": 1000
      }
     },
     {
@@ -7870,6 +7941,7 @@
       "properties": {
        "items": {
         "type": "array",
+        "default": [],
         "items": {
          "type": "object",
          "required": [
@@ -8191,7 +8263,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
      }
     }
    ],
@@ -8284,7 +8357,8 @@
      "in": "query",
      "required": false,
      "schema": {
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
      }
     }
    ],
@@ -9223,7 +9297,8 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "default": 1000
      }
     }
    ],
@@ -9295,7 +9370,8 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "default": 1000
      }
     }
    ],
@@ -9370,7 +9446,8 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "default": 1000
      }
     }
    ],
@@ -9437,7 +9514,8 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "default": 1000
      }
     }
    ],
@@ -9510,7 +9588,8 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "default": 1000
      }
     }
    ],
@@ -9583,7 +9662,8 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "default": 1000
      }
     }
    ],
@@ -9666,7 +9746,8 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "default": 1000
      }
     }
    ],

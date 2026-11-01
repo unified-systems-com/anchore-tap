@@ -1,5 +1,5 @@
 {
- "description": "The operations this plugin consumes from Anchore's API, the input to the reducer. Every entry is a GET: the client has no write path (req-anchore-client-1). Not consumed, by ruling: secret-search, retrieved-file and file-content results, account, user, RBAC and registry endpoints, configuration and admin endpoints, export jobs and downloads, notifications and events. Edit this list only with the requirement that needs the operation.",
+ "description": "The operations this plugin consumes from Anchore's API, the input to the reducer. Every entry is a GET: the client has no write path (req-anchore-client-1). Not consumed, by ruling: secret-search, retrieved-file and file-content results, account, user, RBAC and registry endpoints, configuration and admin endpoints, export jobs and downloads, notifications and events. Edit this list only with the requirement that needs the operation. An entry's never_request lists parameter values the client must never send even though the vendor's schema allows them; the extract carries the list so the client reads it from there.",
  "operations": [
   {
    "description": "Probe: Read first on every run to identify the instance, its account and its feed freshness (req-anchore-probe).",
@@ -84,7 +84,15 @@
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
    "method": "get",
-   "path": "/images/{image_digest}/content/{content_type}"
+   "path": "/images/{image_digest}/content/{content_type}",
+   "never_request": [
+    {
+     "parameter": "content_type",
+     "values": [
+      "files"
+     ]
+    }
+   ]
   },
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
@@ -154,7 +162,15 @@
   {
    "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
    "method": "get",
-   "path": "/sources/{source_id}/content/{content_type}"
+   "path": "/sources/{source_id}/content/{content_type}",
+   "never_request": [
+    {
+     "parameter": "content_type",
+     "values": [
+      "files"
+     ]
+    }
+   ]
   },
   {
    "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",

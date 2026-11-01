@@ -269,3 +269,51 @@ class TestProvenance:
         digest = hashlib.sha256((VENDOR / "openapi-2.20.0.json").read_bytes()).hexdigest()
         assert digest == provenance["json_sha256"]
         assert provenance["description"] and provenance["source_url"].startswith("https://")
+
+
+class TestReviewFixes:
+    CONSUMED = {
+        "operations": [
+            {"description": "t", "method": "get", "path": f"/x{i}"} for i in range(6)
+        ]
+    }
+
+    def _shared_doc(self):
+        schema = {"type": "object", "properties": {f"p{i}": {"type": "string"} for i in range(8)}}
+        paths = {
+            f"/x{i}": {"get": {"responses": {"200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Big"}}}}}}}
+            for i in range(6)
+        }
+        return {"openapi": "3.0.1", "info": {"title": "t", "version": "1"}, "paths": paths, "components": {"schemas": {"Big": schema}}}
+
+    def test_shared_schema_is_charged_each_time_it_is_used(self, monkeypatch):
+        """A schema named by many operations expands in the output once per use, so the node budget counts every use."""
+        doc = self._shared_doc()
+        monkeypatch.setattr(reduce, "MAX_NODES", 55)
+        with pytest.raises(reduce.ReducerError):
+            reduce.reduce_document(doc, self.CONSUMED)
+        monkeypatch.setattr(reduce, "MAX_NODES", 10_000)
+        reduce.reduce_document(doc, self.CONSUMED)
+
+    def test_parameter_default_change_is_drift(self):
+        consumed, committed, baseline = _json("consumed.json"), _json("extract.json"), _source()
+        fresh = copy.deepcopy(baseline)
+        params = fresh["paths"]["/images/{image_digest}/vuln/{vuln_type}"]["get"]["parameters"]
+        target = next(p for p in params if p.get("name") == "vendor_only")
+        assert target["schema"].get("default") is not None
+        target["schema"]["default"] = not target["schema"]["default"]
+        found, _ = drift.compare(fresh, consumed, committed, baseline)
+        assert any("vendor_only" in line or "default" in line for line in found)
+
+    def test_files_content_type_is_never_requested(self):
+        """The generic content routes allow a files value the plugin must never send; the extract says so."""
+        extract = _json("extract.json")
+        generic = [o for o in extract["operations"] if o["path"].endswith("/content/{content_type}")]
+        assert len(generic) == 2
+        for op in generic:
+            assert op["never_request"] == [{"parameter": "content_type", "values": ["files"]}]
+
+    def test_summary_text_from_upstream_cannot_forge_markdown(self):
+        text = drift.render_summary([], ["version: x`\n## Forged status"])
+        assert "\n## Forged" not in text and "`## " not in text
+        assert text.count("`") % 2 == 0

@@ -37,7 +37,7 @@ jobs:
       - name: Fetch Anchore's published OpenAPI file
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location --proto '=https' --max-redirs 3 \
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-redirs 3 \
             --max-filesize 16777216 --max-time 60 --output "$RUNNER_TEMP/upstream.yaml" "$UPSTREAM_URL"
           # --max-filesize does not bind a response of unknown length, so check what arrived.
           size="$(wc -c < "$RUNNER_TEMP/upstream.yaml")"
