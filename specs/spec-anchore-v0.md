@@ -1,6 +1,6 @@
 # Anchore Plugin Specification
 
-**A read-only collector for Anchore Enterprise, hosted or on-prem: on a schedule it reads vulnerability findings, SBOMs, VEX statements, policy results and runtime inventory from Anchore's REST API and writes them to the grid, as `compliance_core` and `computing_core` types where a neutral home exists and as Anchore-specific nodes where it does not, so a FedRAMP vulnerability detection and response (VDR) implementation can read what Anchore knows without going to Anchore.**
+**A read-only collector for Anchore Enterprise, hosted or on-prem: on a schedule it reads vulnerability findings, SBOMs, VEX statements, policy results and runtime inventory from Anchore's REST API and writes them to the grid as Anchore-owned nodes that hold Anchore's data as Anchore returns it, linked to the `computing_core` nodes for the images, packages and SBOMs they concern, so a FedRAMP vulnerability detection and response (VDR) implementation can read what Anchore knows without going to Anchore.**
 
 ## Plugin Identity
 
@@ -9,22 +9,22 @@
 | Slug | `anchore` |
 | Display name | TAP Anchore |
 | Description | A read-only collector for Anchore Enterprise (hosted or on-prem) that lands vulnerability findings, SBOMs, VEX statements, policy results and runtime inventory on the grid. |
-| Kind | Leaf plugin: consumes `compliance_core` (scanner, scan run, vulnerability, finding) and `computing_core` (package, sbom_document, host as the image host, and the SBOM parser); consumed by VDR plugins (`fedramp_20x_vdr`, `stackarmor_vdr`) through the grid, with no import. |
+| Kind | Leaf plugin: consumes `computing_core` (package, sbom_document, host as the image host, and the SBOM parser) and links to the shared `compliance_core` vulnerability when one exists, without writing to `compliance_core`; read by VDR plugins (`fedramp_20x_vdr`, `stackarmor_vdr`) through the grid, with no import, once a later layer maps Anchore's nodes to theirs. |
 
 **Default dimensions.**
 
 | Key | Value | Why |
 | --- | --- | --- |
-| `anchore.area` | `inventory` on the application, version and asset nodes; `annotation` on VEX annotation nodes; `runtime` on the runtime-observation nodes | Lets a page or Search group the Anchore-specific nodes without listing types. The key is namespaced by this vocabulary, which only this plugin gives meaning. The neutral `compliance_core` and `computing_core` nodes this plugin writes keep their owners' dimensions and receive none from here. |
+| `anchore.area` | `finding` on finding nodes; `run` on scanner and scan-run nodes; `inventory` on the application, version and asset nodes; `annotation` on VEX annotation nodes; `runtime` on the runtime-observation nodes | Lets a page or Search group the Anchore-specific nodes without listing types. The key is namespaced by this vocabulary, which only this plugin gives meaning. The `computing_core` nodes this plugin writes keep their owner's dimensions and receive none from here. |
 
 ## Philosophy
 
-Anchore already does the hard part: it builds SBOMs, matches them against vulnerability feeds, evaluates policy and records VEX statements. A FedRAMP VDR implementation needs those answers on the grid, next to everything else the grid knows, with their provenance. This plugin carries them across. It does not scan, does not decide what a vulnerability means for a FedRAMP factor, and does not write to Anchore.
+Anchore already does the hard part: it builds SBOMs, matches them against vulnerability feeds, evaluates policy and records VEX statements. A FedRAMP VDR implementation needs those answers on the grid, next to everything else the grid knows, with their provenance. This plugin carries them across. It does not scan, does not decide what a vulnerability means for a FedRAMP factor, and does not write to Anchore. It carries Anchore's data as Anchore returns it and does not interpret, consolidate or judge it: no severity scale, fix model or mapping is applied. How an organisation reads Anchore beside its other scanners is a later layer, shaped once Anchore's data is on the grid.
 
 Six consequences shape v0:
 
 1. **Read-only, always.** Every call is a GET. Anchore's export jobs, annotation writes, asset-adding jobs and inventory POST and DELETE endpoints are never called, so the credential can be a read-only role and a bug here cannot change Anchore.
-2. **Consume the neutral vocabulary, add only what has no home.** Findings, vulnerabilities, scanners and scan runs are `compliance_core`'s; packages, SBOM documents and images are `computing_core`'s. Anchore's application, its versions and assets, its VEX annotations and its runtime observations have no neutral home and become Anchore-specific nodes, linked to the neutral ones by edges.
+2. **Anchore's data in Anchore's shape; link, never merge.** Findings, scanners, scan runs, applications, versions and assets, VEX annotations and runtime observations are Anchore-owned nodes. Packages, SBOM documents and images are `computing_core`'s, because they describe the artifact and not Anchore's view of it. Anchore-owned nodes link to those and to the shared `compliance_core` vulnerability by edges. Nothing Anchore says is written into a record another producer shares, and nothing is written to `compliance_core`.
 3. **Three states, never two.** A scope Anchore could not be asked about, a scope the instance does not offer, or an image whose analysis has not finished is recorded as *not read*, never as clean. A fact nothing observed is `null`. A run resolves only what that run actually read.
 4. **A run names what it read and from where.** The instance, its reported version and its feed freshness are recorded on every scan run, so a finding can be judged against the data behind it.
 5. **The API is a contract we can check.** Anchore changes its OpenAPI file on its own schedule and differs between hosted and on-prem. A committed extract of what we consume is tested offline, compared against the vendor's published file on a schedule, and compared against the configured instance at the start of every run.
@@ -43,7 +43,7 @@ Six consequences shape v0:
 | 3 | Never Clean By Omission | A scope, an image or an instance feature not read is recorded as not read; unobserved facts are `null`. |
 | 4 | Hosted And On-Prem | One client and one set of nodes serve both, with every difference between them kept in a ledger and observed before it is asserted. |
 | 5 | Detect API Drift | Offline contract tests, a scheduled comparison with the vendor's file, and a per-run self-test against the configured instance catch a changed API before bad data lands. |
-| 6 | Neutral Where Possible | Neutral types are used wherever one exists; Anchore-specific nodes are the exception, linked to the neutral ones. |
+| 6 | Anchore's Shape, Linked | Anchore's data is stored as Anchore returns it, in Anchore-owned nodes linked to the `computing_core` and shared vulnerability nodes it concerns; no interpretation is applied. |
 | 7 | Backend Only | No page or panel ships; the outputs are nodes and edges other surfaces read. |
 
 ## Requirements
@@ -58,7 +58,7 @@ Six consequences shape v0:
 | req-anchore-drift-ci | [Scheduled Drift Check](#scheduled-drift-check) | Proposed | A scheduled workflow compares the vendor's public file with the extract and fails on drift in what we consume |
 | req-anchore-states | [Three States And Resolution](#three-states-and-resolution) | Proposed | Not read is never clean; null is unobserved; a run resolves only what it read |
 | req-anchore-scope-walk | [The Scope Walk](#the-scope-walk) | Proposed | Images, sources and application versions walked with GET calls; what is read at each |
-| req-anchore-findings | [Findings And Vulnerabilities](#findings-and-vulnerabilities) | Proposed | Scanner, scan run, vulnerability and finding in `compliance_core`'s types, keyed by what they assert |
+| req-anchore-findings | [Findings And Vulnerabilities](#findings-and-vulnerabilities) | Proposed | Anchore-owned scanner, scan-run and finding nodes holding Anchore's fields as returned, keyed by what they assert and linked to the shared vulnerability |
 | req-anchore-sbom | [SBOMs](#sboms) | Proposed | Three formats stored as documents; CycloneDX parsed into packages under the source-authenticated outcome |
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
 | req-anchore-vex | [VEX Annotations](#vex-annotations) | Proposed | One annotation type for image and application-version scope, with edges to its scope and its subject |
@@ -261,27 +261,29 @@ RID: `req-anchore-findings`
 
 Status: `Proposed`
 
-How Anchore's vulnerability results become `compliance_core` nodes. This plugin authors none of these types; it produces them.
+How Anchore's vulnerability results become Anchore-owned nodes. Each holds what Anchore returned, in the form it returned it. This plugin writes no `compliance_core` node and changes no shared record; how a finding is read beside another scanner's is a later layer.
 
 #### Implementation
 
-- `compliance_core__compliance_scanner`: one per Anchore instance and account, `source` `anchore`, `scanner_key` derived from the canonical API root and the account together. The canonical API root is the lower-cased host, the port and the path of `base_url`, with the path kept exactly as configured (URL paths are case-sensitive, so `/v2` and `/V2` are different roots); `base_url` is rejected outright if it carries userinfo, a query or a fragment (`anchore.example:8228/v2`), so installations on different ports or API roots of one host are different scanners, and so are two accounts on one root. The reported version is a fact on the scanner, not part of its key.
-- `compliance_core__compliance_scan_run`: one per collection, carrying the probe results, the self-test verdict and the lists of scopes not read.
-- `compliance_core__compliance_vulnerability`: keyed by `vuln_id`, the public record (CVE, else GHSA), with Anchore's other identifiers as aliases. Anchore's CVSS and URL data fill the vulnerability only through partial patches that never overwrite what another producer wrote, and an absent value is `null`.
-- `compliance_core__compliance_finding`: `source` `anchore`, `source_key` a compact JSON array of the `scanner_key`, the vulnerability id, the target kind (`image` or `source`), the target key and the package's key, never the run. For an image the target key is the image host's key; for a repository source it is the source's Anchore id within the scanner, and v0 has no source node, so a source finding attaches to the package it concerns and to the source's `sbom_document`, not to a source node. Whether a source finding can name an image is unobserved. The scanner is in the key so that two Anchore instances or accounts reporting the same assertion are two findings, and one instance's successful read can never resolve a finding another still reports. `CONCERNS_COMPLIANCE_VULNERABILITY` carries the fix: `fixed_versions` and `fix_state` in Anchore's own words, with the existing tri-state meaning (absent means not observed; `[]` means looked and none). A finding attaches to the image, SBOM or package it concerns; the application graph reaches it by traversal and the finding is never copied under an application.
-- **Severity (open, a review ask).** `compliance_core` has no severity field on the finding and derives bands from CVSS on the vulnerability. Anchore reports its own severity per finding. The ruling is that severity goes on the finding side, not the shared vulnerability node. The existing home for per-finding scanner facts is the properties of `CONCERNS_COMPLIANCE_VULNERABILITY`, which carries only `fixed_versions` and `fix_state` today; this plugin proposes an optional `severity` property there, a `compliance_core` change that does not exist yet. Until it lands, Anchore's severity is not stored, and a finding says so by having no severity, not by carrying a guess.
+- `anchore_scanner` (`anchore.area: run`): one per Anchore instance and account, with `scanner_key` derived from the canonical API root and the account together. The canonical API root is the lower-cased host, the port and the path of `base_url`, with the path kept exactly as configured (URL paths are case-sensitive, so `/v2` and `/V2` are different roots); `base_url` is rejected outright if it carries userinfo, a query or a fragment (`anchore.example:8228/v2`), so installations on different ports or API roots of one host are different scanners, and so are two accounts on one root. The reported version is a fact on the scanner, not part of its key.
+- `anchore_scan_run` (`anchore.area: run`): one per collection, carrying the probe results, the self-test verdict and the lists of scopes not read, with `RUN_OF_SCANNER__anchore` to its scanner.
+- `anchore_finding` (`anchore.area: finding`): one per assertion. Its key is `(scanner_key, vulnerability_id, target_kind, target_key, package_key)` and never the run. The `vulnerability_id` is the identifier Anchore reports, stored as returned, with no choice between CVE and other identifiers and no alias resolution. For an image the target key is the image host's key; for a repository source it is the source's Anchore id within the scanner, and v0 has no source node, so a source finding attaches to the package it concerns and to the source's `sbom_document`, not to a source node. Whether a source finding can name an image is unobserved. The scanner is in the key so that two Anchore instances or accounts reporting the same assertion are two findings, and one instance's successful read can never resolve a finding another still reports.
+- The finding's fields are those Anchore's vulnerability record carries, documented in the vendor file and unobserved: `severity` as the string Anchore returns, with no enum, no case change and no mapping; `fix` and `suggested_fix_version` as returned; `fix_observed_at`; `will_not_fix`; `is_kev`; `epss`, `nvd_data` and `vendor_data` as the lists Anchore returns, each entry kept with its source, its Primary or Secondary marker and its scores, none chosen over another; and `annotation_status`. Whether a list is stored as a JSON column or as child nodes is decided from recorded responses, and until then it is a JSON column. A response field the contract extract does not name is not stored in v0; whether to keep unnamed fields is decided from recorded responses. An absent field is `null`, an observed-empty list is `[]`.
+- `state` is `current` or `resolved` (`req-anchore-states`), with the run that last saw the finding.
+- Edges: `ABOUT_VULNERABILITY__anchore` to the shared `compliance_core__compliance_vulnerability`, written only when that node already exists with exactly the finding's `vulnerability_id`; this plugin never creates it and never patches it. `FOUND_ON_IMAGE__anchore` to the image host, `FOUND_IN_PACKAGE__anchore` to the package, and `FOUND_IN_SBOM__anchore` to the `sbom_document` for a source finding. A finding attaches to the image, SBOM or package it concerns; the application graph reaches it by traversal and the finding is never copied under an application.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-findings-1 | Neutral Types Only | Proposed | Scanner, scan run, vulnerability and finding nodes are `compliance_core`'s types; this plugin declares none of them. | |
+| req-anchore-findings-1 | Nothing Written To compliance_core | Proposed | The plugin declares the scanner, scan-run and finding types itself and writes no `compliance_core` node; the only `compliance_core` node it touches is the vulnerability, by edge. | Anchore's data is not mixed into a shared substrate. |
 | req-anchore-findings-2 | Keyed By Assertion | Proposed | A finding's key names the vulnerability and its target, never the run; two runs reporting the same assertion are one finding. | |
-| req-anchore-findings-3 | Fix State Tri-State | Proposed | `fixed_versions` is the list when Anchore says fixed, `[]` when it says none, and absent when unknown. | Mirrors `grype-tap`. |
+| req-anchore-findings-3 | Fields As Returned | Proposed | Severity, fix, fix version, KEV flag, EPSS, NVD and vendor score lists are stored as Anchore returns them, with no enum, mapping, selection or consolidation. | Reading Anchore beside other scanners is a later layer. |
 | req-anchore-findings-4 | Not Copied Under Applications | Proposed | The same finding is never stored under an application, version or asset; the application graph reaches it by traversal. | Findings stay on the image or SBOM. |
-| req-anchore-findings-5 | Severity Waits For A Home | Proposed | Anchore's severity is stored only once `compliance_core` has a per-finding home for it; until then it is not stored and the gap is documented. | A review ask. |
+| req-anchore-findings-5 | Shared Vulnerability Is Linked, Never Written | Proposed | `ABOUT_VULNERABILITY__anchore` is written only when the shared vulnerability node already exists with exactly the finding's identifier; the plugin never creates or patches it, and does not resolve aliases. | Matching by alias would be interpretation. |
 | req-anchore-findings-6 | Instance In The Key | Proposed | A finding's key includes the scanner key (instance and account); the same assertion from two instances or accounts is two findings, and resolution is scoped to one scanner. | Two instances or accounts can report the same assertion. |
 | req-anchore-findings-7 | Source Findings Have A Key | Proposed | A finding read at source scope has a key built from target kind `source` and the source's Anchore id; it is never given an invented image identity and is never skipped. | A finding at source scope has no image digest to borrow a key from. |
+| req-anchore-findings-8 | Fix Fields Keep Three States | Proposed | `fix`, `suggested_fix_version` and `fix_observed_at` are `null` when Anchore did not return them and are never filled from another field; `will_not_fix` is `null` when absent, not `false`. | A missing fix field is unobserved, not "no fix". |
 
 ### SBOMs
 ----
@@ -353,7 +355,7 @@ One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_k
 | --- | --- | --- | --- | --- |
 | req-anchore-vex-1 | One Type, Scope In The Key | Proposed | A single `anchore_vex_annotation` type serves both scopes, with `scope_kind` and `scope_id` in its natural key. | One type; a later split is an accepted risk. |
 | req-anchore-vex-2 | Scope Edge Matches Scope | Proposed | An image-scope annotation has `ANNOTATES_IMAGE__anchore` and no version edge, and the reverse for an application-version scope. | |
-| req-anchore-vex-3 | Linked To Neutral Nodes | Proposed | Each annotation has `ABOUT_VULNERABILITY__anchore`, and `ABOUT_PACKAGE__anchore` when its package scope is not null. | |
+| req-anchore-vex-3 | Linked To Existing Nodes | Proposed | Each annotation has `ABOUT_VULNERABILITY__anchore` when the shared vulnerability node exists with exactly the annotation's identifier, and `ABOUT_PACKAGE__anchore` when its package scope is not null. | The plugin never creates or patches the shared vulnerability. |
 | req-anchore-vex-4 | No Automatic VDR Mapping | Proposed | No VEX status is written into any VDR factor by this plugin. | VEX nodes link to the VDR nodes without automatic mapping; mapping belongs to the VDR plugins. |
 | req-anchore-vex-5 | Null Package Scope Kept | Proposed | A null package scope is stored as null and is not widened to every package of the image. | Meaning to be observed on the trial. |
 | req-anchore-vex-6 | Free Text Is Evidence, Not Redacted | Proposed | The free-text fields are stored as returned and bounded in length; no redaction or scanning is attempted, and the fields are described as operator-authored free text. | The free-text fields are operator-authored and can hold anything an operator typed. This plugin stores them as Anchore returns them and neither scans nor redacts them: the operator who writes a VEX statement is responsible for what it contains. The grid has no per-field classification that this plugin could set, so the fields are described as operator-authored in their `help_text` and in the README, and who can read them is the grid's read authorization, not this plugin's. |
@@ -509,11 +511,13 @@ What this plugin deliberately does not do, and who owns it instead.
 | Not done | Why | Owner or status |
 | --- | --- | --- |
 | Any write to Anchore: annotations, export jobs, asset-adding jobs, policy authoring, inventory POST or DELETE | Read-only; the credential can be a read-only role | Not built |
-| Secret-search, retrieved-file and file-content results; account and API-key endpoints; operator configuration endpoints | Secret-bearing, credential or admin surfaces. Only the fact that a secret was found, its type and its path may be recorded | Excluded (ruled by George 2026-10-28) |
-| The per-file listing of every image | Large, low value in v0 | Backlog (ruled by George 2026-10-28) |
+| Secret-search, retrieved-file and file-content results; account and API-key endpoints; operator configuration endpoints | Secret-bearing, credential or admin surfaces. Only the fact that a secret was found, its type and its path may be recorded | Excluded |
+| The per-file listing of every image | Large, low value in v0 | Backlog |
 | Mapping Anchore status to VDR factors | Policy, not collection | `fedramp_20x_vdr`, `stackarmor_vdr` |
 | Pages and panels | No data to look at yet | A later spec |
-| Enrichment such as KEV and EPSS | Another plugin's job | `vuln_mosaic` |
+| Enrichment of our own, such as KEV and EPSS lookups | Another plugin's job. Anchore's own KEV flag and EPSS values are stored as it returns them | `vuln_mosaic` |
+| A fix model, a severity scale or a house mapping across scanners | Anchore's data is stored as returned; how an organisation reads several scanners together is shaped once the data is on the grid | A later layer; `compliance_core` changes are paused |
+| Writing to `compliance_core` | Anchore's data is not mixed into the shared substrate | Not built |
 | The GraphQL reports API | It can lag REST | Revisit if REST gaps appear |
 | Individual policy findings as nodes | They duplicate the vulnerability findings they reference | Backlog |
 | A node per realm explaining each realm | Undecided; a first cut is a table in `computing_core` | `computing_core` Not Yet Built |
@@ -531,6 +535,9 @@ A design-time catalog, superseded by the manifest once the plugin ships.
 
 | Model | Entity type | Category | Rationale |
 | --- | --- | --- | --- |
+| Scanner | `anchore__anchore_scanner` | Anchore-specific | One Anchore instance and account. |
+| Scan Run | `anchore__anchore_scan_run` | Anchore-specific | One collection, with the probe, the self-test verdict and the scopes not read. |
+| Finding | `anchore__anchore_finding` | Anchore-specific | Anchore's assertion that a package in an image or source is affected, with its fields as returned. |
 | Application | `anchore__anchore_application` | Anchore-specific | Anchore's grouping of images and SBOMs; no neutral equivalent. |
 | Application Version | `anchore__anchore_app_version` | Anchore-specific | A version with its own status, chain and policy result. |
 | Asset | `anchore__anchore_asset` | Anchore-specific | A named, typed thing in a version that references an image or an SBOM. |
@@ -552,7 +559,11 @@ A design-time catalog, superseded by the manifest once the plugin ships.
 | `REFERENCES_SBOM__anchore` | asset → sbom_document | none | Reference to a `computing_core` document. |
 | `ANNOTATES_IMAGE__anchore` | VEX annotation → image host | none | Image scope. |
 | `ANNOTATES_VERSION__anchore` | VEX annotation → version | none | Application-version scope. |
-| `ABOUT_VULNERABILITY__anchore` | VEX annotation → vulnerability | none | Links to the neutral vulnerability. |
+| `RUN_OF_SCANNER__anchore` | scan run → scanner | none | Which instance and account a run read. |
+| `FOUND_ON_IMAGE__anchore` | finding → image host | none | The image a finding concerns. |
+| `FOUND_IN_PACKAGE__anchore` | finding → package | none | The package a finding concerns. |
+| `FOUND_IN_SBOM__anchore` | finding → sbom_document | none | The SBOM a source finding concerns. |
+| `ABOUT_VULNERABILITY__anchore` | VEX annotation or finding → vulnerability | none | Links to the shared vulnerability when it exists; never creates or patches it. |
 | `ABOUT_PACKAGE__anchore` | VEX annotation → package | none | Links to the neutral package when scoped. |
 | `OBSERVES_IMAGE__anchore` | runtime image → image host | none | Joins an image in use to the image host. |
 | `IN_NAMESPACE__anchore` | pod → namespace | none | Kubernetes placement. |
