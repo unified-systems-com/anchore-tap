@@ -103,6 +103,29 @@ def safe(text: Any, limit: int = 240) -> str:
     return cleaned if len(cleaned) <= limit else cleaned[: limit - 3] + "..."
 
 
+def redact_tree(value: Any, redact: Callable[[str], tuple[str, int]]) -> tuple[Any, int]:
+    """Redact the credential from every string in a JSON-shaped value, keys included."""
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, list):
+        out_list, total = [], 0
+        for item in value:
+            cleaned, n = redact_tree(item, redact)
+            out_list.append(cleaned)
+            total += n
+        return out_list, total
+    if isinstance(value, dict):
+        out_dict: dict[Any, Any] = {}
+        total = 0
+        for key, item in value.items():
+            new_key, k = redact_tree(key, redact) if isinstance(key, str) else (key, 0)
+            cleaned, n = redact_tree(item, redact)
+            out_dict[new_key] = cleaned
+            total += n + k
+        return out_dict, total
+    return value, 0
+
+
 def shape(value: Any) -> str:
     """A compact description of a JSON value: its type, its keys, and the first list it holds."""
     if isinstance(value, list):
@@ -171,6 +194,12 @@ def fetch(ctx: Context, step: str, template: str, *, values: dict[str, str] | No
         ctx.lines.append(Line(step, template, "not read", None, None, None, f"needs parameter {', '.join(missing)}"))
         return None
     path = fill(template, **(values or {}))
+    # A value learned from an instance is used to build later requests. If one matches the
+    # credential, using it would put the credential in a URL (req-anchore-connection-12), so the
+    # request is not made.
+    if ctx.credential.redact(path + json.dumps(params or {}, default=str))[1]:
+        ctx.lines.append(Line(step, template, "not read", None, None, None, "an identifier from the instance matched the credential"))
+        return None
     use_header = ctx.account_header if account_header is None else account_header
     ctx.counter += 1
     record: dict[str, Any] = {"step": step, "template": template, "path": path, "params": params or {}, "account_header_sent": use_header}
@@ -198,6 +227,11 @@ def fetch(ctx: Context, step: str, template: str, *, values: dict[str, str] | No
             record["body_text"] = body.decode("utf-8")
         except UnicodeDecodeError:
             record["body_base64"] = base64.b64encode(body).decode("ascii")
+    # Everything that goes into the file passes through one structural redaction, so a value that
+    # reached the record by any route (a path built from an earlier response, a header, a key) is
+    # covered, not only the fields redacted above.
+    record, extra = redact_tree(record, ctx.credential.redact)
+    redactions += extra
     record["credential_redactions"] = redactions
     ctx.redactions += redactions
     target = ctx.out_dir / f"{ctx.counter:03d}-{_slug(template)}.json"
@@ -385,18 +419,22 @@ PLAN: tuple[tuple[str, str], ...] = (
 
 
 def render(ctx: Context, stdout: TextIO) -> None:
+    def clean(text: Any, limit: int = 240) -> str:
+        """Instance-derived text: the credential redacted first, then reduced to printable characters."""
+        return safe(ctx.credential.redact(str(text))[0], limit)
+
     print(f"\nObserved {ctx.credential.qualified} (scheme {ctx.credential.scheme}); recordings in {ctx.out_dir}\n", file=stdout)
     print(f"{'step':<12}{'status':<10}{'ms':>6}{'bytes':>10}  {'content-type':<28}request", file=stdout)
     for line in ctx.lines:
         ms = "" if line.elapsed_ms is None else str(line.elapsed_ms)
         size = "" if line.size is None else str(line.size)
-        note = f"  [{safe(line.note, 160)}]" if line.note else ""
-        print(f"{line.step:<12}{safe(line.status, 12):<10}{ms:>6}{size:>10}  {safe(line.content_type or '', 27):<28}GET {line.template}{note}", file=stdout)
+        note = f"  [{clean(line.note, 160)}]" if line.note else ""
+        print(f"{line.step:<12}{clean(line.status, 12):<10}{ms:>6}{size:>10}  {clean(line.content_type or '', 27):<28}GET {clean(line.template, 120)}{note}", file=stdout)
     if ctx.redactions:
         print(f"\n{ctx.redactions} occurrence(s) of the credential were found in what the instance returned and redacted from the recordings.", file=stdout)
     print("\nAnswers to the open questions:", file=stdout)
     for answer in ctx.answers:
-        print(f"  - {safe(answer)}", file=stdout)
+        print(f"  - {clean(answer)}", file=stdout)
 
 
 def run(credential: Credential, *, max_images: int = 1, account_header: bool = True, out_root: Path | None = None, transport: BaseAdapter | None = None, sleep: Callable[[float], None] | None = None, stdout: TextIO | None = None) -> Context:

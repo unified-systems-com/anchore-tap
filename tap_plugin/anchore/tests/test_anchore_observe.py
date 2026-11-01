@@ -309,3 +309,32 @@ class TestAtomicPrivateWrites:
         observe.write_private(target, "a")
         with pytest.raises(FileExistsError):
             observe.write_private(target, "b")
+
+
+class TestHostileEchoEverywhere:
+    """An instance can put the credential in any field it controls; none of it may reach a recording or the terminal."""
+
+    def test_the_credential_in_every_instance_controlled_place_is_redacted(self, tmp_path):
+        routes = anchore_routes()
+        routes["/account"] = response(200, {"name": "x"}, {"Content-Type": f"application/json; note={SECRET}"})
+        routes["/system"] = response(200, {SECRET: 1, "ok": SECRET})
+        routes["/system/feeds"] = response(200, [{"name": SECRET}])
+        spec = json.loads(routes["/openapi.json"].content)
+        spec["info"]["version"] = f"v{SECRET}"
+        spec["paths"][f"/{SECRET}"] = {"get": {"responses": {"200": {"description": "ok"}}}}
+        routes["/openapi.json"] = response(200, json.dumps(spec))
+        # An image whose tag and digest are the credential: the paths and params built from them are recorded.
+        routes["/images"] = response(200, {SECRET: [{"imageDigest": "sha256:" + "cd" * 32, "analysis_status": "analyzed", "image_detail": [{"fulltag": SECRET}]}]})
+        ctx, transport, text = observe_run(tmp_path, routes=routes)
+        recordings = "".join(p.read_text(encoding="utf-8") for p in ctx.out_dir.glob("*.json"))
+        for form in (SECRET, base64.b64encode(f"reader:{SECRET}".encode()).decode()):
+            assert form not in text and form not in recordings
+        assert ctx.redactions >= 5 and "[REDACTED:credential]" in recordings
+        # The credential is never put in a URL, even one built from a value the instance supplied.
+        assert not any(SECRET in str(c.url) for c in transport.calls)
+        assert any(line.status == "not read" and "matched the credential" in line.note for line in ctx.lines)
+
+    def test_redact_tree_covers_keys_values_and_nesting(self):
+        c = credential()
+        cleaned, n = observe.redact_tree({SECRET: [SECRET, {"a": f"x{SECRET}y"}], "n": 1}, c.redact)
+        assert SECRET not in json.dumps(cleaned) and n == 3 and cleaned["n"] == 1
