@@ -241,3 +241,34 @@ class TestStreamingDeadline:
         with pytest.raises(cl.RequestFailed) as err:
             client.get("/images")
         assert "budget" in str(err.value) and len(transport.calls) == 1
+
+
+class TestBudgetAroundBlockingCalls:
+    def test_each_request_timeout_is_capped_by_what_is_left_of_the_budget(self):
+        now = [0.0]
+
+        def slow_503(request):
+            now[0] += 99.0  # the first attempt takes 99 of the 120 seconds
+            return response(503)
+
+        transport = FakeTransport(default=slow_503)
+        credential = cred.credential_from_envelope(envelope())
+        client = cl.ReadOnlyClient(credential, transport=transport, sleep=lambda d: now.__setitem__(0, now[0] + d), clock=lambda: now[0], max_attempts=3)
+        with pytest.raises(cl.RequestFailed):
+            client.get("/images")
+        assert transport.timeouts[0] == (cl.CONNECT_TIMEOUT, cl.READ_TIMEOUT)
+        # After 99 seconds and a one-second wait, 20 seconds remain: the read timeout may not exceed that.
+        assert transport.timeouts[1] == (cl.CONNECT_TIMEOUT, pytest.approx(cl.TOTAL_BUDGET_SECONDS - 99.0 - cl.BACKOFF_SECONDS[0]))
+
+    def test_a_retry_that_cannot_finish_inside_the_budget_is_not_started(self):
+        clock_values = iter([0.0, 0.0, 119.5] + [119.5] * 50)
+        client, transport, sleeps = make(default=response(503), clock=lambda: next(clock_values), max_attempts=3)
+        with pytest.raises(cl.RequestFailed) as err:
+            client.get("/images")
+        assert sleeps == [] and len(transport.calls) == 1 and "budget" in str(err.value)
+
+    def test_an_exhausted_budget_stops_before_the_next_attempt(self):
+        client, transport, _ = make(default=response(503), clock=iter([0.0, 0.0, 0.0, 500.0, 500.0, 500.0] + [500.0] * 20).__next__, max_attempts=3)
+        with pytest.raises(cl.RequestFailed):
+            client.get("/images")
+        assert len(transport.calls) <= 2

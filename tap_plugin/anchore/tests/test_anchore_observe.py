@@ -338,3 +338,40 @@ class TestHostileEchoEverywhere:
         c = credential()
         cleaned, n = observe.redact_tree({SECRET: [SECRET, {"a": f"x{SECRET}y"}], "n": 1}, c.redact)
         assert SECRET not in json.dumps(cleaned) and n == 3 and cleaned["n"] == 1
+
+
+class TestRecordingsStayOutOfRepositories:
+    def test_a_symlinked_root_is_refused(self, tmp_path):
+        real = tmp_path / "elsewhere"
+        real.mkdir()
+        link = tmp_path / "rec"
+        link.symlink_to(real, target_is_directory=True)
+        with pytest.raises(observe.ClientError, match="symbolic link"):
+            observe.run(credential(), out_root=link, transport=FakeTransport(anchore_routes()), sleep=lambda s: None, stdout=io.StringIO())
+        assert list(real.iterdir()) == []
+
+    def test_a_root_inside_a_git_work_tree_is_refused(self, tmp_path):
+        repo = tmp_path / "checkout"
+        (repo / ".git").mkdir(parents=True)
+        with pytest.raises(observe.ClientError, match="git work tree"):
+            observe.run(credential(), out_root=repo / "recordings", transport=FakeTransport(anchore_routes()), sleep=lambda s: None, stdout=io.StringIO())
+        assert not list((repo / "recordings").glob("*/*.json"))
+
+    def test_a_pre_made_run_directory_is_not_written_through(self, tmp_path, monkeypatch):
+        fixed = observe.datetime.now(observe.UTC).replace(microsecond=0)
+
+        class Frozen(observe.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed
+
+        monkeypatch.setattr(observe, "datetime", Frozen)
+        root = tmp_path / "rec"
+        root.mkdir(mode=0o700)
+        name = f"{fixed.strftime('%Y%m%dT%H%M%SZ')}-{observe.hashlib.sha256(b'anchore:a').hexdigest()[:8]}"
+        victim = tmp_path / "victim"
+        victim.mkdir()
+        (root / name).symlink_to(victim, target_is_directory=True)
+        with pytest.raises(FileExistsError):
+            observe.run(credential(), out_root=root, transport=FakeTransport(anchore_routes()), sleep=lambda s: None, stdout=io.StringIO())
+        assert list(victim.iterdir()) == []

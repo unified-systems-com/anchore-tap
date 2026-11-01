@@ -385,16 +385,32 @@ def step_inventory(ctx: Context) -> None:
             ctx.answers.append(f"{template}: {shape(_json_body(reply))}")
 
 
+def _assert_not_in_a_repository(path: Path) -> None:
+    """Refuse a recordings location that is, or sits inside, a git work tree.
+
+    Raw responses are sensitive and the repositories are public; a symlink or a mistaken location
+    must not be able to put them in a checkout.
+    """
+    for candidate in (path, *path.parents):
+        if (candidate / ".git").exists():
+            raise ClientError(f"recordings would be written inside a git work tree ({candidate}); not writing")
+
+
 def _out_dir(credential: Credential, root: Path | None) -> Path:
     base = root if root is not None else Path.home() / RECORDINGS_DIRNAME
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    name = f"{stamp}-{hashlib.sha256(credential.qualified.encode()).hexdigest()[:8]}"
+    if base.is_symlink():
+        raise ClientError("the recordings root is a symbolic link; not writing")
     # The root is made owner-only as well as the per-run directory: mkdir's mode is not applied to
     # parents, and a listable root would show run times and hash prefixes on a shared host.
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     base.chmod(0o700)
+    _assert_not_in_a_repository(base.resolve())
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    name = f"{stamp}-{hashlib.sha256(credential.qualified.encode()).hexdigest()[:8]}"
     target = base / name
-    target.mkdir(exist_ok=True, mode=0o700)
+    # exist_ok is false on purpose: a directory that already exists, such as a pre-made symlink
+    # at this predictable name, is refused rather than written through.
+    target.mkdir(mode=0o700)
     target.chmod(0o700)
     return target
 

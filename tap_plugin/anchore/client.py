@@ -240,8 +240,11 @@ class ReadOnlyClient:
         last: Reply | None = None
         for attempt in range(1, self._max_attempts + 1):
             reason: str | None = None
+            remaining = TOTAL_BUDGET_SECONDS - (self._clock() - started)
+            if remaining <= 0:
+                raise RequestFailed(f"{self._credential.qualified}: GET {path} exceeded the {TOTAL_BUDGET_SECONDS}-second budget", last)
             try:
-                reply = self._once(url, path, params, headers, attempt, started + TOTAL_BUDGET_SECONDS)
+                reply = self._once(url, path, params, headers, attempt, started + TOTAL_BUDGET_SECONDS, remaining)
             except (requests.ConnectionError, requests.Timeout) as exc:
                 reply, reason = None, type(exc).__name__
             if reply is not None:
@@ -251,7 +254,10 @@ class ReadOnlyClient:
                 reason = f"HTTP {reply.status}"
             if attempt == self._max_attempts or self._clock() - started > TOTAL_BUDGET_SECONDS:
                 raise RequestFailed(f"{self._credential.qualified}: GET {path} failed after {attempt} attempt(s): {reason}", last)
-            self._sleep(self._delay(reply, attempt))
+            delay = self._delay(reply, attempt)
+            if self._clock() - started + delay >= TOTAL_BUDGET_SECONDS:
+                raise RequestFailed(f"{self._credential.qualified}: GET {path} would exceed the {TOTAL_BUDGET_SECONDS}-second budget by retrying", last)
+            self._sleep(delay)
         raise RequestFailed(f"{self._credential.qualified}: GET {path} failed", last)  # pragma: no cover
 
     def _delay(self, reply: Reply | None, attempt: int) -> float:
@@ -262,9 +268,12 @@ class ReadOnlyClient:
                 return float(min(int(retry_after), MAX_RETRY_AFTER))
         return base
 
-    def _once(self, url: str, path: str, params: dict[str, Any] | None, headers: dict[str, str], attempt: int, deadline: float) -> Reply:
+    def _once(self, url: str, path: str, params: dict[str, Any] | None, headers: dict[str, str], attempt: int, deadline: float, remaining: float) -> Reply:
         started = self._clock()
-        response = self._session.get(url, params=params, headers=headers, timeout=self._timeout, stream=True)
+        # A connect or read can block for its whole timeout, so neither may be longer than what is
+        # left of the total budget.
+        timeout = (min(self._timeout[0], remaining), min(self._timeout[1], remaining))
+        response = self._session.get(url, params=params, headers=headers, timeout=timeout, stream=True)
         try:
             declared = response.headers.get("content-length", "")
             if declared.isdigit() and int(declared) > self._max_bytes:

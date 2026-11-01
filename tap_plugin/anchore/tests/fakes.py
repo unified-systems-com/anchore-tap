@@ -36,9 +36,11 @@ class FakeTransport(BaseAdapter):
         self.routes = routes or {}
         self.default = default
         self.calls: list[requests.PreparedRequest] = []
+        self.timeouts: list[Any] = []
 
     def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         self.calls.append(request)
+        self.timeouts.append(kwargs.get("timeout"))
         path = str(request.url).split("/v2", 1)[-1].split("?", 1)[0]
         route = self.routes.get(path, self.default)
         if callable(route):
