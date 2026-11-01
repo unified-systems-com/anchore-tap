@@ -1,7 +1,7 @@
 """The read-only Anchore client (req-anchore-client, req-anchore-connection).
 
 A small client over ``requests`` that can only read. Every request leaves through one session
-whose adapters refuse any method but GET and any URL that is not https before anything is sent;
+whose send refuses any method but GET and any URL that is not https before anything is sent;
 a redirect is an error, never followed, so the credential can never reach another origin;
 certificate verification is on and nothing turns it off; the environment's proxy, netrc and CA
 settings are ignored. A response over the size cap is refused. Retries are bounded in count and
@@ -109,17 +109,27 @@ def _plain_remainder(remainder: str) -> bool:
     return all(segment not in (".", "..") for segment in text.split("/"))
 
 
-class _GetOnlyAdapter(BaseAdapter):
-    """Wraps a real adapter and refuses everything but an https GET to the configured API root.
+class _Session(requests.Session):
+    """A session that can only read one Anchore API root, whatever it is asked to do.
 
-    The session holds the credential, so the adapter that every request passes through is also
-    where a request to any other host, port or path root is stopped before it is sent.
+    Every guard is in ``send``, which every request passes through whatever adapter is mounted, so
+    remounting an adapter on this session does not get round them: a method other than GET, a URL
+    that is not https or is outside the configured API root, a redirect, and any override of
+    certificate verification, client certificate or proxies are each refused or ignored here.
     """
 
-    def __init__(self, inner: BaseAdapter, api_root: str) -> None:
+    def __init__(self, api_root: str, verify: bool | str) -> None:
         super().__init__()
-        self._inner = inner
+        self.trust_env = False
+        self.verify = verify
         self._prefix = api_root.rstrip("/") + "/"
+        self._pinned_verify = verify
+
+    def get_adapter(self, url: str) -> requests.adapters.BaseAdapter:
+        """Only an https URL has an adapter; any other scheme is refused before anything is sent."""
+        if not url.lower().startswith("https://"):
+            raise InsecureRefused("a request that is not https is refused")
+        return super().get_adapter(url)
 
     def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         if request.method != "GET":
@@ -129,27 +139,10 @@ class _GetOnlyAdapter(BaseAdapter):
             raise InsecureRefused("a request that is not https is refused")
         if not url.startswith(self._prefix) or not _plain_remainder(urlsplit(url).path[len(urlsplit(self._prefix).path):]):
             raise OriginRefused("a request outside the configured Anchore API root is refused")
-        return self._inner.send(request, **kwargs)
-
-    def close(self) -> None:
-        self._inner.close()
-
-
-class _Session(requests.Session):
-    """Never follows a redirect, and never trusts the environment."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.trust_env = False
-
-    def get_adapter(self, url: str) -> requests.adapters.BaseAdapter:
-        """Only an https URL has an adapter; any other scheme is refused before anything is sent."""
-        if not url.lower().startswith("https://"):
-            raise InsecureRefused("a request that is not https is refused")
-        return super().get_adapter(url)
-
-    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         kwargs["allow_redirects"] = False
+        kwargs["verify"] = self._pinned_verify
+        kwargs["cert"] = None
+        kwargs["proxies"] = {}
         response = super().send(request, **kwargs)
         if 300 <= response.status_code < 400 and response.status_code != 304:
             response.close()
@@ -219,10 +212,8 @@ class ReadOnlyClient:
         self._max_bytes = max_bytes
         self._timeout = timeout
         self._max_attempts = max_attempts
-        session = _Session()
-        adapter = _GetOnlyAdapter(transport if transport is not None else HTTPAdapter(max_retries=0), credential.base_url)
-        session.mount("https://", adapter)
-        session.verify = credential.ca_bundle or True
+        session = _Session(credential.base_url, credential.ca_bundle or True)
+        session.mount("https://", transport if transport is not None else HTTPAdapter(max_retries=0))
         session.headers["Accept"] = "application/json"
         auth = credential.auth
         if auth.basic is not None:
@@ -230,11 +221,6 @@ class ReadOnlyClient:
         elif auth.bearer_header is not None:
             session.headers["Authorization"] = auth.bearer_header
         self._session = session
-
-    @property
-    def session(self) -> requests.Session:
-        """The underlying session, exposed so tests can prove it refuses writes."""
-        return self._session
 
     def close(self) -> None:
         self._session.close()

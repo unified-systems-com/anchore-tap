@@ -61,7 +61,7 @@ class TestAuthentication:
 
     def test_environment_proxy_and_netrc_are_ignored(self):
         client, _, _ = make()
-        assert client.session.trust_env is False and client.session.verify is True
+        assert client._session.trust_env is False and client._session.verify is True
 
 
 class TestReadOnly:
@@ -71,27 +71,27 @@ class TestReadOnly:
     def test_other_methods_are_refused_by_the_transport(self, method):
         client, transport, _ = make(default=response(200))
         with pytest.raises(cl.WriteRefused):
-            client.session.request(method, "https://anchore.example:8228/v2/images")
+            client._session.request(method, "https://anchore.example:8228/v2/images")
         assert transport.calls == []
 
     def test_an_aliased_call_is_refused_too(self):
         client, transport, _ = make(default=response(200))
         send = requests.Session.request
         with pytest.raises(cl.WriteRefused):
-            send(client.session, method="DELETE", url="https://anchore.example:8228/v2/x")
+            send(client._session, method="DELETE", url="https://anchore.example:8228/v2/x")
         with pytest.raises(cl.WriteRefused):
-            client.session.post("https://anchore.example:8228/v2/x", data=b"body")
+            client._session.post("https://anchore.example:8228/v2/x", data=b"body")
         assert transport.calls == []
 
     def test_plain_http_is_refused_even_for_a_get(self):
         client, transport, _ = make(default=response(200))
         with pytest.raises(cl.InsecureRefused):
-            client.session.get("http://anchore.example/v2/images")
+            client._session.get("http://anchore.example/v2/images")
         assert transport.calls == []
 
     def test_the_client_exposes_get_and_nothing_that_writes(self):
         public = {n for n in dir(cl.ReadOnlyClient) if not n.startswith("_")}
-        assert public == {"close", "get", "session"}
+        assert public == {"close", "get"}
 
 
 class TestRedirects:
@@ -192,7 +192,7 @@ class TestNothingLeaks:
     def test_custom_ca_bundle_is_passed_as_the_verify_path(self):
         c = cred.credential_from_envelope(envelope(payload=data(ca_bundle="/etc/ssl/private-ca.pem")))
         client = cl.ReadOnlyClient(c, transport=FakeTransport())
-        assert client.session.verify == "/etc/ssl/private-ca.pem"
+        assert client._session.verify == "/etc/ssl/private-ca.pem"
 
 
 class TestOriginBinding:
@@ -221,17 +221,17 @@ class TestOriginBinding:
         client, transport, _ = make(scheme, default=response(200))
         # Either our refusal or requests' own refusal of a malformed URL; in both nothing is sent.
         with pytest.raises((cl.OriginRefused, requests.exceptions.InvalidURL)):
-            client.session.get(url)
+            client._session.get(url)
         assert transport.calls == []
 
     def test_a_plain_dot_segment_is_normalised_by_requests_and_stays_inside_the_root(self):
         client, transport, _ = make(default=response(200))
-        client.session.get("https://anchore.example:8228/v2/./images")
+        client._session.get("https://anchore.example:8228/v2/./images")
         assert transport.calls[0].url == "https://anchore.example:8228/v2/images"
 
     def test_the_configured_root_is_accepted(self):
         client, transport, _ = make(default=response(200))
-        assert client.session.get("https://anchore.example:8228/v2/images").status_code == 200
+        assert client._session.get("https://anchore.example:8228/v2/images").status_code == 200
         assert len(transport.calls) == 1
 
 
@@ -328,3 +328,39 @@ class TestArrivalByArrival:
         client, _, _ = make(default=r)
         reply = client.get("/images")
         assert reply.status == 200 and reply.body.startswith(b'{"ok": true') and len(reply.body) > 200_000
+
+
+class TestGuardsSurviveTamperingWithTheSession:
+    """The guards are in the session's send, so remounting an adapter or overriding a setting does not defeat them."""
+
+    def _tampered(self, scheme="basic"):
+        client, _, _ = make(scheme, default=response(200))
+        elsewhere = FakeTransport(default=response(200))
+        client._session.mount("https://", elsewhere)
+        return client, elsewhere
+
+    @pytest.mark.parametrize("scheme", ["basic", "bearer"])
+    def test_a_remounted_adapter_still_cannot_post_or_leave_the_root(self, scheme):
+        client, elsewhere = self._tampered(scheme)
+        with pytest.raises(cl.WriteRefused):
+            client._session.post("https://anchore.example:8228/v2/x")
+        with pytest.raises(cl.OriginRefused):
+            client._session.get("https://attacker.example/x")
+        assert elsewhere.calls == []
+
+    def test_verify_false_and_proxies_and_cert_overrides_are_ignored(self):
+        seen = []
+
+        class Spy(FakeTransport):
+            def send(self, request, **kwargs):
+                seen.append({k: kwargs.get(k) for k in ("verify", "cert", "proxies")})
+                return super().send(request, **kwargs)
+
+        credential = cred.credential_from_envelope(envelope())
+        client = cl.ReadOnlyClient(credential, transport=Spy(default=response(200)))
+        client._session.get("https://anchore.example:8228/v2/x", verify=False, cert="/tmp/c.pem", proxies={"https": "http://attacker.example:3128"})
+        assert seen == [{"verify": True, "cert": None, "proxies": {}}]
+
+    def test_the_client_has_no_public_session(self):
+        client, _, _ = make()
+        assert not hasattr(client, "session")
