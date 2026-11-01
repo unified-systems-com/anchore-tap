@@ -1,0 +1,205 @@
+"""The contract extract, its reducer and the drift comparison (req-anchore-contract-extract,
+req-anchore-drift-ci). Pure Python: no database, no network.
+"""
+
+import copy
+import json
+import socket
+from pathlib import Path
+
+import jsonschema
+import pytest
+
+from tap_plugin.anchore.contract import build, diff, drift, reduce
+
+CONTRACT = Path(build.__file__).resolve().parent
+
+# Endpoints ruled out of v0 (secret-bearing, credential, admin or bulk-file). No consumed
+# operation may start with, or contain, any of these.
+EXCLUDED = (
+    "/artifacts/",
+    "/content/files",
+    "/downloads",
+    "/jobs",
+    "/accounts",
+    "/user",
+    "/my-user-groups",
+    "/rbac-manager",
+    "/registries",
+    "/notifications",
+    "/events",
+    "/alerts",
+    "/stig",
+    "/query/",
+    "/imports",
+    "/archives",
+    "/reporting",
+    "/subscriptions",
+    "/actions",
+    "/corrections",
+)
+
+
+@pytest.fixture(autouse=True)
+def no_sockets(monkeypatch):
+    """req-anchore-contract-extract-2: nothing in this module opens a connection."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the contract tests must not open a socket")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+
+
+def _json(name):
+    return json.loads((CONTRACT / name).read_text(encoding="utf-8"))
+
+
+def _source():
+    return reduce.load_document((CONTRACT / "openapi-2.20.0.json").read_bytes())
+
+
+class TestGenerated:
+    def test_extract_is_what_the_reducer_produces(self):
+        """req-anchore-contract-extract-1."""
+        assert (CONTRACT / "extract.json").read_text(encoding="utf-8") == build.build()
+
+    def test_every_consumed_operation_is_present_in_the_source(self):
+        extract = _json("extract.json")
+        missing = [o["path"] for o in extract["operations"] if not o["present"]]
+        assert missing == []
+
+    def test_finding_fields_reach_the_extract(self):
+        extract = _json("extract.json")
+        op = next(o for o in extract["operations"] if o["path"] == "/images/{image_digest}/vuln/{vuln_type}")
+        members = op["responses"][0]["schema"]["properties"]["vulnerabilities"]["items"]["allOf"]
+        fields = {name for member in members for name in member.get("properties", {})}
+        assert {"severity", "fix", "suggested_fix_version", "fix_observed_at", "will_not_fix", "is_kev", "epss", "nvd_data", "vendor_data"} <= fields
+
+
+class TestDescribed:
+    def test_extract_matches_its_schema(self):
+        """req-anchore-contract-extract-3."""
+        jsonschema.validate(_json("extract.json"), _json("extract.schema.json"))
+
+    def test_consumed_list_is_described(self):
+        consumed = _json("consumed.json")
+        assert consumed["description"]
+        assert all(entry["description"] for entry in consumed["operations"])
+
+
+class TestConsumedSet:
+    def test_only_get_operations(self):
+        """req-anchore-nongoals-1: the plugin never consumes a write operation."""
+        assert {e["method"] for e in _json("consumed.json")["operations"]} == {"get"}
+
+    def test_no_excluded_endpoint(self):
+        """req-anchore-nongoals-2."""
+        bad = [e["path"] for e in _json("consumed.json")["operations"] if any(x in e["path"] for x in EXCLUDED)]
+        assert bad == []
+
+    def test_no_duplicates(self):
+        keys = [(e["method"], e["path"]) for e in _json("consumed.json")["operations"]]
+        assert len(keys) == len(set(keys))
+
+
+class TestReducerIsBounded:
+    """req-anchore-contract-extract-4."""
+
+    CONSUMED = {"operations": [{"description": "t", "method": "get", "path": "/x"}]}
+
+    def _doc(self, schema):
+        return {
+            "openapi": "3.0.1",
+            "info": {"title": "t", "version": "1"},
+            "paths": {"/x": {"get": {"responses": {"200": {"content": {"application/json": {"schema": schema}}}}}}},
+            "components": {"schemas": {}},
+        }
+
+    @pytest.mark.parametrize("ref", ["https://evil.example/s.json#/A", "file:///etc/passwd", "other.json#/A", "/etc/passwd"])
+    def test_remote_or_file_reference_is_rejected(self, ref):
+        with pytest.raises(reduce.ReducerError):
+            reduce.reduce_document(self._doc({"$ref": ref}), self.CONSUMED)
+
+    def test_cycle_becomes_a_marker(self):
+        doc = self._doc({"$ref": "#/components/schemas/Node"})
+        doc["components"]["schemas"]["Node"] = {"type": "object", "properties": {"next": {"$ref": "#/components/schemas/Node"}}}
+        extract = reduce.reduce_document(doc, self.CONSUMED)
+        schema = extract["operations"][0]["responses"][0]["schema"]
+        assert schema["properties"]["next"] == {"$recursive": "#/components/schemas/Node"}
+
+    def test_oversized_document_is_refused(self):
+        with pytest.raises(reduce.ReducerError):
+            reduce.load_document(b" " * (reduce.MAX_DOCUMENT_BYTES + 1))
+
+    def test_deeply_nested_document_is_refused(self):
+        raw = ("[" * 500 + "]" * 500).encode()
+        with pytest.raises(reduce.ReducerError):
+            reduce.load_document(b'{"a":' + raw + b"}")
+
+    def test_expansion_past_the_node_budget_is_refused(self, monkeypatch):
+        monkeypatch.setattr(reduce, "MAX_NODES", 50)
+        doc = self._doc({"type": "object", "properties": {f"p{i}": {"type": "string"} for i in range(200)}})
+        with pytest.raises(reduce.ReducerError):
+            reduce.reduce_document(doc, self.CONSUMED)
+
+    def test_reducer_does_no_io(self, monkeypatch):
+        def refuse(*a, **k):
+            raise AssertionError("the reducer opened a file")
+
+        monkeypatch.setattr("builtins.open", refuse)
+        reduce.reduce_document(self._doc({"type": "string"}), self.CONSUMED)
+
+
+class TestDrift:
+    def _args(self):
+        return _json("consumed.json"), _json("extract.json"), _source()
+
+    def test_identical_upstream_is_clean(self):
+        """req-anchore-drift-ci-1, the quiet case."""
+        consumed, committed, baseline = self._args()
+        assert drift.compare(copy.deepcopy(baseline), consumed, committed, baseline) == ([], [])
+
+    def test_changed_consumed_field_fails(self):
+        consumed, committed, baseline = self._args()
+        fresh = copy.deepcopy(baseline)
+        item = fresh["paths"]["/images/{image_digest}/vuln/{vuln_type}"]["get"]
+        item["parameters"] = [p for p in item.get("parameters", []) if p.get("name") != "vendor_only"] or item.get("parameters", [])
+        schemas = fresh["components"]["schemas"]
+        target = next(n for n, s in schemas.items() if "suggested_fix_version" in s.get("properties", {}))
+        schemas[target]["properties"]["suggested_fix_version"] = {"type": "integer"}
+        found, _ = drift.compare(fresh, consumed, committed, baseline)
+        assert any("suggested_fix_version" in line for line in found)
+
+    def test_removed_consumed_path_fails(self):
+        consumed, committed, baseline = self._args()
+        fresh = copy.deepcopy(baseline)
+        del fresh["paths"]["/status"]
+        found, _ = drift.compare(fresh, consumed, committed, baseline)
+        assert any(line.startswith("GET /status") for line in found)
+
+    def test_change_outside_the_extract_is_listed_not_failed(self):
+        """req-anchore-drift-ci-2."""
+        consumed, committed, baseline = self._args()
+        fresh = copy.deepcopy(baseline)
+        fresh["paths"]["/brand-new"] = {"get": {"responses": {"200": {"description": "ok"}}}}
+        fresh["info"]["version"] = "9.9.9"
+        found, other = drift.compare(fresh, consumed, committed, baseline)
+        assert found == []
+        assert any("/brand-new" in line for line in other) and any("9.9.9" in line for line in other)
+
+    def test_documentation_only_change_is_not_drift(self):
+        consumed, committed, baseline = self._args()
+        fresh = copy.deepcopy(baseline)
+        fresh["paths"]["/status"]["get"]["summary"] = "A reworded sentence"
+        fresh["paths"]["/status"]["get"]["description"] = "Another"
+        assert drift.compare(fresh, consumed, committed, baseline)[0] == []
+
+    def test_summary_lists_both_kinds(self):
+        text = drift.render_summary(["GET /x: changed"], ["GET /y: added upstream"])
+        assert "fails the run" in text and "does not fail" in text
+
+    def test_diff_is_bounded(self):
+        a = {"operations": [{"method": "get", "path": "/p", "x": list(range(1000))}]}
+        b = {"operations": [{"method": "get", "path": "/p", "x": [i + 1 for i in range(1000)]}]}
+        assert len(diff.diff_extracts(a, b)) <= diff.MAX_REPORTED
