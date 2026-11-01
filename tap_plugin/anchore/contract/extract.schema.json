@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Anchore contract extract",
+  "description": "Shape of extract.json, the part of Anchore's OpenAPI file this plugin consumes, as produced by reduce.py. Schemas inside an entry are resolved OpenAPI schema fragments and are not constrained further here.",
+  "type": "object",
+  "required": [
+    "description",
+    "source",
+    "operations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "openapi",
+        "title",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "openapi": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "description",
+          "method",
+          "path",
+          "present"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "method": {
+            "const": "get"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "in",
+                "required",
+                "schema"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "in": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "schema": {}
+              }
+            }
+          },
+          "responses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "status",
+                "content_type",
+                "schema"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string"
+                },
+                "content_type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "schema": {}
+              }
+            }
+          },
+          "never_request": {
+            "type": "array",
+            "description": "Parameter values the client must never send although the vendor's schema allows them.",
+            "items": {
+              "type": "object",
+              "required": [
+                "parameter",
+                "values"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "parameter": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

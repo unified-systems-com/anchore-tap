@@ -1,0 +1,361 @@
+{
+ "description": "The operations this plugin consumes from Anchore's API, the input to the reducer. Every entry is a GET: the client has no write path (req-anchore-client-1). Not consumed, by ruling: secret-search, retrieved-file and file-content results, account, user, RBAC and registry endpoints, configuration and admin endpoints, export jobs and downloads, notifications and events. Edit this list only with the requirement that needs the operation. An entry's never_request lists parameter values the client must never send even though the vendor's schema allows them; the extract carries the list so the client reads it from there.",
+ "operations": [
+  {
+   "description": "Probe: Read first on every run to identify the instance, its account and its feed freshness (req-anchore-probe).",
+   "method": "get",
+   "path": "/account"
+  },
+  {
+   "description": "Probe: Read first on every run to identify the instance, its account and its feed freshness (req-anchore-probe).",
+   "method": "get",
+   "path": "/status"
+  },
+  {
+   "description": "Probe: Read first on every run to identify the instance, its account and its feed freshness (req-anchore-probe).",
+   "method": "get",
+   "path": "/system"
+  },
+  {
+   "description": "Probe: Read first on every run to identify the instance, its account and its feed freshness (req-anchore-probe).",
+   "method": "get",
+   "path": "/system/feeds"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/vuln"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/vuln/{vuln_type}"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/vuln-annotations"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/vuln-annotations/{vuln_annotation_uuid}"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/check"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/content"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/content-summary"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/content/java"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/content/licenses"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/content/malware"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/content/{content_type}",
+   "never_request": [
+    {
+     "parameter": "content_type",
+     "values": [
+      "files"
+     ]
+    }
+   ]
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/metadata"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/metadata/{metadata_type}"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/sboms/native-json"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/sboms/spdx-json"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/sboms/cyclonedx-json"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/vex/openvex"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/vex/cyclonedx-json"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
+   "path": "/images/{image_digest}/vex/cyclonedx-xml"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/check"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/content"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/content-summary"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/content/{content_type}",
+   "never_request": [
+    {
+     "parameter": "content_type",
+     "values": [
+      "files"
+     ]
+    }
+   ]
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/vuln"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/vuln/{vuln_type}"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/sbom/native-json"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/sbom/spdx-json"
+  },
+  {
+   "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/sources/{source_id}/sbom/cyclonedx-json"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/assets"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/assets-by-package"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/assets/{asset_id}"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/assets/{asset_id}/sbom"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/packages"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/packages-by-vulnerability"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/policy/findings/all"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/policy/findings/packages"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/policy/findings/vulnerabilities"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/policy/status"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/vulnerabilities"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/vulnerability-annotations"
+  },
+  {
+   "description": "Application version: Application-version scope of the scope walk, the /apps family that carries the asset concept (req-anchore-scope-walk). Export jobs and downloads are excluded.",
+   "method": "get",
+   "path": "/apps/{app_id}/versions/{version_id}/vulnerability-annotations/{vulnerability_annotation_id}"
+  },
+  {
+   "description": "Deprecated application: The older /applications family, probed because an older on-prem install may serve only this one (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/applications"
+  },
+  {
+   "description": "Deprecated application: The older /applications family, probed because an older on-prem install may serve only this one (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/applications/{application_id}"
+  },
+  {
+   "description": "Deprecated application: The older /applications family, probed because an older on-prem install may serve only this one (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/applications/{application_id}/versions"
+  },
+  {
+   "description": "Deprecated application: The older /applications family, probed because an older on-prem install may serve only this one (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/applications/{application_id}/versions/{application_version_id}"
+  },
+  {
+   "description": "Deprecated application: The older /applications family, probed because an older on-prem install may serve only this one (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/applications/{application_id}/versions/{application_version_id}/artifacts"
+  },
+  {
+   "description": "Deprecated application: The older /applications family, probed because an older on-prem install may serve only this one (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/applications/{application_id}/versions/{application_version_id}/sboms/native-json"
+  },
+  {
+   "description": "Deprecated application: The older /applications family, probed because an older on-prem install may serve only this one (req-anchore-scope-walk).",
+   "method": "get",
+   "path": "/applications/{application_id}/versions/{application_version_id}/vulnerabilities"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/inventories"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/ecs-containers"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/ecs-tasks"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/ecs-services"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/kubernetes-namespaces"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/kubernetes-nodes"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/kubernetes-pods"
+  },
+  {
+   "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
+   "method": "get",
+   "path": "/kubernetes-containers"
+  }
+ ]
+}

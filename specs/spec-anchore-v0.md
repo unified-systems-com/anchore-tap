@@ -190,7 +190,7 @@ A committed extract of the part of Anchore's OpenAPI file this plugin consumes, 
 
 #### Implementation
 
-`tap_plugin/anchore/contract/extract.json` with a `description` on the top level and every entry, produced by `tap_plugin/anchore/contract/reduce.py` from an OpenAPI file: the consumed paths, their methods and parameters, and the response schemas they reference, resolved to the fields the parser reads. The source is Anchore's published file (documented version 2.20.0). Recorded responses from the trial instance, once they exist, are committed as fixtures beside it and replace assumed shapes. The reducer takes the OpenAPI file as data and never executes anything from it. It is also the one component that parses a document supplied by a remote host (the vendor's published file in CI, an instance's own spec in the per-run self-test), so it is bounded: it resolves only local `#/...` references, rejects any `$ref` that names a URL or a file, refuses a document over a fixed size or nesting depth, detects reference cycles instead of following them, and performs no network or file access of its own.
+`tap_plugin/anchore/contract/extract.json` with a `description` on the top level and every entry, produced by `tap_plugin/anchore/contract/reduce.py` from an OpenAPI file and the operations named in `contract/consumed.json`: the consumed paths, their methods and parameters, and the 2xx response schemas they reference, resolved in full (every field Anchore returns, since the plugin stores Anchore's fields as returned). Documentation-only keys (descriptions, examples, titles, vendor notes) are not part of the extract, so a reworded sentence is not drift. Defaults and value constraints are part of it, since a changed default changes what a client that omits a parameter receives. A consumed entry may list `never_request` values (the generic `content/{content_type}` routes carry `files`, which the vendor's schema allows and the plugin must never send); the extract carries the list for the client to read. `contract/build.py` regenerates it and `--check` tests it; the committed source copy is `tests/vendor/openapi-2.20.0.json`, with `provenance.json` beside it recording the vendor URL, the fetch date and the hashes of the vendor's YAML and of the converted copy. The source is Anchore's published file (documented version 2.20.0). Recorded responses from the trial instance, once they exist, are committed as fixtures beside it and replace assumed shapes. The reducer takes the OpenAPI file as data and never executes anything from it. It is also the one component that parses a document supplied by a remote host (the vendor's published file in CI, an instance's own spec in the per-run self-test), so it is bounded: it resolves only local `#/...` references, rejects any `$ref` that names a URL or a file, refuses a document over a fixed size or nesting depth, detects reference cycles instead of following them, and performs no network or file access of its own.
 
 #### Acceptance Criteria
 
@@ -207,7 +207,7 @@ RID: `req-anchore-drift-ci`
 
 Status: `Proposed`
 
-A scheduled GitHub workflow fetches Anchore's published OpenAPI file, reduces it with the same reducer, compares it with the committed extract, and fails when what the plugin consumes has changed. It follows the nightly-workflow pattern the organisation's other plugin repositories use.
+A scheduled GitHub workflow fetches Anchore's published OpenAPI file, reduces it with the same reducer, compares it with the committed extract, and fails when what the plugin consumes has changed. It follows the nightly-workflow pattern the organisation's other plugin repositories use. It installs no package: the vendor's YAML is converted to JSON with the Ruby Psych loader on the runner image, with aliases off, and `contract/drift.py` (standard library only) does the comparison against the committed source copy and extract, reading the fresh file on standard input and writing its summary to standard output. Operations outside the consumed set are reduced by the same reducer, so an added or removed operation, a version change, and a changed parameter or response schema are all listed.
 
 #### Implementation
 
@@ -220,7 +220,7 @@ A scheduled GitHub workflow fetches Anchore's published OpenAPI file, reduces it
 | req-anchore-drift-ci-1 | Fails On Consumed Drift | Proposed | A change to a consumed path, method, parameter or response field fails the run. | |
 | req-anchore-drift-ci-2 | Reports Other Changes Without Failing | Proposed | A change outside the extract is listed in the run summary and does not fail. | |
 | req-anchore-drift-ci-3 | Read-Only Permissions | Proposed | The workflow grants `contents: read` and nothing else, and opens no issue. | The workflow only fails. |
-| req-anchore-drift-ci-4 | Lands With The Scaffold | Proposed | The workflow is added with the package scaffold, with the other CI callers. | CI callers land with the scaffold. |
+| req-anchore-drift-ci-4 | Lands With The Extract | Proposed | The workflow is added with the contract extract it compares against. | A workflow with no extract to read would fail from its first run. |
 
 ### Three States And Resolution
 ----
