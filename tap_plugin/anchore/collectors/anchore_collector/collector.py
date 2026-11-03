@@ -2,8 +2,9 @@
 
 For each credential it probes the instance (the account must be the configured one), runs the
 self-test, lists the images, reads each analyzed image's vulnerabilities, and records what it read
-and what it did not. A scanner that fails its probe or self-test is skipped with nothing written for
-it. Reads only (``ReadOnlyClient``), each bounded by a wall-clock ceiling. Anchore's data is stored
+and what it did not. A scanner that fails its probe or self-test, whose image list cannot be read, or that answers in a shape the
+committed contract does not describe, is skipped with nothing written for it; a single image that cannot be read
+(a failed request, a timeout) is recorded as not read and leaves its findings as they were. Reads only (``ReadOnlyClient``), each bounded by a wall-clock ceiling. Anchore's data is stored
 as returned (req-anchore-findings-3); a finding a successful read of its image no longer reports is
 marked resolved, never deleted, and an image that could not be read leaves its findings untouched.
 
@@ -77,22 +78,30 @@ def _bounded(call: Any, what: str) -> Any:
     return run_with_ceiling(call, READ_CEILING_SECONDS, name=f"anchore-{what}")
 
 
-def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, path: str) -> tuple[Any, str | None]:
+@dataclass(frozen=True)
+class Failure:
+    """Why a read gave nothing. ``incompatible`` means the instance answered in a shape the committed contract does not describe."""
+
+    reason: str
+    incompatible: bool = False
+
+
+def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, path: str) -> tuple[Any, Failure | None]:
     """(body, None) for a read that returned the committed shape, else (None, why). Never raises for what the instance does."""
     try:
         reply = _bounded(lambda: client.get(path), source.id)
     except CeilingExceeded:
-        return None, "the read did not finish within its ceiling"
+        return None, Failure("the read did not finish within its ceiling")
     except ClientError as exc:
-        return None, f"not read ({type(exc).__name__})"
+        return None, Failure(f"not read ({type(exc).__name__})")
     if reply.status != 200:
-        return None, f"HTTP {reply.status}"
+        return None, Failure(f"HTTP {reply.status}")
     try:
         body = json.loads(reply.body)
     except ValueError:
-        return None, "the body was not JSON"
+        return None, Failure("the body was not JSON", incompatible=True)
     checked = validate_body(extract, source, reply.status, body)
-    return (body, None) if checked.ok else (None, checked.reason)
+    return (body, None) if checked.ok else (None, Failure(checked.reason or "the body did not match the committed shape", incompatible=True))
 
 
 def _image_entries(body: Any) -> list[Any] | None:
@@ -201,13 +210,12 @@ class AnchoreCollector(CollectorBase):
         return out
 
     def _images(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], run_id: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], tag: str) -> None:
-        listed, why = _get_json(client, extract, by_id["images"], by_id["images"].path)
-        entries = _image_entries(listed) if why is None else None
+        # The image list is a required source (req-anchore-selftest-6): without it there is no walk, so the
+        # scanner stops with nothing written rather than recording a run that read nothing.
+        listed, failure = _get_json(client, extract, by_id["images"], by_id["images"].path)
+        entries = _image_entries(listed) if failure is None else None
         if entries is None:
-            reason = why or "the image list was not a list"
-            not_read.append({"scope": "source:images", "reason": reason})
-            self.record_warn(_SITE_IMAGES_NOT_READ, "IMAGES_NOT_READ", f"{credential.qualified}: the image list was not read ({reason}); no finding was changed.")
-            return
+            raise _ScannerSkipped(f"{credential.qualified}: the image list could not be read ({failure.reason if failure else 'it was not a list'}); nothing was written")
         read.append("source:images")
         dropped: list[dict[str, str]] = []
         skipped = duplicates = 0
@@ -223,12 +231,17 @@ class AnchoreCollector(CollectorBase):
                 not_read.append({"scope": scope, "reason": f"analysis_status is {image.get('analysis_status')!r}"})
                 out.images_not_read += 1
                 continue
-            body, why = _get_json(client, extract, by_id["image_vulnerabilities"], fill(by_id["image_vulnerabilities"].path, image_digest=digest, vuln_type="all"))
+            body, failure = _get_json(client, extract, by_id["image_vulnerabilities"], fill(by_id["image_vulnerabilities"].path, image_digest=digest, vuln_type="all"))
+            if failure is not None and failure.incompatible:
+                # A response that does not have the committed shape is not a transient failure: the contract this
+                # collector parses no longer describes the instance, so no image of it is trusted this run.
+                raise _ScannerSkipped(f"{credential.qualified}: a vulnerability response did not match the committed shape ({failure.reason}); nothing was written")
             vulns = body.get("vulnerabilities") if isinstance(body, dict) else None
-            if why is not None or not isinstance(vulns, list):
-                not_read.append({"scope": scope, "reason": why or "the response held no vulnerability list"})
+            if failure is not None or not isinstance(vulns, list):
+                why = failure.reason if failure else "the response held no vulnerability list"
+                not_read.append({"scope": scope, "reason": why})
                 out.images_not_read += 1
-                self.record_warn(_SITE_IMAGE_NOT_READ, "IMAGE_NOT_READ", f"{credential.qualified}: image {index} was not read ({why or 'no vulnerability list'}); its findings were left as they were.")
+                self.record_warn(_SITE_IMAGE_NOT_READ, "IMAGE_NOT_READ", f"{credential.qualified}: image {index} was not read ({why}); its findings were left as they were.")
                 continue
             result = decompose.decompose_image(vulns, credential.scanner_key, digest, run_id, f"{tag}:f{index}")
             out.nodes.extend(result.nodes)

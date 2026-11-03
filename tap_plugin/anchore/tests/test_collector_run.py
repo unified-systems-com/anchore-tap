@@ -193,6 +193,21 @@ class TestWhatIsRefused:
         with pytest.raises(AnchoreCollectorError):
             run_against(monkeypatch, Instance())
 
+    def test_an_image_list_that_cannot_be_read_or_has_the_wrong_shape_writes_nothing(self, secrets, monkeypatch):
+        for answer in (response(500, {"detail": "boom"}), response(200, {"items": "not-a-list"}), response(200, b"not json")):
+            instance = Instance()
+            instance.transport.routes["/images"] = lambda r, a=answer: a
+            with pytest.raises(AnchoreCollectorError):
+                run_against(monkeypatch, instance)
+        assert AnchoreScanner.objects.count() == AnchoreScanRun.objects.count() == AnchoreFinding.objects.count() == 0
+
+    def test_a_vulnerability_response_in_the_wrong_shape_stops_the_scanner_and_writes_nothing(self, secrets, monkeypatch):
+        instance = Instance()
+        instance.transport.routes[f"/images/{DIGEST}/vuln/all"] = lambda r: response(200, {"vulnerabilities": "nope"})
+        with pytest.raises(AnchoreCollectorError):
+            run_against(monkeypatch, instance)
+        assert AnchoreScanner.objects.count() == AnchoreScanRun.objects.count() == AnchoreFinding.objects.count() == 0
+
     def test_one_failing_scanner_does_not_stop_another(self, tmp_path, monkeypatch):
         write(tmp_path, "good", data("basic"))
         write(tmp_path, "bad", data("basic", base_url="https://other.example:8228/v2"))
