@@ -221,6 +221,25 @@ class TestSelfTest:
         assert is_required({"properties": {"items": {"type": "array", "items": {"properties": {"id": {"type": "string"}}}}}}, "items[].id") is False
         assert is_required(schema, "items[].nope") is None
 
+    def test_a_new_bodyless_success_response_is_an_error_for_a_needed_source(self):
+        """A 204 beside the unchanged 200 would give the collector no fields at all."""
+        fresh = _fresh()
+        _op(fresh, "/images")["responses"].append({"status": "204"})
+        result = compare(EXTRACT, fresh, SOURCES)
+        assert result.verdict == ERROR
+        assert any("can now succeed with 204 and no described body" in d.message for d in result.differences)
+
+    def test_a_new_bodyless_success_response_on_an_optional_source_is_a_warning(self):
+        fresh = _fresh()
+        _op(fresh, "/system/feeds")["responses"].append({"status": "204"})
+        assert compare(EXTRACT, fresh, SOURCES).verdict == WARN
+
+    def test_a_bodyless_success_the_committed_extract_already_has_passes(self):
+        committed, fresh = _fresh(), _fresh()
+        _op(committed, "/images")["responses"].append({"status": "204"})
+        _op(fresh, "/images")["responses"].append({"status": "204"})
+        assert compare(committed, fresh, SOURCES).verdict == PASS
+
     def test_a_different_version_is_a_warning(self):
         fresh = _fresh()
         fresh["source"] = {**fresh["source"], "version": "9.9.9"}

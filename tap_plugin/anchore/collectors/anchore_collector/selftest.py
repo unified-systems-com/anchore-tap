@@ -62,6 +62,15 @@ def _success_schemas(op: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
+def _bodyless_successes(op: dict[str, Any]) -> set[str]:
+    """Status codes of 2xx responses the description gives no schema for (a 204, or a bare 200)."""
+    return {
+        str(r["status"])
+        for r in op.get("responses", [])
+        if str(r.get("status", "")).startswith("2") and not isinstance(r.get("schema"), dict)
+    }
+
+
 def _required_parameters(op: dict[str, Any]) -> set[tuple[str, str]]:
     return {(str(p.get("name")), str(p.get("in"))) for p in op.get("parameters", []) if p.get("required")}
 
@@ -98,6 +107,10 @@ def compare(committed: dict[str, Any], fresh: dict[str, Any], sources: tuple[Sou
             continue
         if not old_schemas:
             continue
+        # A successful response with no schema carries none of the fields the parser needs, so one the
+        # instance describes and the committed extract does not is a loss at the source's severity.
+        for status in sorted(_bodyless_successes(new_op) - _bodyless_successes(old_op)):
+            found.append(Difference(loss, source.id, f"GET {source.path} can now succeed with {status} and no described body"))
         baseline = next(iter(old_schemas.values()))
         # Every successful response the instance describes is a shape the client may receive, so each
         # is held to the committed schema of the same status (or the committed first one when the
