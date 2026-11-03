@@ -8,6 +8,9 @@
   "targets": [
     "computing_core__package"
   ],
+  "identity": {
+    "discriminators": []
+  },
   "default_dimensions": {
     "anchore.area": "finding"
   }
