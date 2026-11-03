@@ -220,12 +220,18 @@ class AnchoreCollector(CollectorBase):
         dropped: list[dict[str, str]] = []
         skipped = duplicates = 0
         uncarried: set[str] = set()
-        unidentified = 0
+        unidentified = repeated = 0
+        listed_digests: set[str] = set()
         for index, image in enumerate(entries):
             digest = image.get("image_digest") if isinstance(image, dict) else None
             if not isinstance(digest, str) or not digest or len(digest) > _MAX_DIGEST:
                 unidentified += 1
                 continue
+            if digest in listed_digests:
+                # One read per digest: a repeat would stage the same finding identities twice in one batch.
+                repeated += 1
+                continue
+            listed_digests.add(digest)
             scope = f"image:{digest}"
             if image.get("analysis_status") != "analyzed":
                 not_read.append({"scope": scope, "reason": f"analysis_status is {image.get('analysis_status')!r}"})
@@ -264,6 +270,8 @@ class AnchoreCollector(CollectorBase):
         if unidentified:
             not_read.append({"scope": "source:images:entries", "reason": f"{unidentified} entry(ies) of the image list named no usable image_digest and were not read"})
             self.record_warn(_SITE_IMAGES_NOT_READ, "IMAGES_NOT_READ", f"{credential.qualified}: {unidentified} entry(ies) of the image list named no usable image_digest and were not read.")
+        if repeated:
+            self.record_warn(_SITE_IMAGES_NOT_READ, "IMAGES_REPEATED", f"{credential.qualified}: {repeated} entry(ies) of the image list repeated a digest already listed and were read once.")
         if dropped:
             self.record_warn(_SITE_FIELDS_DROPPED, "FIELDS_DROPPED", f"{credential.qualified}: {len(dropped)} value(s) could not be held by the model; each is listed with what became of it.", message_data={"count": len(dropped), "values": dropped[:_LISTED]})
         if skipped or duplicates or uncarried:

@@ -256,6 +256,26 @@ class TestIdentityIsNeverGuessed:
         latest = AnchoreScanRun.objects.order_by("-finished_at").first()
         assert [n["scope"] for n in latest.scopes_not_read] == [f"resolution:{DIGEST}"]
 
+    def test_a_digest_listed_twice_is_read_once(self, secrets, monkeypatch):
+        instance = Instance(images=[{"image_digest": DIGEST, "analysis_status": "analyzed"}, {"image_digest": DIGEST, "analysis_status": "analyzed"}])
+        collector = run_against(monkeypatch, instance)
+        assert AnchoreFinding.objects.count() == 2
+        assert sum(c.url.endswith(f"{DIGEST}/vuln/all") for c in instance.transport.calls) == 1
+        assert any(w["message_code"] == "IMAGES_REPEATED" for w in collector.results["warn"])
+
+    @pytest.mark.parametrize("hostile", ["../../account", "x/../../account", "a?b=c", "a#b", "a\r\nHost: evil", "https://evil.example/x", "%2e%2e/account"])
+    def test_a_hostile_digest_never_redirects_the_per_image_request(self, secrets, monkeypatch, hostile):
+        instance = Instance(images=[{"image_digest": hostile, "analysis_status": "analyzed"}])
+        try:
+            run_against(monkeypatch, instance)
+        except AnchoreCollectorError:
+            pass
+        paths = [c.url.split("/v2", 1)[-1] for c in instance.transport.calls]
+        # Everything after the probe and the image list stays under /images/<one quoted segment>/vuln/all.
+        walked = [p for p in paths if p.startswith("/images/") and p != "/images"]
+        assert all(p.count("/") == 4 and p.endswith("/vuln/all") for p in walked)
+        assert paths.count("/account") == 1 and not any("evil" in c.url.split("/v2", 1)[0] for c in instance.transport.calls)
+
     def test_image_list_entries_without_a_usable_digest_are_listed_not_skipped_silently(self, secrets, monkeypatch):
         instance = Instance(images=[{"image_digest": DIGEST, "analysis_status": "analyzed"}, {"analysis_status": "analyzed"}, {"image_digest": "", "analysis_status": "analyzed"}])
         collector = run_against(monkeypatch, instance)
