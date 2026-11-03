@@ -10,6 +10,7 @@ Reads no grid and no network; it needs Django only for the model classes it read
 """
 
 import hashlib
+import json
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -116,6 +117,15 @@ def host_node(ref: str, digest: str) -> dict[str, Any]:
 
 def host_key(digest: str) -> dict[str, str]:
     return {"realm": IMAGE_REALM, "stable_id": digest}
+
+
+def _no_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not JSON")
+
+
+def loads_strict(body: bytes) -> Any:
+    """Parse a body as JSON as the standard defines it: Python's NaN, Infinity and -Infinity are refused."""
+    return json.loads(body, parse_constant=_no_constant)
 
 
 def sbom_header(source_id: str, document: Any) -> dict[str, Any]:

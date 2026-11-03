@@ -280,6 +280,9 @@ class AnchoreCollector(CollectorBase):
                 not_read.append({"scope": scope, "reason": why})
                 out.images_not_read += 1
                 self.record_warn(_SITE_IMAGE_NOT_READ, "IMAGE_NOT_READ", f"{credential.qualified}: image {index} was not read ({why}); its findings were left as they were.")
+                # The documents are separate reads: a failed vulnerability read does not stop them.
+                self._ensure_host(out, digest, f"{tag}:h{index}", shared)
+                self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
                 continue
             result = decompose.decompose_image(vulns, credential.scanner_key, digest, run_id, f"{tag}:f{index}")
             out.nodes.extend(result.nodes)
@@ -295,7 +298,8 @@ class AnchoreCollector(CollectorBase):
                         out.resolved += 1
             out.images_read += 1
             read.append(scope)
-            self._link_image(out, result.nodes, digest, f"{tag}:h{index}", shared)
+            self._ensure_host(out, digest, f"{tag}:h{index}", shared)
+            self._link_image(out, result.nodes, digest)
             self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
             dropped.extend(result.dropped_fields)
             skipped += result.skipped_entries
@@ -321,22 +325,26 @@ class AnchoreCollector(CollectorBase):
         if skipped or duplicates or uncarried:
             self.record_warn(_SITE_ENTRIES, "ENTRIES_NOT_STORED", f"{credential.qualified}: {skipped} entry(ies) named no usable identifier, {duplicates} repeated an assertion already held, and {len(uncarried)} response key(s) are not stored.", message_data={"skipped": skipped, "duplicates": duplicates, "uncarried_keys": sorted(uncarried)})
 
-    def _link_image(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, host_ref: str, shared: _Shared) -> None:
-        """Edges from this image's findings to its host and, where it already exists exactly, to the shared vulnerability.
+    def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared) -> None:
+        """Stage the image host for a digest only where neither this batch nor the grid has one.
 
-        The host is written only where the grid has none. A digest that is not a plain sha256 digest
-        names no host key, so those findings are left unlinked and counted, never linked on a guess.
+        Where the grid has one it is never rewritten, whatever another collector filled in. A digest that
+        is not a plain sha256 digest names no host key, so nothing is staged and the image is counted.
         """
+        if not decompose.OCI_DIGEST.fullmatch(digest):
+            out.unlinked_images += 1
+            return
+        if digest not in shared.hosts and digest not in out.hosts and not store.image_host_exists(digest):
+            out.nodes.append(decompose.host_node(host_ref, digest))
+            out.hosts.add(digest)
+            out.hosts_created += 1
+
+    def _link_image(self, out: _Scanner, findings: list[dict[str, Any]], digest: str) -> None:
+        """Edges from this image's findings to its host and, where it already exists exactly, to the shared vulnerability."""
         if decompose.OCI_DIGEST.fullmatch(digest):
-            if digest not in shared.hosts and not store.image_host_exists(digest):
-                out.nodes.append(decompose.host_node(host_ref, digest))
-                out.hosts.add(digest)
-                out.hosts_created += 1
             for node in findings:
                 ref = node["entity"]["ref"]
                 out.edges.append(decompose.edge_to_key(f"{ref}:image", "FOUND_ON_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
-        else:
-            out.unlinked_images += 1
         known = store.known_vulnerabilities({n["node"]["vulnerability_id"] for n in findings})
         for node in findings:
             if node["node"]["vulnerability_id"] in known:
@@ -365,7 +373,7 @@ class AnchoreCollector(CollectorBase):
                 not_read.append({"scope": scope, "reason": f"HTTP {reply.status}"})
                 continue
             try:
-                parsed = json.loads(reply.body)
+                parsed = decompose.loads_strict(reply.body)
             except ValueError:
                 parsed = None
             except RecursionError:

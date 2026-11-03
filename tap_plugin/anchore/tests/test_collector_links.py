@@ -176,3 +176,19 @@ class TestSharedNodesAreNeverStagedTwiceOrRewritten:
         run = AnchoreScanRun.objects.get()
         assert [n["reason"] for n in run.scopes_not_read] == ["the body nests too deeply to read"]
         assert AnchoreFinding.objects.count() == 2
+
+
+@pytest.mark.django_db
+class TestDocumentsAreSeparateReads:
+    def test_a_failed_vulnerability_read_does_not_stop_the_image_documents(self, secrets, monkeypatch):
+        instance = Instance()
+        instance.failing.add(DIGEST)
+        run_against(monkeypatch, instance)
+        assert AnchoreFinding.objects.count() == 0 and SbomDocument.objects.count() == 3 and Host.objects.count() == 1
+        assert len(edges("DESCRIBES_HOST__computing_core")) == 3
+
+    def test_a_body_with_a_non_standard_constant_is_not_recorded_as_json(self, secrets, monkeypatch):
+        instance = Instance()
+        instance.transport.routes[f"/images/{DIGEST}/sboms/spdx-json"] = lambda r: response(200, b'{"value": NaN}')
+        run_against(monkeypatch, instance)
+        assert "spdx" not in {d.format for d in SbomDocument.objects.all()}

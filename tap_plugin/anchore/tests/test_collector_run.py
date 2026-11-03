@@ -175,7 +175,7 @@ class TestLaterRuns:
         collector = run_against(monkeypatch, instance)
         assert {f.state for f in AnchoreFinding.objects.all()} == {"current"}
         latest = AnchoreScanRun.objects.order_by("-finished_at").first()
-        assert [n["scope"] for n in latest.scopes_not_read] == [f"image:{DIGEST}"] and latest.scopes_read == ["source:images"]
+        assert [n["scope"] for n in latest.scopes_not_read] == [f"image:{DIGEST}"] and "source:images" in latest.scopes_read and f"image:{DIGEST}" not in latest.scopes_read
         assert any(w["message_code"] == "IMAGE_NOT_READ" for w in collector.results["warn"])
 
     def test_an_image_that_leaves_the_list_is_not_treated_as_cleared(self, secrets, monkeypatch):
@@ -299,9 +299,9 @@ class TestIdentityIsNeverGuessed:
         except AnchoreCollectorError:
             pass
         paths = [c.url.split("/v2", 1)[-1] for c in instance.transport.calls]
-        # Everything after the probe and the image list stays under /images/<one quoted segment>/vuln/all.
+        # Everything after the probe and the image list stays under /images/<one quoted segment>/{vuln/all,sboms/<format>}.
         walked = [p for p in paths if p.startswith("/images/") and p != "/images"]
-        assert all(p.count("/") == 4 and p.endswith("/vuln/all") for p in walked)
+        assert all(p.count("/") == 4 and (p.endswith("/vuln/all") or "/sboms/" in p) for p in walked)
         assert paths.count("/account") == 1 and not any("evil" in c.url.split("/v2", 1)[0] for c in instance.transport.calls)
 
     def test_image_list_entries_without_a_usable_digest_are_listed_not_skipped_silently(self, secrets, monkeypatch):
