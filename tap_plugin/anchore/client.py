@@ -215,7 +215,7 @@ class ReadOnlyClient:
         session = _Session(credential.base_url, credential.ca_bundle or True)
         adapter = transport if transport is not None else HTTPAdapter(max_retries=0)
         session.mount("https://", adapter)
-        session.mount("http://", adapter)
+        session.mount("http://", adapter)  # NOSONAR S5332: plain http is the operator's choice (req-anchore-connection-4); every run warns
         session.headers["Accept"] = "application/json"
         auth = credential.auth
         if auth.basic is not None:
