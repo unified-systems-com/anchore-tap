@@ -20,6 +20,16 @@ depends_on = [
 [fips]
 status = "compatible"
 
+[models]
+anchore__anchore_scanner = "tap_plugin.anchore.models.scanner.AnchoreScanner"
+anchore__anchore_scan_run = "tap_plugin.anchore.models.scan_run.AnchoreScanRun"
+anchore__anchore_finding = "tap_plugin.anchore.models.finding.AnchoreFinding"
+
+[edges]
+RUN_OF_SCANNER__anchore = "edges/RUN_OF_SCANNER__anchore.edge.json"
+FOUND_ON_IMAGE__anchore = "edges/FOUND_ON_IMAGE__anchore.edge.json"
+FOUND_IN_PACKAGE__anchore = "edges/FOUND_IN_PACKAGE__anchore.edge.json"
+
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."

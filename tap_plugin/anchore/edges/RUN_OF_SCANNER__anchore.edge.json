@@ -1,0 +1,14 @@
+{
+  "slug": "RUN_OF_SCANNER__anchore",
+  "name": "Run Of Scanner",
+  "description": "A scan run belongs to the Anchore scanner (instance and account) it read. Names which instance and account the run's probe, self-test and scopes describe.",
+  "sources": [
+    "anchore__anchore_scan_run"
+  ],
+  "targets": [
+    "anchore__anchore_scanner"
+  ],
+  "default_dimensions": {
+    "anchore.area": "run"
+  }
+}

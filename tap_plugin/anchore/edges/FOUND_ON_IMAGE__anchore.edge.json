@@ -1,0 +1,14 @@
+{
+  "slug": "FOUND_ON_IMAGE__anchore",
+  "name": "Found On Image",
+  "description": "An Anchore finding concerns the container image host whose digest Anchore scanned. Written only when that host exists; the plugin does not create it here.",
+  "sources": [
+    "anchore__anchore_finding"
+  ],
+  "targets": [
+    "computing_core__host"
+  ],
+  "default_dimensions": {
+    "anchore.area": "finding"
+  }
+}
