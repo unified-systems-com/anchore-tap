@@ -6,8 +6,16 @@ host, the vulnerability) are created through the service layer as another collec
 
 import hashlib
 import json
+import types
+import uuid
 
 import pytest
+
+from tap_cares.collectors import CollectorConfig
+from tap_plugin.anchore.client import ReadOnlyClient
+from tap_plugin.anchore.collectors.anchore_collector import collector as collector_module
+from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollector
+from tap_plugin.anchore.tests.test_anchore_credential import data, write
 
 from tap_grid.models import Edge
 from tap_grid.services import create_node
@@ -128,3 +136,43 @@ class TestSbomDocuments:
         spdx = SbomDocument.objects.get(format="spdx")
         assert SbomDocument.objects.filter(format="spdx").count() == 1
         assert {Host.objects.get(entity_id=e.to_entity_id).stable_id for e in edges("DESCRIBES_HOST__computing_core") if e.from_entity_id == spdx.entity_id} == {DIGEST, OTHER}
+
+
+@pytest.mark.django_db
+class TestSharedNodesAreNeverStagedTwiceOrRewritten:
+    def test_two_scanners_reading_the_same_image_and_bytes_stage_one_host_and_one_document_each(self, tmp_path, monkeypatch):
+        write(tmp_path, "one", data("basic"))
+        write(tmp_path, "two", data("basic", base_url="https://other.example:8228/v2"))
+        monkeypatch.setattr(collector_module, "secrets_root", types.SimpleNamespace(resolve=lambda: tmp_path))
+        first, second = Instance(), Instance()
+        monkeypatch.setattr(collector_module, "ReadOnlyClient", lambda c: ReadOnlyClient(c, transport=(first if "anchore.example" in c.base_url else second).transport, sleep=lambda s: None))
+        collector = AnchoreCollector(CollectorConfig(collector_entity_id=uuid.uuid4(), collection_job_entity_id=uuid.uuid4()))
+        collector.run()
+        assert collector.results["error"] == []
+        assert Host.objects.count() == 1 and SbomDocument.objects.count() == 3
+        assert AnchoreFinding.objects.count() == 4 and len(edges("FOUND_ON_IMAGE__anchore")) == 4
+        assert len(edges("DESCRIBES_HOST__computing_core")) == 3
+
+    def test_the_same_bytes_under_two_formats_are_one_document_with_one_edge_to_the_host(self, secrets, monkeypatch):
+        instance = Instance()
+        for fmt in ("native-json", "spdx-json"):
+            instance.sboms[(DIGEST, fmt)] = {"same": "bytes"}
+        run_against(monkeypatch, instance)
+        assert SbomDocument.objects.count() == 2 and len(edges("DESCRIBES_HOST__computing_core")) == 2
+
+    def test_a_document_another_collector_already_holds_is_linked_and_never_rewritten(self, secrets, monkeypatch):
+        exact = json.dumps({"format": "spdx-json", "digest": DIGEST}).encode()
+        make(SbomDocument.ENTITY_TYPE, {"content_digest": hashlib.sha256(exact).hexdigest(), "format": "spdx", "verified": True, "signer": "release@example.org", "spec_version": "2.3"})
+        run_against(monkeypatch, Instance())
+        held = SbomDocument.objects.get(format="spdx")
+        assert (held.verified, held.signer, held.spec_version) == (True, "release@example.org", "2.3")
+        assert SbomDocument.objects.count() == 3
+        assert any(e.from_entity_id == held.entity_id for e in edges("DESCRIBES_HOST__computing_core"))
+
+    def test_a_body_nested_too_deeply_to_read_is_listed_not_read_and_the_run_goes_on(self, secrets, monkeypatch):
+        instance = Instance()
+        instance.transport.routes[f"/images/{DIGEST}/sboms/spdx-json"] = lambda r: response(200, b"[" * 200000 + b"]" * 200000)
+        run_against(monkeypatch, instance)
+        run = AnchoreScanRun.objects.get()
+        assert [n["reason"] for n in run.scopes_not_read] == ["the body nests too deeply to read"]
+        assert AnchoreFinding.objects.count() == 2

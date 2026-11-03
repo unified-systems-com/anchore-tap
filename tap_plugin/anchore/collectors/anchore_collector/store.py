@@ -8,6 +8,7 @@ tombstoned rows and is guarded to a bound actor (the collector task binds one).
 
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.host import Host
+from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
 from tap_plugin.anchore.models.finding import AnchoreFinding
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
@@ -48,3 +49,12 @@ def known_vulnerabilities(ids: set[str]) -> set[str]:
     if not ids:
         return set()
     return set(ComplianceVulnerability.objects.filter(vuln_id__in=ids).values_list("vuln_id", flat=True))
+
+
+def sbom_document_exists(content_digest: str) -> bool:
+    """Whether the grid already holds a document with these exact bytes.
+
+    Its key is the digest alone, so a record some other collector wrote (possibly verified and signed)
+    is the same node; this plugin links to it and never rewrites it.
+    """
+    return SbomDocument.objects.filter(content_digest=content_digest).exists()

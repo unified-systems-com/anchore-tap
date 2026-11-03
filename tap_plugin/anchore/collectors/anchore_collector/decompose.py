@@ -10,7 +10,6 @@ Reads no grid and no network; it needs Django only for the model classes it read
 """
 
 import hashlib
-import json
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -97,6 +96,19 @@ def edge_to_key(ref: str, slug: str, from_ref: str, entity_type: str, key: dict[
     }
 
 
+def edge_between_keys(ref: str, slug: str, from_type: str, from_key: dict[str, str], to_type: str, to_key: dict[str, str]) -> dict[str, Any]:
+    """An edge between two nodes both named by type and natural key, each already on the grid or in the batch."""
+    return {
+        "entity": {"ref": ref, "entity_type": "edge", "name": slug, "dimensions": {}},
+        "edge": {
+            "from_key": {"entity_type": from_type, "key": from_key},
+            "to_key": {"entity_type": to_type, "key": to_key},
+            "edge_type": slug,
+            "properties": {},
+        },
+    }
+
+
 def host_node(ref: str, digest: str) -> dict[str, Any]:
     """The image host for a digest: the computing_core host with realm oci-digest. Written only where none exists."""
     return envelope(ref, Host, digest, {"realm": IMAGE_REALM, "stable_id": digest, "kind": "container"})
@@ -106,19 +118,13 @@ def host_key(digest: str) -> dict[str, str]:
     return {"realm": IMAGE_REALM, "stable_id": digest}
 
 
-def sbom_header(source_id: str, body: bytes) -> dict[str, Any]:
+def sbom_header(source_id: str, document: Any) -> dict[str, Any]:
     """What a CycloneDX document says about itself, as far as the document record holds it; nothing is parsed into packages.
 
-    Other formats state nothing here. A value the record cannot hold is left out, so the record's own
-    default stands rather than a guess.
+    ``document`` is the body already parsed. Other formats state nothing here. A value the record
+    cannot hold is left out, so the record's own default stands rather than a guess.
     """
-    if source_id != "sbom_cyclonedx":
-        return {}
-    try:
-        document = json.loads(body)
-    except ValueError:
-        return {}
-    if not isinstance(document, dict):
+    if source_id != "sbom_cyclonedx" or not isinstance(document, dict):
         return {}
     metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
     candidates = {
@@ -140,7 +146,7 @@ def sbom_header(source_id: str, body: bytes) -> dict[str, Any]:
     return out
 
 
-def sbom_node(ref: str, source_id: str, body: bytes, subject_digest: str, api_root: str, account: str) -> dict[str, Any]:
+def sbom_node(ref: str, source_id: str, body: bytes, document: Any, subject_digest: str, api_root: str, account: str) -> dict[str, Any]:
     """The record that one SBOM existed: the digest of its exact bytes, never the body. Never marked verified."""
     note = f"unsigned; read from {api_root} as {account}"
     if len(note) > 255 or re.search(r"[\x00-\x1f\x7f]", note):
@@ -149,7 +155,7 @@ def sbom_node(ref: str, source_id: str, body: bytes, subject_digest: str, api_ro
     fields: dict[str, Any] = {
         "content_digest": digest,
         "format": SBOM_FORMATS[source_id],
-        **sbom_header(source_id, body),
+        **sbom_header(source_id, document),
         "subject_digest": subject_digest if re.fullmatch(r"[a-z0-9]{1,31}:[0-9a-f]{1,128}", subject_digest) else "",
         "verified": None,
         "verification_note": note,
