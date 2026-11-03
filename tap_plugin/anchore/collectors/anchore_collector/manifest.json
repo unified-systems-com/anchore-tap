@@ -1,13 +1,18 @@
 {
-  "description": "The reads the Anchore collector makes in this slice: the probe (account, status, system, feeds) and, per image, the image list and the vulnerabilities. Every path is in the committed extract. Not yet covered: SBOM, VEX, source, application-version and inventory reads, which later slices add. Field lists are spec-derived from the OpenAPI file (2.20.0) and not yet observed on a real instance.",
+  "description": "The reads the Anchore collector makes in this slice: the probe (account, status, system, feeds) and, per image, the image list, the vulnerabilities and the three SBOM formats. Every path is in the committed extract. The vendor file describes each SBOM body as a string, which is not what an instance returns, so those bodies are stored by the digest of their exact bytes and checked only for being JSON, never against that schema. Not yet covered: VEX, source, application-version and inventory reads, which later slices add. Field lists are spec-derived from the OpenAPI file (2.20.0) and not yet observed on a real instance.",
   "sources": [
     {
       "id": "account",
       "path": "/account",
       "scope": "probe",
       "required": true,
-      "required_fields": ["name"],
-      "optional_fields": ["state", "type"]
+      "required_fields": [
+        "name"
+      ],
+      "optional_fields": [
+        "state",
+        "type"
+      ]
     },
     {
       "id": "status",
@@ -15,7 +20,12 @@
       "scope": "probe",
       "required": false,
       "required_fields": [],
-      "optional_fields": ["version", "up", "available", "db_version"]
+      "optional_fields": [
+        "version",
+        "up",
+        "available",
+        "db_version"
+      ]
     },
     {
       "id": "system",
@@ -23,7 +33,9 @@
       "scope": "probe",
       "required": false,
       "required_fields": [],
-      "optional_fields": ["service_states"]
+      "optional_fields": [
+        "service_states"
+      ]
     },
     {
       "id": "feeds",
@@ -31,22 +43,34 @@
       "scope": "probe",
       "required": false,
       "required_fields": [],
-      "optional_fields": ["[].dataset_name", "[].enabled", "[].groups"]
+      "optional_fields": [
+        "[].dataset_name",
+        "[].enabled",
+        "[].groups"
+      ]
     },
     {
       "id": "images",
       "path": "/images",
       "scope": "image",
       "required": true,
-      "required_fields": ["items[].image_digest", "items[].analysis_status"],
-      "optional_fields": ["items[].created_at", "items[].image_status"]
+      "required_fields": [
+        "items[].image_digest",
+        "items[].analysis_status"
+      ],
+      "optional_fields": [
+        "items[].created_at",
+        "items[].image_status"
+      ]
     },
     {
       "id": "image_vulnerabilities",
       "path": "/images/{image_digest}/vuln/{vuln_type}",
       "scope": "image",
       "required": true,
-      "required_fields": ["vulnerabilities[].vuln"],
+      "required_fields": [
+        "vulnerabilities[].vuln"
+      ],
       "optional_fields": [
         "vulnerabilities[].severity",
         "vulnerabilities[].fix",
@@ -65,6 +89,30 @@
         "vulnerabilities[].feed_group",
         "vulnerabilities[].annotation_status"
       ]
+    },
+    {
+      "id": "sbom_native",
+      "path": "/images/{image_digest}/sboms/native-json",
+      "scope": "image",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": []
+    },
+    {
+      "id": "sbom_spdx",
+      "path": "/images/{image_digest}/sboms/spdx-json",
+      "scope": "image",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": []
+    },
+    {
+      "id": "sbom_cyclonedx",
+      "path": "/images/{image_digest}/sboms/cyclonedx-json",
+      "scope": "image",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": []
     }
   ]
 }

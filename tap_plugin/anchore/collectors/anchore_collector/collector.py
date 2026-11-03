@@ -46,6 +46,9 @@ _SITE_ENTRIES = "73f3"
 _SITE_STALE_FEEDS = "d0d8"
 _SITE_RUN_FINISHED = "5c3d"
 _SITE_NOTHING_WRITTEN = "ecc2"
+_SITE_SBOM_NOT_READ = "bf32"
+_SITE_NOT_LINKED = "f422"
+_SITE_HOST_CREATED = "729b"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -72,6 +75,30 @@ class _Scanner:
     resolved: int = 0
     images_read: int = 0
     images_not_read: int = 0
+    sboms: int = 0
+    hosts_created: int = 0
+    unlinked_images: int = 0
+    vulnerability_links: int = 0
+    hosts: set[str] = field(default_factory=set)
+    sbom_refs: dict[str, str] = field(default_factory=dict)
+    describes: set[tuple[str, str]] = field(default_factory=set)
+
+
+@dataclass
+class _Shared:
+    """What the batch already holds from scanners that finished, so two scanners never stage one node twice.
+
+    A scanner that is skipped contributes nothing here, because everything it staged is dropped with it.
+    """
+
+    hosts: set[str] = field(default_factory=set)
+    documents: set[str] = field(default_factory=set)
+    describes: set[tuple[str, str]] = field(default_factory=set)
+
+    def absorb(self, scanner: _Scanner) -> None:
+        self.hosts |= scanner.hosts
+        self.documents |= set(scanner.sbom_refs)
+        self.describes |= scanner.describes
 
 
 def _bounded(call: Any, what: str) -> Any:
@@ -145,15 +172,17 @@ class AnchoreCollector(CollectorBase):
         nodes: list[dict[str, Any]] = []
         edges: list[dict[str, Any]] = []
         written: list[str] = []
+        shared = _Shared()
         for number, credential in enumerate(usable):
             try:
-                scanner = self._scan(credential, f"s{number}")
+                scanner = self._scan(credential, f"s{number}", shared)
             except _ScannerSkipped as exc:
                 self.record_error(_SITE_SCANNER_SKIPPED, "SCANNER_SKIPPED", str(exc), message_data={"credential": credential.qualified})
                 continue
+            shared.absorb(scanner)
             nodes.extend(scanner.nodes)
             edges.extend(scanner.edges)
-            written.append(f"{credential.qualified}: {scanner.findings} finding(s), {scanner.resolved} resolved, {scanner.images_read} image(s) read, {scanner.images_not_read} not read")
+            written.append(f"{credential.qualified}: {scanner.findings} finding(s), {scanner.resolved} resolved, {scanner.images_read} image(s) read, {scanner.images_not_read} not read, {scanner.sboms} SBOM(s) recorded")
         if not written:
             self.summary = "No scanner could be read; nothing was written."
             self.record_error(_SITE_NOTHING_WRITTEN, "NOTHING_WRITTEN", self.summary)
@@ -163,7 +192,7 @@ class AnchoreCollector(CollectorBase):
         self.summary = "; ".join(written)
         self.record_info(_SITE_RUN_FINISHED, "RUN_FINISHED", self.summary)
 
-    def _scan(self, credential: Credential, tag: str) -> _Scanner:
+    def _scan(self, credential: Credential, tag: str, shared: _Shared) -> _Scanner:
         sources = shipped_manifest()
         by_id = {s.id: s for s in sources}
         extract = json.loads((_contract_dir() / "extract.json").read_text(encoding="utf-8"))
@@ -194,7 +223,7 @@ class AnchoreCollector(CollectorBase):
             for stale in probe.stale_feeds(started, FEED_MAX_AGE):
                 self.record_warn(_SITE_STALE_FEEDS, "FEED_STALE", f"{credential.qualified}: feed {stale['feed']} group {stale['group']} last synced {stale['age_seconds']} seconds ago.", message_data=stale)
 
-            self._images(client, credential, extract, by_id, run_id, out, read, not_read, tag)
+            self._images(client, credential, extract, by_id, run_id, out, read, not_read, tag, shared)
 
         finished = datetime.now(UTC)
         scanner_ref, run_ref = f"{tag}:scanner", f"{tag}:run"
@@ -209,7 +238,7 @@ class AnchoreCollector(CollectorBase):
         out.edges.append(decompose.edge(f"{tag}:run-of", "RUN_OF_SCANNER__anchore", run_ref, scanner_ref))
         return out
 
-    def _images(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], run_id: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], tag: str) -> None:
+    def _images(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], run_id: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], tag: str, shared: _Shared) -> None:
         # The image list is a required source (req-anchore-selftest-6): without it there is no walk, so the
         # scanner stops with nothing written rather than recording a run that read nothing.
         listed, failure = _get_json(client, extract, by_id["images"], by_id["images"].path)
@@ -251,6 +280,9 @@ class AnchoreCollector(CollectorBase):
                 not_read.append({"scope": scope, "reason": why})
                 out.images_not_read += 1
                 self.record_warn(_SITE_IMAGE_NOT_READ, "IMAGE_NOT_READ", f"{credential.qualified}: image {index} was not read ({why}); its findings were left as they were.")
+                # The documents are separate reads: a failed vulnerability read does not stop them.
+                self._ensure_host(out, digest, f"{tag}:h{index}", shared)
+                self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
                 continue
             result = decompose.decompose_image(vulns, credential.scanner_key, digest, run_id, f"{tag}:f{index}")
             out.nodes.extend(result.nodes)
@@ -266,6 +298,9 @@ class AnchoreCollector(CollectorBase):
                         out.resolved += 1
             out.images_read += 1
             read.append(scope)
+            self._ensure_host(out, digest, f"{tag}:h{index}", shared)
+            self._link_image(out, result.nodes, digest)
+            self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
             dropped.extend(result.dropped_fields)
             skipped += result.skipped_entries
             duplicates += result.duplicate_entries
@@ -273,6 +308,13 @@ class AnchoreCollector(CollectorBase):
         for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
             # An image that left the list is not a cleared image: its findings stay as they were, and say so.
             not_read.append({"scope": f"image:{gone}", "reason": "no longer in the image list; its findings were left as they were"})
+        if out.hosts_created:
+            self.record_info(_SITE_HOST_CREATED, "IMAGE_HOSTS_CREATED", f"{credential.qualified}: {out.hosts_created} image host(s) did not exist on the grid and were written with only their digest.")
+        if out.unlinked_images:
+            self.record_warn(_SITE_NOT_LINKED, "IMAGES_NOT_LINKED", f"{credential.qualified}: {out.unlinked_images} image(s) have a digest that is not a plain sha256 digest, so their findings and documents have no host edge.")
+        missed = [n for n in not_read if n["scope"].startswith("sbom:")]
+        if missed:
+            self.record_warn(_SITE_SBOM_NOT_READ, "SBOM_NOT_READ", f"{credential.qualified}: {len(missed)} SBOM read(s) did not return a document.", message_data={"count": len(missed), "reads": missed[:_LISTED]})
         if unidentified:
             not_read.append({"scope": "source:images:entries", "reason": f"{unidentified} entry(ies) of the image list named no usable image_digest and were not read"})
             self.record_warn(_SITE_IMAGES_NOT_READ, "IMAGES_NOT_READ", f"{credential.qualified}: {unidentified} entry(ies) of the image list named no usable image_digest and were not read.")
@@ -282,6 +324,86 @@ class AnchoreCollector(CollectorBase):
             self.record_warn(_SITE_FIELDS_DROPPED, "FIELDS_DROPPED", f"{credential.qualified}: {len(dropped)} value(s) could not be held by the model; each is listed with what became of it.", message_data={"count": len(dropped), "values": dropped[:_LISTED]})
         if skipped or duplicates or uncarried:
             self.record_warn(_SITE_ENTRIES, "ENTRIES_NOT_STORED", f"{credential.qualified}: {skipped} entry(ies) named no usable identifier, {duplicates} repeated an assertion already held, and {len(uncarried)} response key(s) are not stored.", message_data={"skipped": skipped, "duplicates": duplicates, "uncarried_keys": sorted(uncarried)})
+
+    def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared) -> None:
+        """Stage the image host for a digest only where neither this batch nor the grid has one.
+
+        Where the grid has one it is never rewritten, whatever another collector filled in. A digest that
+        is not a plain sha256 digest names no host key, so nothing is staged and the image is counted.
+        """
+        if not decompose.OCI_DIGEST.fullmatch(digest):
+            out.unlinked_images += 1
+            return
+        if digest not in shared.hosts and digest not in out.hosts and not store.image_host_exists(digest):
+            out.nodes.append(decompose.host_node(host_ref, digest))
+            out.hosts.add(digest)
+            out.hosts_created += 1
+
+    def _link_image(self, out: _Scanner, findings: list[dict[str, Any]], digest: str) -> None:
+        """Edges from this image's findings to its host and, where it already exists exactly, to the shared vulnerability."""
+        if decompose.OCI_DIGEST.fullmatch(digest):
+            for node in findings:
+                ref = node["entity"]["ref"]
+                out.edges.append(decompose.edge_to_key(f"{ref}:image", "FOUND_ON_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
+        known = store.known_vulnerabilities({n["node"]["vulnerability_id"] for n in findings})
+        for node in findings:
+            if node["node"]["vulnerability_id"] in known:
+                ref = node["entity"]["ref"]
+                out.edges.append(decompose.edge_to_key(f"{ref}:vuln", "ABOUT_VULNERABILITY__anchore", ref, "compliance_core__compliance_vulnerability", {"vuln_id": node["node"]["vulnerability_id"]}))
+                out.vulnerability_links += 1
+
+    def _sboms(self, client: ReadOnlyClient, credential: Credential, by_id: dict[str, Source], digest: str, ref: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], shared: _Shared) -> None:
+        """Record each SBOM format Anchore serves for an image as a document describing the image host.
+
+        The body is hashed as received and never stored; none is parsed into packages (req-anchore-sbom-4).
+        The vendor file calls these bodies strings, which they are not, so they are checked only for being JSON.
+        """
+        for source_id in decompose.SBOM_FORMATS:
+            source = by_id[source_id]
+            scope = f"sbom:{decompose.SBOM_FORMATS[source_id]}:{digest}"
+            try:
+                reply = _bounded(lambda: client.get(fill(source.path, image_digest=digest)), source_id)
+            except CeilingExceeded:
+                not_read.append({"scope": scope, "reason": "the read did not finish within its ceiling"})
+                continue
+            except ClientError as exc:
+                not_read.append({"scope": scope, "reason": f"not read ({type(exc).__name__})"})
+                continue
+            if reply.status != 200:
+                not_read.append({"scope": scope, "reason": f"HTTP {reply.status}"})
+                continue
+            try:
+                parsed = decompose.loads_strict(reply.body)
+            except ValueError:
+                parsed = None
+            except RecursionError:
+                not_read.append({"scope": scope, "reason": "the body nests too deeply to read"})
+                continue
+            if not isinstance(parsed, (dict, list)):
+                not_read.append({"scope": scope, "reason": "the body was not a JSON document"})
+                continue
+            node = decompose.sbom_node(f"{ref}:{source_id}", source_id, reply.body, parsed, digest, canonical_root(credential.base_url), credential.account)
+            content = node["node"]["content_digest"]
+            # A document is keyed by the digest of its bytes alone. Bytes already in this batch, or already on the
+            # grid (possibly written by another collector, verified and signed), are linked to and never rewritten.
+            if content in out.sbom_refs:
+                doc_ref: str | None = out.sbom_refs[content]
+            elif content in shared.documents or store.sbom_document_exists(content):
+                doc_ref = None
+            else:
+                doc_ref = node["entity"]["ref"]
+                out.sbom_refs[content] = doc_ref
+                out.nodes.append(node)
+            read.append(scope)
+            out.sboms += 1
+            # One relationship, one edge per batch: the same bytes can be served under two formats, or by two scanners.
+            if decompose.OCI_DIGEST.fullmatch(digest) and (content, digest) not in out.describes and (content, digest) not in shared.describes:
+                out.describes.add((content, digest))
+                edge_ref = f"{ref}:{source_id}:host"
+                if doc_ref is not None:
+                    out.edges.append(decompose.edge_to_key(edge_ref, "DESCRIBES_HOST__computing_core", doc_ref, "computing_core__host", decompose.host_key(digest)))
+                else:
+                    out.edges.append(decompose.edge_between_keys(edge_ref, "DESCRIBES_HOST__computing_core", "computing_core__sbom_document", {"content_digest": content}, "computing_core__host", decompose.host_key(digest)))
 
     @staticmethod
     def _document(nodes: list[dict[str, Any]], edges: list[dict[str, Any]], written: list[str]) -> dict[str, Any]:

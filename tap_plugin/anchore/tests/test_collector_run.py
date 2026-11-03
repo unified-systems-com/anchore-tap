@@ -57,8 +57,20 @@ class Instance:
             "/openapi.json": lambda r: response(200, SPEC),
             "/images": lambda r: response(200, {"items": self.images}),
         }
+        self.sboms: dict[tuple[str, str], object] = {}
         for digest in (DIGEST, OTHER):
             self.transport.routes[f"/images/{digest}/vuln/all"] = self._vulns(digest)
+            for fmt in ("native-json", "spdx-json", "cyclonedx-json"):
+                self.transport.routes[f"/images/{digest}/sboms/{fmt}"] = self._sbom(digest, fmt)
+
+    def _sbom(self, digest, fmt):
+        def answer(request):
+            body = self.sboms.get((digest, fmt))
+            if body is None:
+                body = {"bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79", "version": 1, "metadata": {"timestamp": "2026-11-03T10:00:00Z"}, "components": [{"name": "a"}, {"name": "b"}]} if fmt == "cyclonedx-json" else {"format": fmt, "digest": digest}
+            return response(200, body)
+
+        return answer
 
     def _vulns(self, digest):
         def answer(request):
@@ -104,7 +116,7 @@ class TestFirstRun:
         assert scanner.scanner_key == KEY and scanner.reported_version == "5.1.0"
         run = AnchoreScanRun.objects.get()
         assert run.scanner_key == KEY and run.selftest_verdict == "pass"
-        assert run.scopes_read == ["source:images", f"image:{DIGEST}"] and run.scopes_not_read == []
+        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 5 and run.scopes_not_read == []
         assert run.status == {"version": "5.1.0", "up": True} and isinstance(run.feeds, list)
         found = findings()
         assert set(found) == {("CVE-2024-0001", DIGEST), ("CVE-2024-0002", DIGEST)}
@@ -163,7 +175,7 @@ class TestLaterRuns:
         collector = run_against(monkeypatch, instance)
         assert {f.state for f in AnchoreFinding.objects.all()} == {"current"}
         latest = AnchoreScanRun.objects.order_by("-finished_at").first()
-        assert [n["scope"] for n in latest.scopes_not_read] == [f"image:{DIGEST}"] and latest.scopes_read == ["source:images"]
+        assert [n["scope"] for n in latest.scopes_not_read] == [f"image:{DIGEST}"] and "source:images" in latest.scopes_read and f"image:{DIGEST}" not in latest.scopes_read
         assert any(w["message_code"] == "IMAGE_NOT_READ" for w in collector.results["warn"])
 
     def test_an_image_that_leaves_the_list_is_not_treated_as_cleared(self, secrets, monkeypatch):
@@ -287,9 +299,9 @@ class TestIdentityIsNeverGuessed:
         except AnchoreCollectorError:
             pass
         paths = [c.url.split("/v2", 1)[-1] for c in instance.transport.calls]
-        # Everything after the probe and the image list stays under /images/<one quoted segment>/vuln/all.
+        # Everything after the probe and the image list stays under /images/<one quoted segment>/{vuln/all,sboms/<format>}.
         walked = [p for p in paths if p.startswith("/images/") and p != "/images"]
-        assert all(p.count("/") == 4 and p.endswith("/vuln/all") for p in walked)
+        assert all(p.count("/") == 4 and (p.endswith("/vuln/all") or "/sboms/" in p) for p in walked)
         assert paths.count("/account") == 1 and not any("evil" in c.url.split("/v2", 1)[0] for c in instance.transport.calls)
 
     def test_image_list_entries_without_a_usable_digest_are_listed_not_skipped_silently(self, secrets, monkeypatch):

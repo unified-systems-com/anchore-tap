@@ -9,12 +9,18 @@ identifiers pass through untouched.
 Reads no grid and no network; it needs Django only for the model classes it reads field rules from.
 """
 
+import hashlib
+import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
 import jsonschema
 from django.db import models as dj_models
+
+from tap_plugin.computing_core.models.host import Host
+from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
 from tap_plugin.anchore.models.finding import AnchoreFinding, package_key_for
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
@@ -31,6 +37,15 @@ _CARRIED = (
 )
 CURRENT = "current"
 RESOLVED = "resolved"
+
+
+#: An image digest as the image host's key holds it (computing_core: realm oci-digest).
+OCI_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+IMAGE_REALM = "oci-digest"
+
+#: The SBOM source id -> the format name recorded on the document. cyclonedx and spdx are the names
+#: computing_core uses; Anchore's native document is named for Anchore, not for any tool inside it.
+SBOM_FORMATS = {"sbom_native": "anchore-native", "sbom_spdx": "spdx", "sbom_cyclonedx": "cyclonedx"}
 
 
 @dataclass
@@ -72,6 +87,90 @@ def edge(ref: str, slug: str, from_ref: str, to_ref: str) -> dict[str, Any]:
         "entity": {"ref": ref, "entity_type": "edge", "name": slug, "dimensions": {}},
         "edge": {"from_ref": from_ref, "to_ref": to_ref, "edge_type": slug, "properties": {}},
     }
+
+
+def edge_to_key(ref: str, slug: str, from_ref: str, entity_type: str, key: dict[str, str]) -> dict[str, Any]:
+    """An edge from a node of this batch to a node named by type and natural key, which must already exist or be in the batch."""
+    return {
+        "entity": {"ref": ref, "entity_type": "edge", "name": slug, "dimensions": {}},
+        "edge": {"from_ref": from_ref, "to_key": {"entity_type": entity_type, "key": key}, "edge_type": slug, "properties": {}},
+    }
+
+
+def edge_between_keys(ref: str, slug: str, from_type: str, from_key: dict[str, str], to_type: str, to_key: dict[str, str]) -> dict[str, Any]:
+    """An edge between two nodes both named by type and natural key, each already on the grid or in the batch."""
+    return {
+        "entity": {"ref": ref, "entity_type": "edge", "name": slug, "dimensions": {}},
+        "edge": {
+            "from_key": {"entity_type": from_type, "key": from_key},
+            "to_key": {"entity_type": to_type, "key": to_key},
+            "edge_type": slug,
+            "properties": {},
+        },
+    }
+
+
+def host_node(ref: str, digest: str) -> dict[str, Any]:
+    """The image host for a digest: the computing_core host with realm oci-digest. Written only where none exists."""
+    return envelope(ref, Host, digest, {"realm": IMAGE_REALM, "stable_id": digest, "kind": "container"})
+
+
+def host_key(digest: str) -> dict[str, str]:
+    return {"realm": IMAGE_REALM, "stable_id": digest}
+
+
+def _no_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not JSON")
+
+
+def loads_strict(body: bytes) -> Any:
+    """Parse a body as JSON as the standard defines it: Python's NaN, Infinity and -Infinity are refused."""
+    return json.loads(body, parse_constant=_no_constant)
+
+
+def sbom_header(source_id: str, document: Any) -> dict[str, Any]:
+    """What a CycloneDX document says about itself, as far as the document record holds it; nothing is parsed into packages.
+
+    ``document`` is the body already parsed. Other formats state nothing here. A value the record
+    cannot hold is left out, so the record's own default stands rather than a guess.
+    """
+    if source_id != "sbom_cyclonedx" or not isinstance(document, dict):
+        return {}
+    metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
+    candidates = {
+        "spec_version": document.get("specVersion"),
+        "serial_number": document.get("serialNumber"),
+        "revision": document.get("version"),
+        "produced_at": metadata.get("timestamp"),
+        "component_count": len(document["components"]) if isinstance(document.get("components"), list) else None,
+    }
+    out: dict[str, Any] = {}
+    for name, value in candidates.items():
+        if value is None:
+            continue
+        try:
+            jsonschema.validate(value, SbomDocument.FIELD_CRUD_SCHEMA[name])
+        except jsonschema.ValidationError:
+            continue
+        out[name] = value
+    return out
+
+
+def sbom_node(ref: str, source_id: str, body: bytes, document: Any, subject_digest: str, api_root: str, account: str) -> dict[str, Any]:
+    """The record that one SBOM existed: the digest of its exact bytes, never the body. Never marked verified."""
+    note = f"unsigned; read from {api_root} as {account}"
+    if len(note) > 255 or re.search(r"[\x00-\x1f\x7f]", note):
+        note = "unsigned; read from an Anchore instance"
+    digest = hashlib.sha256(body).hexdigest()
+    fields: dict[str, Any] = {
+        "content_digest": digest,
+        "format": SBOM_FORMATS[source_id],
+        **sbom_header(source_id, document),
+        "subject_digest": subject_digest if re.fullmatch(r"[a-z0-9]{1,31}:[0-9a-f]{1,128}", subject_digest) else "",
+        "verified": None,
+        "verification_note": note,
+    }
+    return envelope(ref, SbomDocument, f"{SBOM_FORMATS[source_id]} {digest[:12]}", fields)
 
 
 def finding_fields(entry: dict[str, Any], scanner_key: str, target_key: str, run_id: str, dropped: list[dict[str, str]]) -> dict[str, Any] | None:
