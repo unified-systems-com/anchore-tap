@@ -55,12 +55,10 @@ class AnchoreFinding(BaseModel):
         "package_key",
     )
 
-    # FOUND_IN_SBOM__anchore (a source finding to its sbom_document) is specified but not defined:
-    # computing_core declares sbom_document INBOUND_EDGES empty on purpose, so the grid refuses it
-    # until computing_core allows it (spec-anchore-v0.md, req-anchore-findings).
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "computing_core__host"}], "edges": [{"type": "FOUND_ON_IMAGE__anchore"}]},
         {"nodes": [{"type": "computing_core__package"}], "edges": [{"type": "FOUND_IN_PACKAGE__anchore"}]},
+        {"nodes": [{"type": "computing_core__sbom_document"}], "edges": [{"type": "FOUND_IN_SBOM__anchore"}]},
         {
             "nodes": [{"type": "compliance_core__compliance_vulnerability"}],
             "edges": [{"type": "ABOUT_VULNERABILITY__anchore"}],
