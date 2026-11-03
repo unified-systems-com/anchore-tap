@@ -1,0 +1,14 @@
+{
+  "slug": "FOUND_IN_PACKAGE__anchore",
+  "name": "Found In Package",
+  "description": "An Anchore finding concerns the package Anchore matched the vulnerability against. Written only when that package node exists.",
+  "sources": [
+    "anchore__anchore_finding"
+  ],
+  "targets": [
+    "computing_core__package"
+  ],
+  "default_dimensions": {
+    "anchore.area": "finding"
+  }
+}
