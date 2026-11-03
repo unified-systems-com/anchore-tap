@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.1](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.0...v0.1.1) (2026-11-03)
+
+
+### Features
+
+* **collector:** the collector manifest and the per-run self-test comparison ([a24140d](https://github.com/unified-systems-com/anchore-tap/commit/a24140d37d8abff8b2457d70f828b6294cd962f8))
+* **collector:** the collector manifest and the per-run self-test comparison [spec-derived, unverified] ([cdd4dfa](https://github.com/unified-systems-com/anchore-tap/commit/cdd4dfae7358481689a60b54a459c32489dddcab))
+* **collector:** the probe, with the account checked before anything else is read ([ef48ec6](https://github.com/unified-systems-com/anchore-tap/commit/ef48ec6b442d678008fde2c1eb6a437af97537e4))
+* **collector:** the probe, with the account checked before anything else is read [spec-derived, unverified] ([9c4cc25](https://github.com/unified-systems-com/anchore-tap/commit/9c4cc25b59c80aa6a10f54d4b4929a9fda4feabb))
+* **findings:** the finding's edge to the shared vulnerability, with no change to compliance_core ([0b8d819](https://github.com/unified-systems-com/anchore-tap/commit/0b8d8192e4adfb664d017503e4942cffe23f2b0f))
+* **findings:** the finding's edge to the shared vulnerability, with no change to compliance_core [spec-derived, unverified] ([a404fbb](https://github.com/unified-systems-com/anchore-tap/commit/a404fbb9ec90bb5661bcc287ed483902bc6b423e))
+* **findings:** the scanner, scan-run and finding nodes, and three edges ([75b858b](https://github.com/unified-systems-com/anchore-tap/commit/75b858b91e9b538d1689cb1684324e739c6f0d9f))
+* **findings:** the scanner, scan-run and finding nodes, and three edges [spec-derived, unverified] ([a83fa27](https://github.com/unified-systems-com/anchore-tap/commit/a83fa2773dd66e628af661b6f883bdc0593c654c))
+
+
+### Bug Fixes
+
+* **collector:** a needed field that stops being required by its object is a difference ([51d7a90](https://github.com/unified-systems-com/anchore-tap/commit/51d7a90afd97c69aaed16ba00b3e07589b4dc7dc))
+* **collector:** a new success response with no described body is a loss ([f115a00](https://github.com/unified-systems-com/anchore-tap/commit/f115a00410e769f524465a85dc0ce90b551431b8))
+* **collector:** compare the containers on the way to a field, and every successful response ([4094814](https://github.com/unified-systems-com/anchore-tap/commit/409481416cec05dec2e292eab718b3707c1ea5d1))
+* **collector:** enforce the account gate inside the probe, not in the list it is given ([69fe5ba](https://github.com/unified-systems-com/anchore-tap/commit/69fe5ba926fc75484a0ae865dd054a9dae112ef2))
+* **collector:** hold needed fields to every success response, and keep every allOf definition ([d5842c7](https://github.com/unified-systems-com/anchore-tap/commit/d5842c72a3ecdb3ade13dc5442d53fdc4e159ca0))
+* **collector:** read requiredness along the whole path, and ignore allOf member order ([8c97f02](https://github.com/unified-systems-com/anchore-tap/commit/8c97f02f0fee98cf2a3ac9cca42d5f7de039dda5))
+* **collector:** the account source must read /account, and the tests carry no review history ([8423320](https://github.com/unified-systems-com/anchore-tap/commit/8423320ed2955403a3292931509d3524273538b1))
+* **collector:** warn when a field the collector reads loses its enum ([5fd8bd9](https://github.com/unified-systems-com/anchore-tap/commit/5fd8bd936935bbed637d016b3ee33c7e6129fe1a))
+* **findings:** derive package_key as a digest of its two columns, and keep review talk out of the code ([b64e151](https://github.com/unified-systems-com/anchore-tap/commit/b64e1517f2d4b847f3bb99d665de0f3c613331a4))
+* **findings:** refuse a scanner key that disagrees with its columns, and size package_key to its parts ([fae4f43](https://github.com/unified-systems-com/anchore-tap/commit/fae4f43c312f48e9d6cfd3ef515be5a8b3fbbf0c))
+
+
+### Documentation
+
+* **edge:** say what the edge definition permits and who owns the exact-identifier rule ([4bf37b7](https://github.com/unified-systems-com/anchore-tap/commit/4bf37b78d8ed9ff583741b47e456eeb7ad22845e))
+* **spec:** ABOUT_VULNERABILITY is defined and needs no compliance_core change ([fe29790](https://github.com/unified-systems-com/anchore-tap/commit/fe29790cf5322ad28af868d53ed9fc296146a113))
+
 ## 0.1.0 (2026-11-02)
 
 
