@@ -221,17 +221,20 @@ class AnchoreCollector(CollectorBase):
         skipped = duplicates = 0
         uncarried: set[str] = set()
         unidentified = repeated = 0
-        listed_digests: set[str] = set()
-        for index, image in enumerate(entries):
+        # One entry per digest, in list order; of repeats the analyzed one is kept, so the order of a
+        # repeated entry cannot hide an image that can be read.
+        chosen: dict[str, dict[str, Any]] = {}
+        for image in entries:
             digest = image.get("image_digest") if isinstance(image, dict) else None
             if not isinstance(digest, str) or not digest or len(digest) > _MAX_DIGEST:
                 unidentified += 1
-                continue
-            if digest in listed_digests:
-                # One read per digest: a repeat would stage the same finding identities twice in one batch.
+            elif digest in chosen:
                 repeated += 1
-                continue
-            listed_digests.add(digest)
+                if chosen[digest].get("analysis_status") != "analyzed" and image.get("analysis_status") == "analyzed":
+                    chosen[digest] = image
+            else:
+                chosen[digest] = image
+        for index, (digest, image) in enumerate(chosen.items()):
             scope = f"image:{digest}"
             if image.get("analysis_status") != "analyzed":
                 not_read.append({"scope": scope, "reason": f"analysis_status is {image.get('analysis_status')!r}"})

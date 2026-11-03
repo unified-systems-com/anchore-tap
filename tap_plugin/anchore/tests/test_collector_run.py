@@ -263,6 +263,11 @@ class TestIdentityIsNeverGuessed:
         assert sum(c.url.endswith(f"{DIGEST}/vuln/all") for c in instance.transport.calls) == 1
         assert any(w["message_code"] == "IMAGES_REPEATED" for w in collector.results["warn"])
 
+    def test_a_later_analyzed_entry_for_a_digest_listed_as_analyzing_is_still_read(self, secrets, monkeypatch):
+        instance = Instance(images=[{"image_digest": DIGEST, "analysis_status": "analyzing"}, {"image_digest": DIGEST, "analysis_status": "analyzed"}])
+        run_against(monkeypatch, instance)
+        assert AnchoreFinding.objects.count() == 2 and AnchoreScanRun.objects.get().scopes_not_read == []
+
     @pytest.mark.parametrize("hostile", ["../../account", "x/../../account", "a?b=c", "a#b", "a\r\nHost: evil", "https://evil.example/x", "%2e%2e/account"])
     def test_a_hostile_digest_never_redirects_the_per_image_request(self, secrets, monkeypatch, hostile):
         instance = Instance(images=[{"image_digest": hostile, "analysis_status": "analyzed"}])
