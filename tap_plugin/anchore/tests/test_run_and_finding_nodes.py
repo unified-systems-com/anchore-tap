@@ -8,6 +8,7 @@ file (version 2.20.0), not recorded from an instance.
 
 import pytest
 import tap_plugin.anchore.models as anchore  # noqa: F401 — trigger model registration
+import tap_plugin.compliance_core.models as compliance  # noqa: F401 — trigger model registration
 import tap_plugin.computing_core.models as computing  # noqa: F401 — trigger model registration
 
 from tap_grid.constraints import InvalidEdgeError
@@ -200,6 +201,13 @@ class TestFinding:
         for target, slug in ((host, "FOUND_ON_IMAGE__anchore"), (package, "FOUND_IN_PACKAGE__anchore")):
             edge = create_edge(finding.entity, target.entity, slug)
             assert edge.entity.dimensions.get("anchore.area") == "finding", slug
+
+    def test_a_finding_is_about_the_shared_vulnerability(self):
+        """The edge a finding draws to compliance_core's vulnerability; this plugin never creates that node."""
+        finding = _create("anchore__anchore_finding", FINDING)
+        vulnerability = _create("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0001"})
+        edge = create_edge(finding.entity, vulnerability.entity, "ABOUT_VULNERABILITY__anchore")
+        assert edge.entity.dimensions.get("anchore.area") == "finding"
 
     def test_an_edge_to_the_wrong_type_is_refused(self):
         finding = _create("anchore__anchore_finding", FINDING)

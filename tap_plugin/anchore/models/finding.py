@@ -61,6 +61,10 @@ class AnchoreFinding(BaseModel):
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "computing_core__host"}], "edges": [{"type": "FOUND_ON_IMAGE__anchore"}]},
         {"nodes": [{"type": "computing_core__package"}], "edges": [{"type": "FOUND_IN_PACKAGE__anchore"}]},
+        {
+            "nodes": [{"type": "compliance_core__compliance_vulnerability"}],
+            "edges": [{"type": "ABOUT_VULNERABILITY__anchore"}],
+        },
     ]
 
     # A finding is reached by traversal and nothing in v0 points at it (req-anchore-findings-4).

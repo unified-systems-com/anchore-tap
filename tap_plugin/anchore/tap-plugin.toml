@@ -12,6 +12,7 @@ description = "Anchore Enterprise vulnerability findings, SBOMs, VEX statements 
 # edge (req-anchore-findings) is a vocabulary reference to review when those edges are added.
 depends_on = [
   { slug = "computing_core", note = "image host (oci-digest realm), package and sbom_document the Anchore nodes link to; the SBOM parser" },
+  { slug = "compliance_core", note = "vocabulary dependency, not an import: ABOUT_VULNERABILITY__anchore names compliance_core__compliance_vulnerability as its target, and writes no compliance_core node" },
 ]
 
 # The author's DECLARED crypto posture (req-tap-plugin-manifest-v0-fips; spec-fips.md declare-vs-decide).
@@ -29,8 +30,9 @@ anchore__anchore_finding = "tap_plugin.anchore.models.finding.AnchoreFinding"
 RUN_OF_SCANNER__anchore = "edges/RUN_OF_SCANNER__anchore.edge.json"
 FOUND_ON_IMAGE__anchore = "edges/FOUND_ON_IMAGE__anchore.edge.json"
 FOUND_IN_PACKAGE__anchore = "edges/FOUND_IN_PACKAGE__anchore.edge.json"
+ABOUT_VULNERABILITY__anchore = "edges/ABOUT_VULNERABILITY__anchore.edge.json"
 
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "87c5a71a3c1f6899a7e3c49ddce67b5abfaafbf18e8c7779aace51056f154b73"
+sha256 = "f606ff66f58fff9158aaa95066464666ff80863a2811363053df0f2f6f2791d6"
