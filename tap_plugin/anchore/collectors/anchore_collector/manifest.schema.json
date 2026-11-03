@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Anchore collector manifest",
+  "description": "What the collector reads from Anchore, one entry per source: the committed-extract path it calls, which scope it belongs to, whether the run cannot proceed without it, and the response fields the parser needs (a missing or retyped one is an error) or merely reads (a missing one is a warning). The self-test and the response validator both read this file; the collector's code does not repeat it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["description", "sources"],
+  "properties": {
+    "description": {"type": "string", "minLength": 1, "description": "What this manifest is and what it does not cover."},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The reads, in the order the collector makes them.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "scope", "required", "required_fields", "optional_fields"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "A stable name for the source, used on the scan run to say which source was not read."},
+          "path": {"type": "string", "pattern": "^/", "description": "The GET path template, exactly as it appears in the committed extract (consumed.json)."},
+          "scope": {"type": "string", "enum": ["probe", "image"], "description": "probe: read once before any data. image: read per image."},
+          "required": {"type": "boolean", "description": "True when the run cannot proceed without this source: its absence, or a changed required field, is an error. False when its absence is recorded as not read and the run continues."},
+          "required_fields": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^([a-z_]+)?(\\[\\])?(\\.[a-z_0-9]+(\\[\\])?)*$"},
+            "description": "Response fields the parser cannot work without, as dotted paths; [] after a name means the items of that array, and a path may begin with [] for a response that is itself an array. A path missing from, or retyped in, the instance's description is an error."
+        },
+          "optional_fields": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^([a-z_]+)?(\\[\\])?(\\.[a-z_0-9]+(\\[\\])?)*$"},
+            "description": "Response fields the collector stores when present. A path missing from the instance's description is a warning, and the stored value is null, never a default."
+          }
+        }
+      }
+    }
+  }
+}
