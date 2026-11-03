@@ -270,6 +270,9 @@ class AnchoreCollector(CollectorBase):
             skipped += result.skipped_entries
             duplicates += result.duplicate_entries
             uncarried |= result.uncarried_keys
+        for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
+            # An image that left the list is not a cleared image: its findings stay as they were, and say so.
+            not_read.append({"scope": f"image:{gone}", "reason": "no longer in the image list; its findings were left as they were"})
         if unidentified:
             not_read.append({"scope": "source:images:entries", "reason": f"{unidentified} entry(ies) of the image list named no usable image_digest and were not read"})
             self.record_warn(_SITE_IMAGES_NOT_READ, "IMAGES_NOT_READ", f"{credential.qualified}: {unidentified} entry(ies) of the image list named no usable image_digest and were not read.")

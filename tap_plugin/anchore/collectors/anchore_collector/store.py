@@ -19,3 +19,8 @@ def previous_run(scanner_key: str) -> AnchoreScanRun | None:
 def current_findings(scanner_key: str, target_key: str) -> list[AnchoreFinding]:
     """The findings a read of one image last reported and no read has since withdrawn."""
     return list(AnchoreFinding.objects.filter(scanner_key=scanner_key, target_kind="image", target_key=target_key, state="current"))
+
+
+def current_target_keys(scanner_key: str) -> set[str]:
+    """The images that have findings no read has withdrawn."""
+    return set(AnchoreFinding.objects.filter(scanner_key=scanner_key, target_kind="image", state="current").values_list("target_key", flat=True).distinct())

@@ -172,6 +172,8 @@ class TestLaterRuns:
         instance.images = []
         run_against(monkeypatch, instance)
         assert {f.state for f in AnchoreFinding.objects.all()} == {"current"}
+        latest = AnchoreScanRun.objects.order_by("-finished_at").first()
+        assert [n["scope"] for n in latest.scopes_not_read] == [f"image:{DIGEST}"] and "no longer in the image list" in latest.scopes_not_read[0]["reason"]
 
     def test_an_image_with_no_vulnerabilities_is_observed_empty_and_resolves_its_findings(self, secrets, monkeypatch):
         instance = Instance()
@@ -187,6 +189,15 @@ class TestWhatIsRefused:
         with pytest.raises(AnchoreCollectorError):
             run_against(monkeypatch, Instance(account="someone-else"))
         assert AnchoreScanner.objects.count() == AnchoreScanRun.objects.count() == AnchoreFinding.objects.count() == 0
+
+    def test_an_instance_that_stops_describing_its_api_is_an_error_and_writes_nothing(self, secrets, monkeypatch):
+        instance = Instance()
+        run_against(monkeypatch, instance)
+        before = (AnchoreScanRun.objects.count(), AnchoreFinding.objects.count())
+        instance.transport.routes["/openapi.json"] = lambda r: response(404, {"detail": "gone"})
+        with pytest.raises(AnchoreCollectorError):
+            run_against(monkeypatch, instance)
+        assert (AnchoreScanRun.objects.count(), AnchoreFinding.objects.count()) == before
 
     def test_no_credential_is_an_error_not_an_empty_success(self, tmp_path, monkeypatch):
         monkeypatch.setattr(collector_module, "secrets_root", types.SimpleNamespace(resolve=lambda: tmp_path))
