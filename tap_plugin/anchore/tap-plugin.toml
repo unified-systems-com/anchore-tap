@@ -1,5 +1,5 @@
 manifest_version = "0"
-plugin_version = "0.1.2" # x-release-please-version
+plugin_version = "0.1.3" # x-release-please-version
 requires_tap = ">=0.3.1"
 slug = "anchore"
 name = "TAP Anchore"
@@ -36,4 +36,4 @@ ABOUT_VULNERABILITY__anchore = "edges/ABOUT_VULNERABILITY__anchore.edge.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "8108683ab544585cff237745e37a6a5b43171aa02f0e9993b0f0b0e3f2e583ed"
+sha256 = "47b0e04a028b4de73d6f40f9fc87ba06394380f2adb78d8ce6903e8b67852c84"
