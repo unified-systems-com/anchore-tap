@@ -202,6 +202,13 @@ class TestFinding:
             edge = create_edge(finding.entity, target.entity, slug)
             assert edge.entity.dimensions.get("anchore.area") == "finding", slug
 
+    def test_a_source_finding_is_found_in_the_sbom_document_it_was_read_from(self):
+        """computing_core no longer blocks every edge into a document, so the edge needs no change there."""
+        finding = _create("anchore__anchore_finding", {**FINDING, "target_kind": "source", "target_key": "src-1"})
+        document = _create("computing_core__sbom_document", {"content_digest": "cd" * 32})
+        edge = create_edge(finding.entity, document.entity, "FOUND_IN_SBOM__anchore")
+        assert edge.entity.dimensions.get("anchore.area") == "finding"
+
     def test_a_finding_is_about_the_shared_vulnerability(self):
         """The edge a finding draws to compliance_core's vulnerability; this plugin never creates that node."""
         finding = _create("anchore__anchore_finding", FINDING)

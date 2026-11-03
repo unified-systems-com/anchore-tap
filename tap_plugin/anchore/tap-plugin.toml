@@ -30,6 +30,7 @@ anchore__anchore_finding = "tap_plugin.anchore.models.finding.AnchoreFinding"
 RUN_OF_SCANNER__anchore = "edges/RUN_OF_SCANNER__anchore.edge.json"
 FOUND_ON_IMAGE__anchore = "edges/FOUND_ON_IMAGE__anchore.edge.json"
 FOUND_IN_PACKAGE__anchore = "edges/FOUND_IN_PACKAGE__anchore.edge.json"
+FOUND_IN_SBOM__anchore = "edges/FOUND_IN_SBOM__anchore.edge.json"
 ABOUT_VULNERABILITY__anchore = "edges/ABOUT_VULNERABILITY__anchore.edge.json"
 
 [[boot.records]]

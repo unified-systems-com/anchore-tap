@@ -1,0 +1,14 @@
+{
+  "slug": "FOUND_IN_SBOM__anchore",
+  "name": "Found In SBOM",
+  "description": "An Anchore finding read at repository-source scope concerns the SBOM document of that source, because a source has no image host to attach to. Written only when that document already exists on the grid; this plugin does not create it through this edge.",
+  "sources": [
+    "anchore__anchore_finding"
+  ],
+  "targets": [
+    "computing_core__sbom_document"
+  ],
+  "default_dimensions": {
+    "anchore.area": "finding"
+  }
+}
