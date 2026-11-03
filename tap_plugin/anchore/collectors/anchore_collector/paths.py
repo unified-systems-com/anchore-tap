@@ -27,9 +27,14 @@ def _items(node: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def resolve_field(schema: dict[str, Any], path: str) -> dict[str, Any] | None:
-    """The schema node at ``path``, or None when the path is not there."""
+def resolve_chain(schema: dict[str, Any], path: str) -> list[dict[str, Any]] | None:
+    """Every schema node the path passes through, the root first and the field last, or None.
+
+    A change to a container on the way (an array that may now be null) breaks a reader of the
+    field as surely as a change to the field itself, so the self-test compares the whole chain.
+    """
     node: dict[str, Any] | None = schema
+    chain: list[dict[str, Any]] = [schema]
     for segment in path.split("."):
         if node is None:
             return None
@@ -39,11 +44,19 @@ def resolve_field(schema: dict[str, Any], path: str) -> dict[str, Any] | None:
             node = nxt if isinstance(nxt, dict) else None
             if node is None:
                 return None
+            chain.append(node)
         if descend:
             node = _items(node)
             if node is None:
                 return None
-    return node
+            chain.append(node)
+    return chain
+
+
+def resolve_field(schema: dict[str, Any], path: str) -> dict[str, Any] | None:
+    """The schema node at ``path``, or None when the path is not there."""
+    chain = resolve_chain(schema, path)
+    return chain[-1] if chain else None
 
 
 def type_of(node: dict[str, Any]) -> tuple[str, ...]:

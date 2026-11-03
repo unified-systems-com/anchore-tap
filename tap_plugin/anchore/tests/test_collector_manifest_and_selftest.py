@@ -148,6 +148,32 @@ class TestSelfTest:
         assert result.verdict == WARN
         assert any("no longer lists its allowed values" in d.message for d in result.differences)
 
+    def test_a_container_on_the_way_becoming_nullable_is_an_error(self):
+        """A reader of items[].image_digest breaks when items may now be null, though the leaf is unchanged."""
+        fresh = _fresh()
+        _op(fresh, "/images")["responses"][0]["schema"]["properties"]["items"]["type"] = ["array", "null"]
+        result = compare(EXTRACT, fresh, SOURCES)
+        assert result.verdict == ERROR
+        assert any("a container on the way" in d.message for d in result.differences)
+
+    def test_a_second_successful_response_is_held_to_the_same_fields(self):
+        fresh = _fresh()
+        response = _op(fresh, "/images")["responses"][0]
+        broken = copy.deepcopy(response["schema"])
+        del broken["properties"]["items"]["items"]["properties"]["image_digest"]
+        _op(fresh, "/images")["responses"].append({**response, "status": "206", "schema": broken})
+        result = compare(EXTRACT, fresh, SOURCES)
+        assert result.verdict == ERROR
+        assert any("items[].image_digest is gone from GET /images (206)" in d.message for d in result.differences)
+
+    def test_a_changed_second_successful_response_is_not_hidden_behind_an_unchanged_first(self):
+        fresh = _fresh()
+        response = _op(fresh, "/images")["responses"][0]
+        changed = copy.deepcopy(response["schema"])
+        changed["properties"]["items"]["items"]["properties"]["analysis_status"]["type"] = "integer"
+        _op(fresh, "/images")["responses"].append({**response, "status": "203", "schema": changed})
+        assert compare(EXTRACT, fresh, SOURCES).verdict == ERROR
+
     def test_a_different_version_is_a_warning(self):
         fresh = _fresh()
         fresh["source"] = {**fresh["source"], "version": "9.9.9"}
