@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.3](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.2...v0.1.3) (2026-11-03)
+
+
+### Features
+
+* **connection:** the base URL's scheme is the operator's, http or https ([837ce4e](https://github.com/unified-systems-com/anchore-tap/commit/837ce4e261c3c7805f34bc0f03f4d47085b30f6f))
+* **connection:** the base URL's scheme is the operator's, http or https ([af7c23e](https://github.com/unified-systems-com/anchore-tap/commit/af7c23ec86c07c36e0e5598fb0e9cd7a338b905e))
+
+
+### Documentation
+
+* say what v0.1.2 does and how to try the collector ([9316927](https://github.com/unified-systems-com/anchore-tap/commit/9316927f44f6d9a17bf17c584358f276e99fbe93))
+* say what v0.1.2 does and how to try the collector ([5862eb6](https://github.com/unified-systems-com/anchore-tap/commit/5862eb611c7ff9f5e085a033b3e11d5cf7a8287b))
+* say which of the owned nodes exist yet ([fbe30e6](https://github.com/unified-systems-com/anchore-tap/commit/fbe30e6cb9d7057eb6f4f99459004a07ad4a31fd))
+
 ## [0.1.2](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.1...v0.1.2) (2026-11-03)
 
 
