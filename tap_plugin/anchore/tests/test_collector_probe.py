@@ -3,6 +3,7 @@
 No socket is opened. The responses are canned and spec-derived, not recorded from an instance.
 """
 
+import dataclasses
 import socket
 from datetime import UTC, datetime, timedelta
 
@@ -104,7 +105,7 @@ class TestTheAccountGate:
 
 
 class TestTheGateDoesNotDependOnTheListItIsGiven:
-    """Both review seats: the gate fired only if the list happened to contain the account source first."""
+    """The account gate must not depend on the order or content of the list of sources it is given."""
 
     def _client(self):
         transport = FakeTransport(routes())
@@ -131,6 +132,15 @@ class TestTheGateDoesNotDependOnTheListItIsGiven:
         client, transport = self._client()
         with pytest.raises(ProbeError, match="exactly one account source"):
             run_probe(client, ACCOUNT, self._sources("account", "account"))
+        assert transport.calls == []
+
+    def test_an_account_source_reading_some_other_path_is_refused_before_any_request(self):
+        """A source named account must read /account, or any response could stand in for the proof."""
+        client, transport = self._client()
+        status = next(s for s in shipped_manifest() if s.id == "status")
+        impostor = dataclasses.replace(status, id="account")
+        with pytest.raises(ProbeError, match="reading /account"):
+            run_probe(client, ACCOUNT, (impostor,))
         assert transport.calls == []
 
     def test_the_account_is_read_first_wherever_it_sits_in_the_list(self):

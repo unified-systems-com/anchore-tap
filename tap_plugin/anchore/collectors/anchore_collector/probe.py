@@ -18,6 +18,7 @@ from typing import Any
 from tap_plugin.anchore.client import ClientError, ReadOnlyClient, RequestFailed
 from tap_plugin.anchore.collectors.anchore_collector.manifest import Source, shipped_manifest
 
+ACCOUNT_PATH = "/account"
 READ = "read"
 NOT_READ = "not_read"
 _REFUSED = frozenset({401, 403})
@@ -119,14 +120,14 @@ def run_probe(client: ReadOnlyClient, account: str, sources: tuple[Source, ...] 
     """Read the account source first, then the other probe sources in manifest order.
 
     Raises ProbeError, with no other request made, unless the sources hold exactly one ``account``
-    source; and raises it before reading anything else unless ``/account`` names ``account``.
+    source and it reads ``/account``; and raises it before reading anything else unless ``/account`` names ``account``.
     """
     probe_sources = [s for s in (sources if sources is not None else shipped_manifest()) if s.scope == "probe"]
     # The gate is enforced here and not left to the order or content of the list it is handed: exactly
     # one account source must exist, and it is read before any other request is made.
     accounts = [s for s in probe_sources if s.id == "account"]
-    if len(accounts) != 1:
-        raise ProbeError(f"{qualified}: the probe needs exactly one account source, found {len(accounts)}; nothing was read or written")
+    if len(accounts) != 1 or accounts[0].path != ACCOUNT_PATH:
+        raise ProbeError(f"{qualified}: the probe needs exactly one account source reading {ACCOUNT_PATH}; nothing was read or written")
     outcomes: dict[str, Outcome] = {}
     for source in [accounts[0], *(s for s in probe_sources if s.id != "account")]:
         outcome = _read(client, source)
