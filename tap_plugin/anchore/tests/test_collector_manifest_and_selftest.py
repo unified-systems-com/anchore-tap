@@ -207,7 +207,7 @@ class TestSelfTest:
         schema["required"].remove("name")
         result = compare(EXTRACT, fresh, SOURCES)
         assert result.verdict == ERROR
-        assert any("name is no longer guaranteed present" in d.message for d in result.differences)
+        assert any("name (or a container on the way) is no longer guaranteed present" in d.message for d in result.differences)
 
     def test_a_field_gaining_a_required_listing_passes(self):
         fresh = _fresh()
@@ -239,6 +239,25 @@ class TestSelfTest:
         _op(committed, "/images")["responses"].append({"status": "204"})
         _op(fresh, "/images")["responses"].append({"status": "204"})
         assert compare(committed, fresh, SOURCES).verdict == PASS
+
+    def test_a_container_losing_its_required_listing_is_an_error(self):
+        """items[].image_digest is useless if the response may now omit items altogether.
+
+        The committed /images response lists nothing as required, so the baseline here is a copy that
+        does, which is the situation the check defends against.
+        """
+        committed, fresh = _fresh(), _fresh()
+        _op(committed, "/images")["responses"][0]["schema"]["required"] = ["items"]
+        _op(fresh, "/images")["responses"][0]["schema"]["required"] = []
+        result = compare(committed, fresh, SOURCES)
+        assert result.verdict == ERROR
+        assert any("a container on the way" in d.message for d in result.differences)
+        assert compare(committed, copy.deepcopy(committed), SOURCES).verdict == PASS
+
+    def test_the_order_of_allof_members_does_not_change_the_type_signature(self):
+        one = {"allOf": [{"properties": {"x": {"type": "string"}}}, {"properties": {"x": {"minLength": 1}}}]}
+        two = {"allOf": [{"properties": {"x": {"minLength": 1}}}, {"properties": {"x": {"type": "string"}}}]}
+        assert type_of(resolve_field(one, "x")) == type_of(resolve_field(two, "x"))
 
     def test_a_different_version_is_a_warning(self):
         fresh = _fresh()

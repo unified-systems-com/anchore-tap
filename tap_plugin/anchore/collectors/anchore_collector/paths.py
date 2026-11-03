@@ -64,21 +64,21 @@ def _required_names(node: dict[str, Any]) -> set[str]:
     return names
 
 
-def is_required(schema: dict[str, Any], path: str) -> bool | None:
-    """Whether the schema lists the path's last named field as required in its enclosing object.
+def required_along(schema: dict[str, Any], path: str) -> tuple[bool, ...] | None:
+    """For every named segment of the path, whether its enclosing object lists it as required.
 
-    None when the path is not there. An object that lists nothing says the field may be absent,
-    which is the fact a reader needs, so False is an answer and not a gap.
+    One entry per named segment, outermost first, so ``items[].image_digest`` answers for ``items``
+    and for ``image_digest``. None when the path is not there. An object that lists nothing says
+    the field may be absent, which is the fact a reader needs, so False is an answer and not a gap.
     """
     node: dict[str, Any] | None = schema
-    holder: dict[str, Any] | None = None
-    last: str | None = None
+    out: list[bool] = []
     for segment in path.split("."):
         if node is None:
             return None
         name, descend = (segment[:-2], True) if segment.endswith("[]") else (segment, False)
         if name:
-            holder, last = node, name
+            out.append(name in _required_names(node))
             nxt = _properties(node).get(name)
             node = nxt if isinstance(nxt, dict) else None
             if node is None:
@@ -87,9 +87,13 @@ def is_required(schema: dict[str, Any], path: str) -> bool | None:
             node = _items(node)
             if node is None:
                 return None
-    if holder is None or last is None:
-        return None
-    return last in _required_names(holder)
+    return tuple(out)
+
+
+def is_required(schema: dict[str, Any], path: str) -> bool | None:
+    """Whether the path's last named field is listed as required by its enclosing object."""
+    along = required_along(schema, path)
+    return along[-1] if along else None
 
 
 def resolve_field(schema: dict[str, Any], path: str) -> dict[str, Any] | None:
@@ -107,8 +111,9 @@ def type_of(node: dict[str, Any]) -> tuple[str, ...]:
         own = tuple(sorted(str(t) for t in declared))
     elif isinstance(declared, str):
         own = (declared,)
+    # allOf is an intersection, so member order carries no meaning: sort the signatures.
     members = tuple(
-        f"allOf:{'/'.join(type_of(m)) or 'untyped'}" for m in (node.get("allOf") or []) if isinstance(m, dict)
+        sorted(f"allOf:{'/'.join(type_of(m)) or 'untyped'}" for m in (node.get("allOf") or []) if isinstance(m, dict))
     )
     return own + members
 

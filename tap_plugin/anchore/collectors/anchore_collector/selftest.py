@@ -6,7 +6,7 @@ with the same reducer that built the committed extract (``req-anchore-selftest-5
 extracts here, with the manifest's sources, so only what the collector reads is compared:
 
 - error: a required source is gone or has no 2xx response; a field the parser requires is removed,
-  changed type, or is no longer listed as required by its enclosing object; a required parameter appears that the committed extract did not have.
+  changed type, or is no longer listed as required by its enclosing object, at any step of its path; a required parameter appears that the committed extract did not have.
 - warn: an optional source is gone (listed as not read), an optional field is gone or changed type,
   a new enum value appears on a field the collector reads (or its enum is removed), or the instance's version differs.
 - pass: nothing above (additive change the collector does not read is not looked at).
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tap_plugin.anchore.collectors.anchore_collector.manifest import Source
-from tap_plugin.anchore.collectors.anchore_collector.paths import enum_of, is_required, resolve_chain, type_of
+from tap_plugin.anchore.collectors.anchore_collector.paths import enum_of, required_along, resolve_chain, type_of
 
 ERROR = "error"
 WARN = "warn"
@@ -131,8 +131,9 @@ def compare(committed: dict[str, Any], fresh: dict[str, Any], sources: tuple[Sou
                     if type_of(old_node) != type_of(new_node):
                         part = field if depth == len(old_chain) - 1 else f"{field} (a container on the way)"
                         found.append(Difference(level, source.id, f"field {part} changed type from {'/'.join(type_of(old_node)) or 'untyped'} to {'/'.join(type_of(new_node)) or 'untyped'}"))
-                if is_required(old_schema, field) and not is_required(new_schema, field):
-                    found.append(Difference(level, source.id, f"field {field} is no longer guaranteed present in {where}"))
+                old_req, new_req = required_along(old_schema, field), required_along(new_schema, field)
+                if old_req is not None and new_req is not None and any(o and not n for o, n in zip(old_req, new_req, strict=True)):
+                    found.append(Difference(level, source.id, f"field {field} (or a container on the way) is no longer guaranteed present in {where}"))
                 old_enum, new_enum = enum_of(old_chain[-1]), enum_of(new_chain[-1])
                 if old_enum is not None and new_enum is None:
                     found.append(Difference(WARN, source.id, f"field {field} no longer lists its allowed values, so any value may now arrive"))
