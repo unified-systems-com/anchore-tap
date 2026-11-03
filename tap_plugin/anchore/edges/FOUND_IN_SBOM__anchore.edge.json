@@ -8,6 +8,9 @@
   "targets": [
     "computing_core__sbom_document"
   ],
+  "identity": {
+    "discriminators": []
+  },
   "default_dimensions": {
     "anchore.area": "finding"
   }

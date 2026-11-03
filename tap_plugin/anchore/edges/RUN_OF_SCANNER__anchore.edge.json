@@ -8,6 +8,9 @@
   "targets": [
     "anchore__anchore_scanner"
   ],
+  "identity": {
+    "discriminators": []
+  },
   "default_dimensions": {
     "anchore.area": "run"
   }
