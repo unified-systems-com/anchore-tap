@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.2](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.1...v0.1.2) (2026-11-03)
+
+
+### Features
+
+* **collector:** fetch the instance's description, apply the previous-run rule, and validate responses ([63066e7](https://github.com/unified-systems-com/anchore-tap/commit/63066e769d20f17a313dc2b05661d63f18ddc917))
+* **collector:** fetch the instance's description, apply the previous-run rule, and validate responses [spec-derived, unverified] ([97416cf](https://github.com/unified-systems-com/anchore-tap/commit/97416cfbd5dd004628f9ec612908e36ee290aeed))
+* **collector:** image host and vulnerability links; SBOM documents ([5576d06](https://github.com/unified-systems-com/anchore-tap/commit/5576d069c6d6fb50821943c24a6a778645dbc0ba))
+* **collector:** link findings to the image host and shared vulnerability; record the three SBOM formats ([4db390a](https://github.com/unified-systems-com/anchore-tap/commit/4db390a19f546f19e6b64142728214c5f7903b61))
+* **collector:** the Anchore collector class ([c8d1d45](https://github.com/unified-systems-com/anchore-tap/commit/c8d1d45a7fcb21087d2609f24db41788deef761b))
+* **collector:** the Anchore collector class — probe, self-test, image walk, one GRIFT batch ([82913e9](https://github.com/unified-systems-com/anchore-tap/commit/82913e9b1321981dc79348beeca4310e68ad253e))
+* **findings:** edge from a finding to the SBOM document it was read from ([0fd60c2](https://github.com/unified-systems-com/anchore-tap/commit/0fd60c2b9a2eb09398c1c76d53c1f1f2a20dcb35))
+* **findings:** the source finding's edge to the SBOM document it was read from ([624fc55](https://github.com/unified-systems-com/anchore-tap/commit/624fc555d18dde11051029a7ffff39369df96258))
+
+
+### Bug Fixes
+
+* **collector:** a repeated digest keeps its analyzed entry ([dc3323c](https://github.com/unified-systems-com/anchore-tap/commit/dc3323cb2e74e36e285ed8e76cea4a32139bafe3))
+* **collector:** a required source that cannot be read, or answers in the wrong shape, stops the scanner ([8a408cd](https://github.com/unified-systems-com/anchore-tap/commit/8a408cd208b0327f01bdb8db595093aebd72c9f0))
+* **collector:** list an image that left the image list in scopes_not_read; test the self-test error path ([36418ef](https://github.com/unified-systems-com/anchore-tap/commit/36418ef93d26e4ae4e49d10a39b195439f0b71aa))
+* **collector:** never store a finding under a nulled identity; list unreadable image-list entries ([ed10b90](https://github.com/unified-systems-com/anchore-tap/commit/ed10b9081778fce1ecacb0712aad88bf23064028))
+* **collector:** read a repeated image digest once; prove a hostile digest cannot leave its path ([6bed2ff](https://github.com/unified-systems-com/anchore-tap/commit/6bed2ff614c2af4d50b30eba70232dd92ab51a64))
+* **collector:** read the image documents independently of the vulnerability read; refuse non-standard JSON constants ([05a017a](https://github.com/unified-systems-com/anchore-tap/commit/05a017a7cc0ab754a5535eb78afcf46c3a3a2463))
+* **collector:** stage a shared host or document once per batch, never rewrite a document the grid holds, list a body too deeply nested ([6c6f67f](https://github.com/unified-systems-com/anchore-tap/commit/6c6f67f801422704ae7d1b20c7f6090258b36c2b))
+
 ## [0.1.1](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.0...v0.1.1) (2026-11-03)
 
 
