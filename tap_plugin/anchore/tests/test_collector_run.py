@@ -20,6 +20,7 @@ from tap_cares.registry import get_collector
 from tap_grid.models import Edge
 from tap_plugin.anchore.client import ReadOnlyClient
 from tap_plugin.anchore.collectors.anchore_collector import collector as collector_module
+from tap_plugin.anchore.collectors.anchore_collector import decompose
 from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollector, AnchoreCollectorError
 from tap_plugin.anchore.credential import scanner_key
 from tap_plugin.anchore.models.finding import AnchoreFinding, package_key_for
@@ -208,7 +209,7 @@ class TestWhatIsRefused:
         collector = run_against(monkeypatch, Instance(vulns=[vuln(fix="x" * 600)]))
         assert AnchoreFinding.objects.get().fix is None
         dropped = next(w for w in collector.results["warn"] if w["message_code"] == "FIELDS_DROPPED")
-        assert dropped["message_data"]["values"] == [{"vulnerability": "CVE-2024-0001", "field": "fix", "reason": "longer than 512 characters"}]
+        assert dropped["message_data"]["values"] == [{"vulnerability": "CVE-2024-0001", "field": "fix", "reason": "longer than 512 characters", "effect": "stored as unobserved"}]
 
     def test_an_assertion_repeated_in_one_response_is_one_finding(self, secrets, monkeypatch):
         collector = run_against(monkeypatch, Instance(vulns=[vuln(), vuln()]))
@@ -219,6 +220,33 @@ class TestWhatIsRefused:
         collector = run_against(monkeypatch, Instance(vulns=[{"severity": "High"}, vuln()]))
         assert AnchoreFinding.objects.count() == 1
         assert any(w["message_data"].get("skipped") == 1 for w in collector.results["warn"] if w["message_code"] == "ENTRIES_NOT_STORED")
+
+
+@pytest.mark.django_db
+class TestIdentityIsNeverGuessed:
+    def test_an_entry_whose_package_cannot_be_held_is_not_stored_rather_than_stored_under_a_null_identity(self):
+        # The response check already refuses a wrong-typed package, so this is the second line: a value the model
+        # cannot hold must never become a null that makes two different packages one assertion.
+        dropped: list = []
+        assert decompose.finding_fields(vuln(package_path=7), KEY, DIGEST, "run", dropped) is None
+        assert dropped == [{"vulnerability": "CVE-2024-0001", "field": "package_path", "reason": "not the form the model holds", "effect": "entry not stored"}]
+
+    def test_a_read_with_an_entry_that_could_not_be_stored_resolves_nothing(self, secrets, monkeypatch):
+        instance = Instance()
+        run_against(monkeypatch, instance)
+        instance.vulns[DIGEST] = [{"severity": "High"}]
+        run_against(monkeypatch, instance)
+        # The earlier findings are still current: an entry that could not be stored proves nothing about absence.
+        assert {f.state for f in AnchoreFinding.objects.all()} == {"current"} and AnchoreFinding.objects.count() == 2
+        latest = AnchoreScanRun.objects.order_by("-finished_at").first()
+        assert [n["scope"] for n in latest.scopes_not_read] == [f"resolution:{DIGEST}"]
+
+    def test_image_list_entries_without_a_usable_digest_are_listed_not_skipped_silently(self, secrets, monkeypatch):
+        instance = Instance(images=[{"image_digest": DIGEST, "analysis_status": "analyzed"}, {"analysis_status": "analyzed"}, {"image_digest": "", "analysis_status": "analyzed"}])
+        collector = run_against(monkeypatch, instance)
+        latest = AnchoreScanRun.objects.get()
+        assert [n["scope"] for n in latest.scopes_not_read] == ["source:images:entries"] and "2 entry(ies)" in latest.scopes_not_read[0]["reason"]
+        assert any(w["message_code"] == "IMAGES_NOT_READ" for w in collector.results["warn"])
 
 
 @pytest.mark.django_db

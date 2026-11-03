@@ -75,7 +75,7 @@ def edge(ref: str, slug: str, from_ref: str, to_ref: str) -> dict[str, Any]:
 
 
 def finding_fields(entry: dict[str, Any], scanner_key: str, target_key: str, run_id: str, dropped: list[dict[str, str]]) -> dict[str, Any] | None:
-    """The AnchoreFinding fields for one vulnerability entry, or None when it names no usable identifier."""
+    """The AnchoreFinding fields for one vulnerability entry, or None when its identity cannot be held exactly."""
     vuln = entry.get("vuln")
     if not isinstance(vuln, str) or not vuln or len(vuln) > 255:
         return None
@@ -87,11 +87,18 @@ def finding_fields(entry: dict[str, Any], scanner_key: str, target_key: str, run
         "state": CURRENT,
         "last_seen_run_id": run_id,
     }
+    unidentifiable = False
     for key in _CARRIED:
         value, why = _fit(AnchoreFinding, key, entry.get(key), AnchoreFinding.FIELD_CRUD_SCHEMA[key])
+        # A package value the model cannot hold is part of the finding's identity: storing the entry
+        # with it nulled would make two different packages one assertion, so the entry is not stored.
+        part_of_identity = why is not None and key in ("package", "package_path")
+        unidentifiable = unidentifiable or part_of_identity
         if why is not None:
-            dropped.append({"vulnerability": vuln, "field": key, "reason": why})
+            dropped.append({"vulnerability": vuln, "field": key, "reason": why, "effect": "entry not stored" if part_of_identity else "stored as unobserved"})
         fields[key] = value
+    if unidentifiable:
+        return None
     fields["package_key"] = package_key_for(fields["package"], fields["package_path"])
     return fields
 

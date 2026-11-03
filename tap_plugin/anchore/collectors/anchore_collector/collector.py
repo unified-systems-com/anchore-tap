@@ -95,9 +95,13 @@ def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, p
     return (body, None) if checked.ok else (None, checked.reason)
 
 
-def _image_entries(body: Any) -> list[dict[str, Any]] | None:
+def _image_entries(body: Any) -> list[Any] | None:
     items = body.get("items") if isinstance(body, dict) else body
-    return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else None
+    return items if isinstance(items, list) else None
+
+
+#: A digest is the finding's target key; a longer one cannot be held, so the image is unidentified.
+_MAX_DIGEST = 512
 
 
 class AnchoreCollector(CollectorBase):
@@ -208,9 +212,11 @@ class AnchoreCollector(CollectorBase):
         dropped: list[dict[str, str]] = []
         skipped = duplicates = 0
         uncarried: set[str] = set()
+        unidentified = 0
         for index, image in enumerate(entries):
-            digest = image.get("image_digest")
-            if not isinstance(digest, str) or not digest:
+            digest = image.get("image_digest") if isinstance(image, dict) else None
+            if not isinstance(digest, str) or not digest or len(digest) > _MAX_DIGEST:
+                unidentified += 1
                 continue
             scope = f"image:{digest}"
             if image.get("analysis_status") != "analyzed":
@@ -227,18 +233,26 @@ class AnchoreCollector(CollectorBase):
             result = decompose.decompose_image(vulns, credential.scanner_key, digest, run_id, f"{tag}:f{index}")
             out.nodes.extend(result.nodes)
             out.findings += len(result.nodes)
-            for row in store.current_findings(credential.scanner_key, digest):
-                if (row.vulnerability_id, row.package_key) not in result.seen_keys:
-                    out.nodes.append(decompose.resolved_node(row, run_id, f"{tag}:r{index}:{out.resolved}"))
-                    out.resolved += 1
+            if result.skipped_entries:
+                # An entry that could not be stored may be a finding already held, so absence from this
+                # read proves nothing: nothing of this image is resolved.
+                not_read.append({"scope": f"resolution:{digest}", "reason": f"{result.skipped_entries} entry(ies) could not be stored, so findings absent from this read were not resolved"})
+            else:
+                for row in store.current_findings(credential.scanner_key, digest):
+                    if (row.vulnerability_id, row.package_key) not in result.seen_keys:
+                        out.nodes.append(decompose.resolved_node(row, run_id, f"{tag}:r{index}:{out.resolved}"))
+                        out.resolved += 1
             out.images_read += 1
             read.append(scope)
             dropped.extend(result.dropped_fields)
             skipped += result.skipped_entries
             duplicates += result.duplicate_entries
             uncarried |= result.uncarried_keys
+        if unidentified:
+            not_read.append({"scope": "source:images:entries", "reason": f"{unidentified} entry(ies) of the image list named no usable image_digest and were not read"})
+            self.record_warn(_SITE_IMAGES_NOT_READ, "IMAGES_NOT_READ", f"{credential.qualified}: {unidentified} entry(ies) of the image list named no usable image_digest and were not read.")
         if dropped:
-            self.record_warn(_SITE_FIELDS_DROPPED, "FIELDS_DROPPED", f"{credential.qualified}: {len(dropped)} value(s) could not be held by the model and were stored as unobserved.", message_data={"count": len(dropped), "values": dropped[:_LISTED]})
+            self.record_warn(_SITE_FIELDS_DROPPED, "FIELDS_DROPPED", f"{credential.qualified}: {len(dropped)} value(s) could not be held by the model; each is listed with what became of it.", message_data={"count": len(dropped), "values": dropped[:_LISTED]})
         if skipped or duplicates or uncarried:
             self.record_warn(_SITE_ENTRIES, "ENTRIES_NOT_STORED", f"{credential.qualified}: {skipped} entry(ies) named no usable identifier, {duplicates} repeated an assertion already held, and {len(uncarried)} response key(s) are not stored.", message_data={"skipped": skipped, "duplicates": duplicates, "uncarried_keys": sorted(uncarried)})
 
