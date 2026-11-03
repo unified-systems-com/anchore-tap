@@ -1,7 +1,9 @@
 """Anchore scanner — one Anchore instance and account."""
 
+import json
 from typing import Any, ClassVar
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from tap_grid.models import BaseModel
@@ -53,7 +55,7 @@ class AnchoreScanner(BaseModel):
         help_text="Identity: a compact JSON array of the canonical API root and the account (credential.scanner_key).",
     )
     api_root = models.CharField(
-        max_length=512, help_text="The canonical API root: lower-cased host, port and the path exactly as configured."
+        max_length=512, help_text="The canonical API root as credential.canonical_root writes it: https, lower-cased host, port unless 443, and the path exactly as configured."
     )
     account = models.CharField(max_length=255, help_text="The Anchore account this scanner reads through.")
     reported_version = models.CharField(
@@ -67,8 +69,22 @@ class AnchoreScanner(BaseModel):
     class Meta(BaseModel.Meta):
         db_table = "anchore_scanner"
 
+    def validate(self) -> None:
+        """The key must say what the columns say.
+
+        scanner_key is the credential's compact JSON array of the canonical API root and the account
+        (credential.scanner_key), so a record whose key names one instance and account while its
+        columns name another is refused rather than stored under a misleading display name.
+        """
+        try:
+            named = json.loads(self.scanner_key)
+        except (TypeError, ValueError):
+            named = None
+        if named != [self.api_root, self.account]:
+            raise ValidationError({"scanner_key": ["scanner_key must be the JSON array [api_root, account]"]})
+
     def get_name(self) -> str:
-        return f"{self.api_root} · {self.account}" if self.api_root else ""
+        return f"{self.api_root} · {self.account}"[:255] if self.api_root else ""
 
     def __str__(self) -> str:
         return self.get_name()

@@ -57,7 +57,7 @@ class AnchoreFinding(BaseModel):
         "vulnerability_id": {"type": "string", "minLength": 1},
         "target_kind": {"type": "string", "enum": _TARGET_KINDS},
         "target_key": {"type": "string", "minLength": 1},
-        "package_key": {"type": "string", "minLength": 1},
+        "package_key": {"type": "string", "minLength": 1, "maxLength": 1400},
         "state": {"type": ["string", "null"], "enum": [*_STATES, None]},
         "last_seen_run_id": _STR_OR_NULL,
         "severity": _STR_OR_NULL,
@@ -77,11 +77,11 @@ class AnchoreFinding(BaseModel):
         "feed_group": _STR_OR_NULL,
         "detected_at": _STR_OR_NULL,
         "inherited_from_base": _BOOL_OR_NULL,
-        "package": _STR_OR_NULL,
+        "package": {"type": ["string", "null"], "maxLength": 255},
         "package_name": _STR_OR_NULL,
         "package_version": _STR_OR_NULL,
         "package_type": _STR_OR_NULL,
-        "package_path": _STR_OR_NULL,
+        "package_path": {"type": ["string", "null"], "maxLength": 1024},
         "purl": _STR_OR_NULL,
         "package_cpe": _STR_OR_NULL,
         "package_cpe23": _STR_OR_NULL,
@@ -99,12 +99,14 @@ class AnchoreFinding(BaseModel):
     ]
 
     # Identity (the columns the natural key rests on; none is computed in a collector's id recipe).
+    # package_key is a JSON array of package (255) and package_path (1024): at most 1288 characters,
+    # inside its own 1400, so a value past either width is refused and never truncated into a collision.
     scanner_key = models.CharField(max_length=1024, db_index=True, help_text="The scanner (instance and account) that asserted it.")
     vulnerability_id = models.CharField(max_length=255, db_index=True, help_text="The identifier Anchore reports in its vuln field, exactly as returned; no alias is resolved.")
     target_kind = models.CharField(max_length=16, help_text="What was scanned: image or source.")
     target_key = models.CharField(max_length=512, help_text="The target within the scanner: the image digest, or the source's Anchore id.")
     package_key = models.CharField(
-        max_length=2048,
+        max_length=1400,
         help_text="The package within the target: a compact JSON array of Anchore's package and package_path as returned (null for an absent part).",
     )
 
@@ -130,11 +132,11 @@ class AnchoreFinding(BaseModel):
     feed_group = models.CharField(max_length=128, null=True, blank=True, default=None, help_text="The Anchore feed group, as returned.")
     detected_at = models.CharField(max_length=64, null=True, blank=True, default=None, help_text="When Anchore says it detected the match, as the string returned.")
     inherited_from_base = models.BooleanField(null=True, blank=True, default=None, help_text="Anchore's inherited_from_base flag; null when not carried.")
-    package = models.CharField(max_length=512, null=True, blank=True, default=None, help_text="Anchore's package field as returned.")
+    package = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package field as returned.")
     package_name = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package_name as returned.")
     package_version = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package_version as returned.")
     package_type = models.CharField(max_length=64, null=True, blank=True, default=None, help_text="Anchore's package_type as returned.")
-    package_path = models.CharField(max_length=2048, null=True, blank=True, default=None, help_text="Anchore's package_path as returned.")
+    package_path = models.CharField(max_length=1024, null=True, blank=True, default=None, help_text="Anchore's package_path as returned.")
     purl = models.CharField(max_length=1024, null=True, blank=True, default=None, help_text="Anchore's purl for the package as returned.")
     package_cpe = models.CharField(max_length=512, null=True, blank=True, default=None, help_text="Anchore's package_cpe as returned.")
     package_cpe23 = models.CharField(max_length=512, null=True, blank=True, default=None, help_text="Anchore's package_cpe23 as returned.")
@@ -146,7 +148,9 @@ class AnchoreFinding(BaseModel):
     def get_name(self) -> str:
         if not self.vulnerability_id:
             return ""
-        return f"{self.vulnerability_id} · {self.package_name or self.package or self.target_key}"
+        # Entity.name is 255 characters; the display name is a projection, so it is cut to fit and
+        # the full values stay in their own columns.
+        return f"{self.vulnerability_id} · {self.package_name or self.package or self.target_key}"[:255]
 
     def __str__(self) -> str:
         return self.get_name()

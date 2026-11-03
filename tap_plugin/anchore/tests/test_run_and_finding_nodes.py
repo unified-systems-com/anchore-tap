@@ -14,13 +14,14 @@ from tap_grid.constraints import InvalidEdgeError
 from tap_grid.models import Entity
 from tap_grid.registry import get_model_class
 from tap_grid.services import create_edge, create_node
-from tap_plugin.anchore.credential import scanner_key
+from tap_plugin.anchore.credential import canonical_root, scanner_key
 
 SCANNER_KEY = scanner_key("https://anchore.example:8228/v2", "demo")
 OTHER_ACCOUNT_KEY = scanner_key("https://anchore.example:8228/v2", "other")
 DIGEST = "sha256:" + "ab" * 32
 
-SCANNER = {"scanner_key": SCANNER_KEY, "api_root": "anchore.example:8228/v2", "account": "demo"}
+API_ROOT = canonical_root("https://Anchore.Example:8228/v2")
+SCANNER = {"scanner_key": SCANNER_KEY, "api_root": API_ROOT, "account": "demo"}
 RUN = {"scanner_key": SCANNER_KEY, "run_id": "run-1"}
 FINDING = {
     "scanner_key": SCANNER_KEY,
@@ -42,7 +43,7 @@ class TestScanner:
     def test_create_and_display(self):
         node = _create("anchore__anchore_scanner", SCANNER)
         node.entity.refresh_from_db()
-        assert node.entity.name == "anchore.example:8228/v2 · demo"
+        assert node.entity.name == "https://anchore.example:8228/v2 · demo"
         assert node.entity.dimensions.get("anchore.area") == "run"
 
     def test_unread_version_is_null_not_empty(self):
@@ -52,6 +53,12 @@ class TestScanner:
     def test_identity_fields_required(self, missing):
         payload = {k: v for k, v in SCANNER.items() if k != missing}
         assert not create_node("anchore__anchore_scanner", payload).success
+
+    def test_a_key_that_disagrees_with_its_columns_is_refused(self):
+        """Codex review of PR 10: independent identity fields could name one account and key another."""
+        assert not create_node("anchore__anchore_scanner", {**SCANNER, "account": "other"}).success
+        assert not create_node("anchore__anchore_scanner", {**SCANNER, "scanner_key": OTHER_ACCOUNT_KEY}).success
+        assert not create_node("anchore__anchore_scanner", {**SCANNER, "scanner_key": "not json"}).success
 
     def test_found_again_by_scanner_key_and_accounts_stay_apart(self):
         node = _create("anchore__anchore_scanner", SCANNER)
@@ -142,6 +149,17 @@ class TestFinding:
     def test_key_fields_required(self, missing):
         payload = {k: v for k, v in FINDING.items() if k != missing}
         assert not create_node("anchore__anchore_finding", payload).success
+
+    def test_a_package_key_cannot_outgrow_the_fields_it_is_built_from(self):
+        """Grok review of PR 10: package_key was narrower than package plus package_path."""
+        import json
+
+        package, path = "p" * 255, "/" + "d" * 1023
+        key = json.dumps([package, path], separators=(",", ":"))
+        assert len(key) <= 1400
+        assert create_node("anchore__anchore_finding", {**FINDING, "package": package, "package_path": path, "package_key": key}).success
+        assert not create_node("anchore__anchore_finding", {**FINDING, "package": "p" * 256}).success
+        assert not create_node("anchore__anchore_finding", {**FINDING, "package_path": "/" + "d" * 1024}).success
 
     def test_target_kind_is_image_or_source(self):
         assert not create_node("anchore__anchore_finding", {**FINDING, "target_kind": "host"}).success
