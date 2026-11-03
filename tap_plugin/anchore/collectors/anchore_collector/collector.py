@@ -49,6 +49,7 @@ _SITE_NOTHING_WRITTEN = "ecc2"
 _SITE_SBOM_NOT_READ = "bf32"
 _SITE_NOT_LINKED = "f422"
 _SITE_HOST_CREATED = "729b"
+_SITE_PLAINTEXT = "684a"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -202,6 +203,10 @@ class AnchoreCollector(CollectorBase):
         out = _Scanner()
         not_read: list[dict[str, str]] = []
         read: list[str] = []
+
+        if credential.plaintext:
+            # Allowed on purpose (the operator wrote the scheme), but never silent.
+            self.record_warn(_SITE_PLAINTEXT, "PLAINTEXT_TRANSPORT", f"{credential.qualified}: this instance is read over plain http, so the credential and every response cross the network unencrypted.", message_data={"credential": credential.qualified})
 
         with ReadOnlyClient(credential) as client:
             try:

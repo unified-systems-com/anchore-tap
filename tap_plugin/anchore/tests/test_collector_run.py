@@ -317,3 +317,20 @@ def test_the_collector_is_registered_and_its_self_test_reports_a_credential(secr
     assert get_collector("anchore:anchore") is AnchoreCollector
     result = AnchoreCollector.self_test()
     assert result.to_dict()["checks"][0]["code"] == "CREDENTIAL_PRESENT"
+
+
+@pytest.mark.django_db
+class TestPlainHttp:
+    def test_an_http_instance_is_read_and_every_run_says_it_is_unencrypted(self, tmp_path, monkeypatch):
+        write(tmp_path, "plain", data("basic", base_url="http://anchore.example:8228/v2"))
+        monkeypatch.setattr(collector_module, "secrets_root", types.SimpleNamespace(resolve=lambda: tmp_path))
+        instance = Instance()
+        collector = run_against(monkeypatch, instance)
+        assert AnchoreScanner.objects.get().api_root == "http://anchore.example:8228/v2"
+        assert AnchoreFinding.objects.count() == 2
+        assert [w["message_code"] for w in collector.results["warn"]].count("PLAINTEXT_TRANSPORT") == 1
+        assert all(c.url.startswith("http://") for c in instance.transport.calls)
+
+    def test_an_https_instance_raises_no_such_warning(self, secrets, monkeypatch):
+        collector = run_against(monkeypatch, Instance())
+        assert "PLAINTEXT_TRANSPORT" not in [w["message_code"] for w in collector.results["warn"]]

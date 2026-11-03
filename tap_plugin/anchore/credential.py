@@ -124,6 +124,11 @@ class Credential:
     scanner_key: str
     auth: Auth = field(repr=False)
 
+    @property
+    def plaintext(self) -> bool:
+        """Whether this instance is read over plain http, so the credential and every response cross the network unencrypted."""
+        return self.base_url.lower().startswith("http://")
+
     def redact(self, text: str) -> tuple[str, int]:
         return self.auth.redact(text)
 
@@ -140,15 +145,17 @@ class Credential:
 
 
 def canonical_root(base_url: str) -> str:
-    """The lower-cased scheme and host, the port unless it is the https default, and the path as configured.
+    """The lower-cased scheme and host, the port unless it is the scheme's default, and the path as configured.
 
-    Raises ValueError for anything that is not a plain https API root: userinfo, a query, a
-    fragment, a trailing slash, or another scheme. URL paths are case-sensitive, so ``/v2`` and
+    The scheme is the one the operator wrote, http or https, and is part of the root: the two are
+    different scanners. Raises ValueError for anything that is not a plain API root: userinfo, a
+    query, a fragment, a trailing slash, or a scheme other than http and https. URL paths are case-sensitive, so ``/v2`` and
     ``/V2`` are different roots.
     """
     parts = urlsplit(base_url)
-    if parts.scheme.lower() != "https":
-        raise ValueError("base_url must be https")
+    scheme = parts.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError("base_url must be http or https")
     if parts.username is not None or parts.password is not None or "@" in parts.netloc:
         raise ValueError("base_url must not carry userinfo")
     if parts.query or parts.fragment or "?" in base_url or "#" in base_url:
@@ -163,8 +170,8 @@ def canonical_root(base_url: str) -> str:
     if parts.path.endswith("/"):
         raise ValueError("base_url must not end with a slash")
     host_part = f"[{host}]" if ":" in host else host.lower()
-    port_part = "" if port in (None, 443) else f":{port}"
-    return f"https://{host_part}{port_part}{parts.path}"
+    port_part = "" if port in (None, 443 if scheme == "https" else 80) else f":{port}"
+    return f"{scheme}://{host_part}{port_part}{parts.path}"
 
 
 def scanner_key(base_url: str, account: str) -> str:

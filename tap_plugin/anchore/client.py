@@ -1,7 +1,7 @@
 """The read-only Anchore client (req-anchore-client, req-anchore-connection).
 
 A small client over ``requests`` that can only read. Every request leaves through one session
-whose send refuses any method but GET and any URL that is not https before anything is sent;
+whose send refuses any method but GET and any URL that is not http or https before anything is sent;
 a redirect is an error, never followed, so the credential can never reach another origin;
 certificate verification is on and nothing turns it off; the environment's proxy, netrc and CA
 settings are ignored. A response over the size cap is refused. Retries are bounded in count and
@@ -44,7 +44,7 @@ class WriteRefused(ClientError):
 
 
 class InsecureRefused(ClientError):
-    """A request that is not https was refused before it was sent."""
+    """A request whose scheme is neither http nor https was refused before it was sent."""
 
 
 class OriginRefused(ClientError):
@@ -114,7 +114,7 @@ class _Session(requests.Session):
 
     Every guard is in ``send``, which every request passes through whatever adapter is mounted, so
     remounting an adapter on this session does not get round them: a method other than GET, a URL
-    that is not https or is outside the configured API root, a redirect, and any override of
+    that is outside the configured API root (which pins its scheme, host and port), a redirect, and any override of
     certificate verification, client certificate or proxies are each refused or ignored here.
     """
 
@@ -126,17 +126,17 @@ class _Session(requests.Session):
         self._pinned_verify = verify
 
     def get_adapter(self, url: str) -> requests.adapters.BaseAdapter:
-        """Only an https URL has an adapter; any other scheme is refused before anything is sent."""
-        if not url.lower().startswith("https://"):
-            raise InsecureRefused("a request that is not https is refused")
+        """Only an http or https URL has an adapter; any other scheme is refused before anything is sent."""
+        if not url.lower().startswith(("https://", "http://")):
+            raise InsecureRefused("a request that is not http or https is refused")
         return super().get_adapter(url)
 
     def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         if request.method != "GET":
             raise WriteRefused(f"{request.method} is refused: this client only reads")
         url = str(request.url)
-        if not url.lower().startswith("https://"):
-            raise InsecureRefused("a request that is not https is refused")
+        if not url.lower().startswith(("https://", "http://")):
+            raise InsecureRefused("a request that is not http or https is refused")
         if not url.startswith(self._prefix) or not _plain_remainder(urlsplit(url).path[len(urlsplit(self._prefix).path):]):
             raise OriginRefused("a request outside the configured Anchore API root is refused")
         kwargs["allow_redirects"] = False
@@ -213,7 +213,9 @@ class ReadOnlyClient:
         self._timeout = timeout
         self._max_attempts = max_attempts
         session = _Session(credential.base_url, credential.ca_bundle or True)
-        session.mount("https://", transport if transport is not None else HTTPAdapter(max_retries=0))
+        adapter = transport if transport is not None else HTTPAdapter(max_retries=0)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
         session.headers["Accept"] = "application/json"
         auth = credential.auth
         if auth.basic is not None:

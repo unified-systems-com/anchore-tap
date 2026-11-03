@@ -452,6 +452,8 @@ def render(ctx: Context, stdout: TextIO) -> None:
         return safe(redacted, limit)
 
     print(f"\nObserved {ctx.credential.qualified} (scheme {ctx.credential.scheme}); recordings in {ctx.out_dir}\n", file=stdout)
+    if ctx.credential.plaintext:
+        print("WARNING: this instance is read over plain http; the credential and every response crossed the network unencrypted.\n", file=stdout)
     print(f"{'step':<12}{'status':<10}{'ms':>6}{'bytes':>10}  {'content-type':<28}request", file=stdout)
     for line in ctx.lines:
         ms = "" if line.elapsed_ms is None else str(line.elapsed_ms)
