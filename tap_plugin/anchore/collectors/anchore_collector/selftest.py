@@ -8,7 +8,7 @@ extracts here, with the manifest's sources, so only what the collector reads is 
 - error: a required source is gone or has no 2xx response; a field the parser requires is removed
   or changed type; a required parameter appears that the committed extract did not have.
 - warn: an optional source is gone (listed as not read), an optional field is gone or changed type,
-  a new enum value appears on a field the collector reads, or the instance's version differs.
+  a new enum value appears on a field the collector reads (or its enum is removed), or the instance's version differs.
 - pass: nothing above (additive change the collector does not read is not looked at).
 
 A result is a verdict plus every difference behind it, so a verdict can be audited from the scan run.
@@ -106,7 +106,9 @@ def compare(committed: dict[str, Any], fresh: dict[str, Any], sources: tuple[Sou
             if type_of(old_node) != type_of(new_node):
                 found.append(Difference(level, source.id, f"field {field} changed type from {'/'.join(type_of(old_node)) or 'untyped'} to {'/'.join(type_of(new_node)) or 'untyped'}"))
             old_enum, new_enum = enum_of(old_node), enum_of(new_node)
-            if old_enum is not None and new_enum is not None and new_enum - old_enum:
+            if old_enum is not None and new_enum is None:
+                found.append(Difference(WARN, source.id, f"field {field} no longer lists its allowed values, so any value may now arrive"))
+            elif old_enum is not None and new_enum is not None and new_enum - old_enum:
                 values = ", ".join(sorted(str(v) for v in new_enum - old_enum))
                 found.append(Difference(WARN, source.id, f"field {field} has new values the collector does not know: {values}"))
 

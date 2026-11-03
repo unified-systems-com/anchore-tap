@@ -140,6 +140,14 @@ class TestSelfTest:
         assert result.verdict == WARN
         assert any("quarantined" in d.message for d in result.differences)
 
+    def test_a_removed_enum_on_a_field_the_collector_reads_is_a_warning(self):
+        fresh = _fresh()
+        item = _op(fresh, "/images")["responses"][0]["schema"]["properties"]["items"]["items"]
+        del item["properties"]["analysis_status"]["enum"]
+        result = compare(EXTRACT, fresh, SOURCES)
+        assert result.verdict == WARN
+        assert any("no longer lists its allowed values" in d.message for d in result.differences)
+
     def test_a_different_version_is_a_warning(self):
         fresh = _fresh()
         fresh["source"] = {**fresh["source"], "version": "9.9.9"}
