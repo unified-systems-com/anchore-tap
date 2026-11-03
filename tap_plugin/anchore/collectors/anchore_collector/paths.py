@@ -10,11 +10,14 @@ from typing import Any
 
 
 def _properties(node: dict[str, Any]) -> dict[str, Any]:
-    props: dict[str, Any] = dict(node.get("properties") or {})
+    """The node's properties; allOf members are an intersection, so a property that more than one
+    member (or the node itself) constrains keeps every definition, as an ``allOf`` of them."""
+    found: dict[str, list[Any]] = {name: [schema] for name, schema in (node.get("properties") or {}).items()}
     for member in node.get("allOf") or []:
         if isinstance(member, dict):
-            props.update(_properties(member))
-    return props
+            for name, schema in _properties(member).items():
+                found.setdefault(name, []).append(schema)
+    return {name: defs[0] if len(defs) == 1 else {"allOf": defs} for name, defs in found.items()}
 
 
 def _items(node: dict[str, Any]) -> dict[str, Any] | None:
@@ -60,13 +63,18 @@ def resolve_field(schema: dict[str, Any], path: str) -> dict[str, Any] | None:
 
 
 def type_of(node: dict[str, Any]) -> tuple[str, ...]:
-    """The node's JSON types as a sorted tuple (a nullable type lists both)."""
+    """The node's JSON types as a sorted tuple (a nullable type lists both), plus a signature for
+    each ``allOf`` member, so a change in any member changes the result."""
     declared = node.get("type")
+    own: tuple[str, ...] = ()
     if isinstance(declared, list):
-        return tuple(sorted(str(t) for t in declared))
-    if isinstance(declared, str):
-        return (declared,)
-    return ()
+        own = tuple(sorted(str(t) for t in declared))
+    elif isinstance(declared, str):
+        own = (declared,)
+    members = tuple(
+        f"allOf:{'/'.join(type_of(m)) or 'untyped'}" for m in (node.get("allOf") or []) if isinstance(m, dict)
+    )
+    return own + members
 
 
 def enum_of(node: dict[str, Any]) -> frozenset[Any] | None:

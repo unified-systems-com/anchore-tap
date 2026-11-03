@@ -34,14 +34,16 @@ class Source:
     optional_fields: tuple[str, ...]
 
 
-def _response_schema(extract: dict[str, Any], path: str) -> dict[str, Any] | None:
+def _response_schemas(extract: dict[str, Any], path: str) -> list[dict[str, Any]]:
+    """Every 2xx response schema of GET ``path`` in the extract."""
     for op in extract["operations"]:
         if op["method"] == "get" and op["path"] == path:
-            for response in op.get("responses", []):
-                if str(response.get("status", "")).startswith("2"):
-                    schema = response.get("schema")
-                    return schema if isinstance(schema, dict) else None
-    return None
+            return [
+                r["schema"]
+                for r in op.get("responses", [])
+                if str(r.get("status", "")).startswith("2") and isinstance(r.get("schema"), dict)
+            ]
+    return []
 
 
 def load_manifest(manifest: dict[str, Any] | None = None, extract: dict[str, Any] | None = None) -> tuple[Source, ...]:
@@ -62,12 +64,15 @@ def load_manifest(manifest: dict[str, Any] | None = None, extract: dict[str, Any
         if entry["id"] in seen:
             raise ManifestError(f"source id {entry['id']!r} appears twice")
         seen.add(entry["id"])
-        response = _response_schema(committed, entry["path"])
-        if response is None:
+        responses = _response_schemas(committed, entry["path"])
+        if not responses:
             raise ManifestError(f"source {entry['id']!r}: GET {entry['path']} has no 2xx response in the committed extract")
+        # A field the collector needs must be in every successful response the extract describes,
+        # since the client may receive any of them.
         for field in (*entry["required_fields"], *entry["optional_fields"]):
-            if resolve_field(response, field) is None:
-                raise ManifestError(f"source {entry['id']!r}: field {field!r} is not in the extract's response for GET {entry['path']}")
+            for response in responses:
+                if resolve_field(response, field) is None:
+                    raise ManifestError(f"source {entry['id']!r}: field {field!r} is not in every extract response for GET {entry['path']}")
         sources.append(
             Source(
                 id=entry["id"],

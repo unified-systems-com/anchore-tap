@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from tap_plugin.anchore.collectors.anchore_collector.manifest import ManifestError, load_manifest, shipped_manifest
-from tap_plugin.anchore.collectors.anchore_collector.paths import resolve_field
+from tap_plugin.anchore.collectors.anchore_collector.paths import resolve_field, type_of
 from tap_plugin.anchore.collectors.anchore_collector.selftest import ERROR, PASS, WARN, compare
 
 CONTRACT = Path(__file__).resolve().parents[1] / "contract"
@@ -73,6 +73,24 @@ class TestManifest:
         entry = {"id": "account", "path": "/account", "scope": "probe", "required": True, "required_fields": ["name"], "optional_fields": []}
         with pytest.raises(ManifestError, match="twice"):
             load_manifest({"description": "x", "sources": [entry, entry]})
+
+
+    def test_a_field_missing_from_a_second_extract_response_is_refused(self):
+        """The client may receive any successful response, so a needed field must be in all of them."""
+        committed = copy.deepcopy(EXTRACT)
+        response = _op(committed, "/account")["responses"][0]
+        thin = copy.deepcopy(response["schema"])
+        del thin["properties"]["name"]
+        _op(committed, "/account")["responses"].append({**response, "status": "206", "schema": thin})
+        entry = {"id": "account", "path": "/account", "scope": "probe", "required": True, "required_fields": ["name"], "optional_fields": []}
+        with pytest.raises(ManifestError, match="every extract response"):
+            load_manifest({"description": "x", "sources": [entry]}, committed)
+
+    def test_the_committed_extract_has_one_success_response_per_source(self):
+        """The multiple-response checks defend against something the extract does not have today; if it ever does, this says so."""
+        for source in SOURCES:
+            op = _op(EXTRACT, source.path)
+            assert len([r for r in op["responses"] if str(r["status"]).startswith("2")]) == 1, source.id
 
 
 class TestSelfTest:
@@ -173,6 +191,13 @@ class TestSelfTest:
         changed["properties"]["items"]["items"]["properties"]["analysis_status"]["type"] = "integer"
         _op(fresh, "/images")["responses"].append({**response, "status": "203", "schema": changed})
         assert compare(EXTRACT, fresh, SOURCES).verdict == ERROR
+
+    def test_a_type_change_in_an_earlier_allof_member_is_not_hidden_by_a_later_one(self):
+        """allOf is an intersection: with two members constraining one field, a change in either shows."""
+        base = {"allOf": [{"properties": {"x": {"type": "string"}}}, {"properties": {"x": {"minLength": 1}}}]}
+        changed = {"allOf": [{"properties": {"x": {"type": "integer"}}}, {"properties": {"x": {"minLength": 1}}}]}
+        assert type_of(resolve_field(base, "x")) != type_of(resolve_field(changed, "x"))
+        assert resolve_field(base, "x") == {"allOf": [{"type": "string"}, {"minLength": 1}]}
 
     def test_a_different_version_is_a_warning(self):
         fresh = _fresh()
