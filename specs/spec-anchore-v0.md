@@ -54,7 +54,7 @@ Six consequences shape v0:
 | req-anchore-client | [The Read-Only Client](#the-read-only-client) | Proposed | A thin `requests` client, GET only, cursor paging, timeouts, backoff, TLS verification on |
 | req-anchore-observe | [The Trial Observation Command](#the-trial-observation-command) | Proposed | A read-only command that records what an instance returns, in a fixed order, locally, so shapes are observed before they are parsed |
 | req-anchore-probe | [Probe And Provenance](#probe-and-provenance) | Proposed | Version, status and feed freshness read first and recorded on the scan run |
-| req-anchore-selftest | [Per-Run Schema Self-Test](#per-run-schema-self-test) | Proposed | The instance's own spec is checked against the committed extract before any data is read; error, warn or pass |
+| req-anchore-selftest | [Per-Run Schema Self-Test](#per-run-schema-self-test) | In Development | The instance's own spec is checked against the committed extract before any data is read; error, warn or pass |
 | req-anchore-contract-extract | [Contract Extract And Offline Tests](#contract-extract-and-offline-tests) | Proposed | A script-generated extract of the consumed paths and schemas, and tests against it with no network |
 | req-anchore-drift-ci | [Scheduled Drift Check](#scheduled-drift-check) | Proposed | A scheduled workflow compares the vendor's public file with the extract and fails on drift in what we consume |
 | req-anchore-states | [Three States And Resolution](#three-states-and-resolution) | Proposed | Not read is never clean; null is unobserved; a run resolves only what it read |
@@ -181,7 +181,7 @@ Reads `GET /account` first (documented: it returns the account of the authentica
 ----
 RID: `req-anchore-selftest`
 
-Status: `Proposed`
+Status: `In Development`
 
 At the start of every run the collector fetches the configured instance's own OpenAPI file, reduces it to the same extract format as the committed one, compares only what the plugin consumes, and either stops with an error or continues with a recorded warning. This catches a hosted or on-prem instance that differs from the version the extract came from, which the scheduled CI check on the vendor's public file cannot see.
 
@@ -192,6 +192,7 @@ The instance serves its spec at `/v2/openapi.json` (documented in Anchore's API 
 - **Error and stop, with no data written:** a path the plugin cannot work without is gone (the per-image vulnerability or SBOM read); a field the parser requires is removed or changes type; a new required parameter appears that the client does not send; or the credential can read neither the spec nor the data.
 - **Warn and continue, recorded on the scan run:** a whole scope is unavailable (for example the application family on an older on-prem install), recorded as *not read*; a field read optionally disappears; a new enum value the parser does not know appears; the instance version differs from the extract's.
 - **Pass:** only additive changes the plugin does not read.
+- **Build state.** The comparison is built as a pure function (`collectors/anchore_collector/selftest.py`) over the committed extract, the instance's reduced description and the collector manifest (`manifest.json`, which lists each source, whether it is required, and the response fields the parser needs or merely reads); a manifest that names a path or field the extract lacks is refused at load. Not yet built: fetching the instance's own file, the previous-run rule for an unserved spec (`-4`) and the per-response validation (`-6`).
 - **Spec not served:** the self-test cannot run, and that is never recorded as passed. If the scanner's previous run recorded the spec as served, its absence now is error-class (a gate that can be bypassed by not answering is not a gate). If the previous run did not record it as served, or there was no previous run, the run warns and continues, but only because every response is independently validated against the extract's response schemas before any node is written (`req-anchore-selftest-6`); the unvalidated path does not exist.
 
 #### Acceptance Criteria

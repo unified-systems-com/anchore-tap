@@ -1,0 +1,70 @@
+{
+  "description": "The reads the Anchore collector makes in this slice: the probe (account, status, system, feeds) and, per image, the image list and the vulnerabilities. Every path is in the committed extract. Not yet covered: SBOM, VEX, source, application-version and inventory reads, which later slices add. Field lists are spec-derived from the OpenAPI file (2.20.0) and not yet observed on a real instance.",
+  "sources": [
+    {
+      "id": "account",
+      "path": "/account",
+      "scope": "probe",
+      "required": true,
+      "required_fields": ["name"],
+      "optional_fields": ["state", "type"]
+    },
+    {
+      "id": "status",
+      "path": "/status",
+      "scope": "probe",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": ["version", "up", "available", "db_version"]
+    },
+    {
+      "id": "system",
+      "path": "/system",
+      "scope": "probe",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": ["service_states"]
+    },
+    {
+      "id": "feeds",
+      "path": "/system/feeds",
+      "scope": "probe",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": ["[].dataset_name", "[].enabled", "[].groups"]
+    },
+    {
+      "id": "images",
+      "path": "/images",
+      "scope": "image",
+      "required": true,
+      "required_fields": ["items[].image_digest", "items[].analysis_status"],
+      "optional_fields": ["items[].created_at", "items[].image_status"]
+    },
+    {
+      "id": "image_vulnerabilities",
+      "path": "/images/{image_digest}/vuln/{vuln_type}",
+      "scope": "image",
+      "required": true,
+      "required_fields": ["vulnerabilities[].vuln"],
+      "optional_fields": [
+        "vulnerabilities[].severity",
+        "vulnerabilities[].fix",
+        "vulnerabilities[].suggested_fix_version",
+        "vulnerabilities[].fix_observed_at",
+        "vulnerabilities[].will_not_fix",
+        "vulnerabilities[].is_kev",
+        "vulnerabilities[].epss",
+        "vulnerabilities[].nvd_data",
+        "vulnerabilities[].vendor_data",
+        "vulnerabilities[].package",
+        "vulnerabilities[].package_path",
+        "vulnerabilities[].package_type",
+        "vulnerabilities[].purl",
+        "vulnerabilities[].feed",
+        "vulnerabilities[].feed_group",
+        "vulnerabilities[].annotation_status"
+      ]
+    }
+  ]
+}
