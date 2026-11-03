@@ -30,6 +30,34 @@ def make(scheme="basic", routes=None, default=None, **kw):
     return client, transport, sleeps
 
 
+class TestPlainHttpRoot:
+    """req-anchore-connection-4: the scheme is the operator's."""
+
+    def make_http(self, **kw):
+        transport = FakeTransport({}, response(200, {"name": "acct"}))
+        credential = cred.credential_from_envelope(envelope(payload=data(base_url="http://anchore.example:8228/v2")))
+        return cl.ReadOnlyClient(credential, transport=transport, sleep=lambda s: None, **kw), transport
+
+    def test_an_http_root_is_read_over_http_with_the_credential(self):
+        client, transport = self.make_http()
+        assert client.get("/account").status == 200
+        assert transport.calls[0].url == "http://anchore.example:8228/v2/account" and "Authorization" in transport.calls[0].headers
+
+    def test_an_http_root_still_refuses_writes_other_origins_and_redirects(self):
+        client, transport = self.make_http()
+        with pytest.raises(cl.WriteRefused):
+            client._session.post("http://anchore.example:8228/v2/x", data=b"b")
+        for url in ("https://anchore.example:8228/v2/x", "http://elsewhere.example:8228/v2/x", "http://anchore.example:9999/v2/x"):
+            with pytest.raises(cl.OriginRefused):
+                client._session.get(url)
+        assert transport.calls == []
+        client, transport = self.make_http()
+        transport.default = response(302, b"", {"Location": "https://anchore.example:8228/v2/x"})
+        with pytest.raises(cl.RedirectRefused):
+            client.get("/account")
+        assert len(transport.calls) == 1
+
+
 class TestAuthentication:
     def test_basic(self):
         client, transport, _ = make("basic", default=response(200))
@@ -83,10 +111,17 @@ class TestReadOnly:
             client._session.post("https://anchore.example:8228/v2/x", data=b"body")
         assert transport.calls == []
 
-    def test_plain_http_is_refused_even_for_a_get(self):
+    def test_a_scheme_other_than_http_or_https_is_refused_even_for_a_get(self):
         client, transport, _ = make(default=response(200))
-        with pytest.raises(cl.InsecureRefused):
-            client._session.get("http://anchore.example/v2/images")
+        for url in ("ftp://anchore.example/v2/images", "file:///etc/passwd"):
+            with pytest.raises(cl.InsecureRefused):
+                client._session.get(url)
+        assert transport.calls == []
+
+    def test_an_https_root_never_sends_plain_http_and_an_http_root_never_sends_https(self):
+        client, transport, _ = make(default=response(200))
+        with pytest.raises(cl.OriginRefused):
+            client._session.get("http://anchore.example:8228/v2/images")
         assert transport.calls == []
 
     def test_the_client_exposes_get_and_nothing_that_writes(self):

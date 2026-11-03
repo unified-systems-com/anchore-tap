@@ -67,7 +67,7 @@ class TestEnvelope:
             lambda d: d.pop("account"),
             lambda d: d.pop("password"),
             lambda d: d.update(scheme="oauth"),
-            lambda d: d.update(base_url="http://anchore.example/v2"),
+            lambda d: d.update(base_url="ftp://anchore.example/v2"),
             lambda d: d.update(ca_bundle="relative/path.pem"),
         ],
     )
@@ -94,7 +94,17 @@ class TestCanonicalRoot:
         assert cred.canonical_root("https://h/v2") == cred.canonical_root("https://h:443/v2")
         assert cred.canonical_root("https://h:8228/v2") == "https://h:8228/v2"
 
-    @pytest.mark.parametrize("url", ["http://h/v2", "https://u:p@h/v2", "https://h/v2?x=1", "https://h/v2#f", "https://h/v2/", "https:///v2", "https://h:99999/v2"])
+    def test_http_is_kept_as_written_with_its_own_default_port(self):
+        assert cred.canonical_root("http://Anchore.Example:8228/v2") == "http://anchore.example:8228/v2"
+        assert cred.canonical_root("http://h/v2") == cred.canonical_root("http://h:80/v2") == "http://h/v2"
+        assert cred.canonical_root("http://h:443/v2") == "http://h:443/v2"
+
+    def test_the_scheme_is_part_of_the_scanner_key(self):
+        assert cred.scanner_key("http://h:8228/v2", "a") != cred.scanner_key("https://h:8228/v2", "a")
+        assert cred.credential_from_envelope(envelope(payload=data(base_url="http://anchore.example:8228/v2"))).plaintext is True
+        assert cred.credential_from_envelope(envelope()).plaintext is False
+
+    @pytest.mark.parametrize("url", ["ftp://h/v2", "file:///v2", "https://u:p@h/v2", "http://u:p@h/v2", "https://h/v2?x=1", "https://h/v2#f", "https://h/v2/", "https:///v2", "https://h:99999/v2"])
     def test_refused_forms(self, url):
         with pytest.raises(ValueError):
             cred.canonical_root(url)
