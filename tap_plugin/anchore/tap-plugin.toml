@@ -36,4 +36,4 @@ ABOUT_VULNERABILITY__anchore = "edges/ABOUT_VULNERABILITY__anchore.edge.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "3cd6b7f75c514f742abc5754bf902b575906f5168da6343779dd488cab9414ba"
+sha256 = "4d8bbc92928b72292007b545c6a67ef4248ccc8ec436c66562515bacb3f48f87"
