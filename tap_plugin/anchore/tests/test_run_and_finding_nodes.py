@@ -15,6 +15,7 @@ from tap_grid.models import Entity
 from tap_grid.registry import get_model_class
 from tap_grid.services import create_edge, create_node
 from tap_plugin.anchore.credential import canonical_root, scanner_key
+from tap_plugin.anchore.models.finding import package_key_for
 
 SCANNER_KEY = scanner_key("https://anchore.example:8228/v2", "demo")
 OTHER_ACCOUNT_KEY = scanner_key("https://anchore.example:8228/v2", "other")
@@ -28,8 +29,13 @@ FINDING = {
     "vulnerability_id": "CVE-2024-0001",
     "target_kind": "image",
     "target_key": DIGEST,
-    "package_key": '["openssl-1.1.1","/usr/lib/libssl.so"]',
+    "package": "openssl-1.1.1",
+    "package_path": "/usr/lib/libssl.so",
+    "package_key": package_key_for("openssl-1.1.1", "/usr/lib/libssl.so"),
 }
+
+
+FINDING_KEY = {k: FINDING[k] for k in get_model_class("anchore__anchore_finding").NATURAL_KEY}
 
 
 def _create(type_slug: str, payload: dict):
@@ -55,7 +61,7 @@ class TestScanner:
         assert not create_node("anchore__anchore_scanner", payload).success
 
     def test_a_key_that_disagrees_with_its_columns_is_refused(self):
-        """Codex review of PR 10: independent identity fields could name one account and key another."""
+        """A key naming one account over columns naming another would misattribute every finding under it."""
         assert not create_node("anchore__anchore_scanner", {**SCANNER, "account": "other"}).success
         assert not create_node("anchore__anchore_scanner", {**SCANNER, "scanner_key": OTHER_ACCOUNT_KEY}).success
         assert not create_node("anchore__anchore_scanner", {**SCANNER, "scanner_key": "not json"}).success
@@ -150,16 +156,24 @@ class TestFinding:
         payload = {k: v for k, v in FINDING.items() if k != missing}
         assert not create_node("anchore__anchore_finding", payload).success
 
-    def test_a_package_key_cannot_outgrow_the_fields_it_is_built_from(self):
-        """Grok review of PR 10: package_key was narrower than package plus package_path."""
-        import json
+    def test_a_package_key_is_derived_from_its_two_columns(self):
+        """Two stored copies of one identity cannot disagree: a key that is not the digest of its parts is refused."""
+        assert not create_node("anchore__anchore_finding", {**FINDING, "package_key": package_key_for("other", "/x")}).success
+        assert not create_node("anchore__anchore_finding", {**FINDING, "package_path": "/elsewhere"}).success
 
-        package, path = "p" * 255, "/" + "d" * 1023
-        key = json.dumps([package, path], separators=(",", ":"))
-        assert len(key) <= 1400
-        assert create_node("anchore__anchore_finding", {**FINDING, "package": package, "package_path": path, "package_key": key}).success
-        assert not create_node("anchore__anchore_finding", {**FINDING, "package": "p" * 256}).success
-        assert not create_node("anchore__anchore_finding", {**FINDING, "package_path": "/" + "d" * 1024}).success
+    def test_any_package_value_is_representable(self):
+        """Quotes, backslashes and very long values escape to a far longer JSON text; the digest stays 64 characters."""
+        package, path = '"' * 600, "\\" * 3000 + "é"
+        key = package_key_for(package, path)
+        assert len(key) == 64
+        node = _create("anchore__anchore_finding", {**FINDING, "package": package, "package_path": path, "package_key": key})
+        assert node.package == package and node.package_path == path
+
+    def test_an_unobserved_package_part_stays_null_in_the_key(self):
+        """A null package_path is unobserved, not an empty path: the two derive different keys."""
+        assert package_key_for("p", None) != package_key_for("p", "")
+        payload = {k: v for k, v in FINDING.items() if k != "package_path"}
+        assert create_node("anchore__anchore_finding", {**payload, "package_key": package_key_for("openssl-1.1.1", None)}).success
 
     def test_target_kind_is_image_or_source(self):
         assert not create_node("anchore__anchore_finding", {**FINDING, "target_kind": "host"}).success
@@ -172,12 +186,12 @@ class TestFinding:
         assert "last_seen_run_id" not in get_model_class("anchore__anchore_finding").NATURAL_KEY
         node = _create("anchore__anchore_finding", {**FINDING, "last_seen_run_id": "run-1"})
         model = get_model_class("anchore__anchore_finding")
-        assert model.find_existing(**FINDING).pk == node.pk
+        assert model.find_existing(**FINDING_KEY).pk == node.pk
 
     def test_the_scanner_is_in_the_key(self):
         _create("anchore__anchore_finding", FINDING)
         model = get_model_class("anchore__anchore_finding")
-        assert model.find_existing(**{**FINDING, "scanner_key": OTHER_ACCOUNT_KEY}) is None
+        assert model.find_existing(**{**FINDING_KEY, "scanner_key": OTHER_ACCOUNT_KEY}) is None
 
     def test_edges_to_the_image_and_package(self):
         finding = _create("anchore__anchore_finding", FINDING)

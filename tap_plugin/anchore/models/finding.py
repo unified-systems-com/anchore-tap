@@ -1,7 +1,10 @@
 """Anchore finding — one assertion that a package in an image or source is affected, as Anchore returned it."""
 
+import hashlib
+import json
 from typing import Any, ClassVar
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from tap_grid.models import BaseModel
@@ -10,6 +13,17 @@ _STR_OR_NULL = {"type": ["string", "null"]}
 _BOOL_OR_NULL = {"type": ["boolean", "null"]}
 _LIST_OR_NULL = {"type": ["array", "null"]}
 _STATES = ["current", "resolved"]
+
+
+def package_key_for(package: str | None, package_path: str | None) -> str:
+    """The identity of a package within a target: sha256 of the compact JSON array [package, package_path].
+
+    Both parts are Anchore's values as returned, a null part stays null (unobserved) in the array,
+    and the digest is a fixed 64 characters whatever the parts hold, so a long path or one full of
+    quotes and backslashes never makes a finding unrepresentable or an index row oversized.
+    """
+    document = json.dumps([package, package_path], separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(document.encode("utf-8")).hexdigest()
 _TARGET_KINDS = ["image", "source"]
 
 
@@ -57,7 +71,7 @@ class AnchoreFinding(BaseModel):
         "vulnerability_id": {"type": "string", "minLength": 1},
         "target_kind": {"type": "string", "enum": _TARGET_KINDS},
         "target_key": {"type": "string", "minLength": 1},
-        "package_key": {"type": "string", "minLength": 1, "maxLength": 1400},
+        "package_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "state": {"type": ["string", "null"], "enum": [*_STATES, None]},
         "last_seen_run_id": _STR_OR_NULL,
         "severity": _STR_OR_NULL,
@@ -77,11 +91,11 @@ class AnchoreFinding(BaseModel):
         "feed_group": _STR_OR_NULL,
         "detected_at": _STR_OR_NULL,
         "inherited_from_base": _BOOL_OR_NULL,
-        "package": {"type": ["string", "null"], "maxLength": 255},
+        "package": _STR_OR_NULL,
         "package_name": _STR_OR_NULL,
         "package_version": _STR_OR_NULL,
         "package_type": _STR_OR_NULL,
-        "package_path": {"type": ["string", "null"], "maxLength": 1024},
+        "package_path": _STR_OR_NULL,
         "purl": _STR_OR_NULL,
         "package_cpe": _STR_OR_NULL,
         "package_cpe23": _STR_OR_NULL,
@@ -99,15 +113,14 @@ class AnchoreFinding(BaseModel):
     ]
 
     # Identity (the columns the natural key rests on; none is computed in a collector's id recipe).
-    # package_key is a JSON array of package (255) and package_path (1024): at most 1288 characters,
-    # inside its own 1400, so a value past either width is refused and never truncated into a collision.
+    # package_key is derived from the package and package_path columns below (see validate()).
     scanner_key = models.CharField(max_length=1024, db_index=True, help_text="The scanner (instance and account) that asserted it.")
     vulnerability_id = models.CharField(max_length=255, db_index=True, help_text="The identifier Anchore reports in its vuln field, exactly as returned; no alias is resolved.")
     target_kind = models.CharField(max_length=16, help_text="What was scanned: image or source.")
     target_key = models.CharField(max_length=512, help_text="The target within the scanner: the image digest, or the source's Anchore id.")
     package_key = models.CharField(
-        max_length=1400,
-        help_text="The package within the target: a compact JSON array of Anchore's package and package_path as returned (null for an absent part).",
+        max_length=64,
+        help_text="The package within the target: sha256 of the JSON array [package, package_path] as returned (package_key_for); validated against those two columns.",
     )
 
     # State, kept apart from what Anchore said.
@@ -132,11 +145,11 @@ class AnchoreFinding(BaseModel):
     feed_group = models.CharField(max_length=128, null=True, blank=True, default=None, help_text="The Anchore feed group, as returned.")
     detected_at = models.CharField(max_length=64, null=True, blank=True, default=None, help_text="When Anchore says it detected the match, as the string returned.")
     inherited_from_base = models.BooleanField(null=True, blank=True, default=None, help_text="Anchore's inherited_from_base flag; null when not carried.")
-    package = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package field as returned.")
+    package = models.TextField(null=True, blank=True, default=None, help_text="Anchore's package field as returned; part of the package identity.")
     package_name = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package_name as returned.")
     package_version = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package_version as returned.")
     package_type = models.CharField(max_length=64, null=True, blank=True, default=None, help_text="Anchore's package_type as returned.")
-    package_path = models.CharField(max_length=1024, null=True, blank=True, default=None, help_text="Anchore's package_path as returned.")
+    package_path = models.TextField(null=True, blank=True, default=None, help_text="Anchore's package_path as returned; part of the package identity.")
     purl = models.CharField(max_length=1024, null=True, blank=True, default=None, help_text="Anchore's purl for the package as returned.")
     package_cpe = models.CharField(max_length=512, null=True, blank=True, default=None, help_text="Anchore's package_cpe as returned.")
     package_cpe23 = models.CharField(max_length=512, null=True, blank=True, default=None, help_text="Anchore's package_cpe23 as returned.")
@@ -144,6 +157,11 @@ class AnchoreFinding(BaseModel):
 
     class Meta(BaseModel.Meta):
         db_table = "anchore_finding"
+
+    def validate(self) -> None:
+        """The package identity must be the one its two columns derive (two stored copies cannot drift)."""
+        if self.package_key != package_key_for(self.package, self.package_path):
+            raise ValidationError({"package_key": ["package_key must be package_key_for(package, package_path)"]})
 
     def get_name(self) -> str:
         if not self.vulnerability_id:
