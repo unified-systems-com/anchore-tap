@@ -49,7 +49,8 @@ class SelfTestResult:
 def _operation(extract: dict[str, Any], path: str) -> dict[str, Any] | None:
     for op in extract.get("operations", []):
         if op.get("method") == "get" and op.get("path") == path:
-            return op
+            # The reducer keeps an operation the document no longer has, marked present: false.
+            return None if op.get("present") is False else op
     return None
 
 
