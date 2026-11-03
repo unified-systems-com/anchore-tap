@@ -116,10 +116,19 @@ def _feed_syncs(feeds: Any) -> tuple[tuple[str, str | None, datetime | None], ..
 
 
 def run_probe(client: ReadOnlyClient, account: str, sources: tuple[Source, ...] | None = None, *, qualified: str = "anchore") -> ProbeResult:
-    """Read the probe sources in manifest order. Raises ProbeError unless ``/account`` names ``account``."""
+    """Read the account source first, then the other probe sources in manifest order.
+
+    Raises ProbeError, with no other request made, unless the sources hold exactly one ``account``
+    source; and raises it before reading anything else unless ``/account`` names ``account``.
+    """
     probe_sources = [s for s in (sources if sources is not None else shipped_manifest()) if s.scope == "probe"]
+    # The gate is enforced here and not left to the order or content of the list it is handed: exactly
+    # one account source must exist, and it is read before any other request is made.
+    accounts = [s for s in probe_sources if s.id == "account"]
+    if len(accounts) != 1:
+        raise ProbeError(f"{qualified}: the probe needs exactly one account source, found {len(accounts)}; nothing was read or written")
     outcomes: dict[str, Outcome] = {}
-    for source in probe_sources:
+    for source in [accounts[0], *(s for s in probe_sources if s.id != "account")]:
         outcome = _read(client, source)
         outcomes[source.id] = outcome
         if source.id == "account":

@@ -103,6 +103,49 @@ class TestTheAccountGate:
             assert "someone-else" not in message and ACCOUNT not in message.replace("anchore:", "") and SECRET not in message
 
 
+class TestTheGateDoesNotDependOnTheListItIsGiven:
+    """Both review seats: the gate fired only if the list happened to contain the account source first."""
+
+    def _client(self):
+        transport = FakeTransport(routes())
+        credential = cred.credential_from_envelope(envelope())
+        return cl.ReadOnlyClient(credential, transport=transport, sleep=lambda s: None), transport
+
+    def _sources(self, *ids):
+        by_id = {s.id: s for s in shipped_manifest()}
+        return tuple(by_id[i] for i in ids)
+
+    def test_a_list_without_the_account_source_is_refused_before_any_request(self):
+        client, transport = self._client()
+        with pytest.raises(ProbeError, match="exactly one account source"):
+            run_probe(client, ACCOUNT, self._sources("status", "system"))
+        assert transport.calls == []
+
+    def test_an_empty_list_is_refused_before_any_request(self):
+        client, transport = self._client()
+        with pytest.raises(ProbeError, match="exactly one account source"):
+            run_probe(client, ACCOUNT, ())
+        assert transport.calls == []
+
+    def test_a_duplicated_account_source_is_refused_before_any_request(self):
+        client, transport = self._client()
+        with pytest.raises(ProbeError, match="exactly one account source"):
+            run_probe(client, ACCOUNT, self._sources("account", "account"))
+        assert transport.calls == []
+
+    def test_the_account_is_read_first_wherever_it_sits_in_the_list(self):
+        client, transport = self._client()
+        run_probe(client, ACCOUNT, self._sources("status", "system", "feeds", "account"))
+        assert str(transport.calls[0].url).endswith("/account")
+
+    def test_a_mismatch_with_the_account_listed_last_still_stops_before_the_others(self):
+        transport = FakeTransport(routes(**{"/account": response(200, {"name": "someone-else"})}))
+        client = cl.ReadOnlyClient(cred.credential_from_envelope(envelope()), transport=transport, sleep=lambda s: None)
+        with pytest.raises(ProbeError):
+            run_probe(client, ACCOUNT, self._sources("status", "system", "feeds", "account"))
+        assert len(transport.calls) == 1
+
+
 class TestAnOptionalReadThatIsNotAnswered:
     def test_a_refused_status_leaves_the_version_null_and_is_listed(self):
         result, _ = probe(routes(**{"/status": response(403, {})}))
