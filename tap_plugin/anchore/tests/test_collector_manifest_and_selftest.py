@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from tap_plugin.anchore.collectors.anchore_collector.manifest import ManifestError, load_manifest, shipped_manifest
-from tap_plugin.anchore.collectors.anchore_collector.paths import resolve_field, type_of
+from tap_plugin.anchore.collectors.anchore_collector.paths import is_required, resolve_field, type_of
 from tap_plugin.anchore.collectors.anchore_collector.selftest import ERROR, PASS, WARN, compare
 
 CONTRACT = Path(__file__).resolve().parents[1] / "contract"
@@ -198,6 +198,28 @@ class TestSelfTest:
         changed = {"allOf": [{"properties": {"x": {"type": "integer"}}}, {"properties": {"x": {"minLength": 1}}}]}
         assert type_of(resolve_field(base, "x")) != type_of(resolve_field(changed, "x"))
         assert resolve_field(base, "x") == {"allOf": [{"type": "string"}, {"minLength": 1}]}
+
+    def test_a_field_losing_its_required_listing_is_an_error_for_a_needed_field(self):
+        """Keeping the property while dropping it from the object's required list means it may now be absent."""
+        fresh = _fresh()
+        schema = _op(fresh, "/account")["responses"][0]["schema"]
+        assert "name" in schema["required"]
+        schema["required"].remove("name")
+        result = compare(EXTRACT, fresh, SOURCES)
+        assert result.verdict == ERROR
+        assert any("name is no longer guaranteed present" in d.message for d in result.differences)
+
+    def test_a_field_gaining_a_required_listing_passes(self):
+        fresh = _fresh()
+        schema = _op(fresh, "/account")["responses"][0]["schema"]
+        schema["required"] = [*schema["required"], "state"]
+        assert compare(EXTRACT, fresh, SOURCES).verdict == PASS
+
+    def test_requiredness_is_read_through_array_items_and_allof(self):
+        schema = {"properties": {"items": {"type": "array", "items": {"allOf": [{"required": ["id"]}, {"properties": {"id": {"type": "string"}}}]}}}}
+        assert is_required(schema, "items[].id") is True
+        assert is_required({"properties": {"items": {"type": "array", "items": {"properties": {"id": {"type": "string"}}}}}}, "items[].id") is False
+        assert is_required(schema, "items[].nope") is None
 
     def test_a_different_version_is_a_warning(self):
         fresh = _fresh()

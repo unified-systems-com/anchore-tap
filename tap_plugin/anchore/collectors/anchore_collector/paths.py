@@ -56,6 +56,42 @@ def resolve_chain(schema: dict[str, Any], path: str) -> list[dict[str, Any]] | N
     return chain
 
 
+def _required_names(node: dict[str, Any]) -> set[str]:
+    names = {str(n) for n in node.get("required") or []}
+    for member in node.get("allOf") or []:
+        if isinstance(member, dict):
+            names |= _required_names(member)
+    return names
+
+
+def is_required(schema: dict[str, Any], path: str) -> bool | None:
+    """Whether the schema lists the path's last named field as required in its enclosing object.
+
+    None when the path is not there. An object that lists nothing says the field may be absent,
+    which is the fact a reader needs, so False is an answer and not a gap.
+    """
+    node: dict[str, Any] | None = schema
+    holder: dict[str, Any] | None = None
+    last: str | None = None
+    for segment in path.split("."):
+        if node is None:
+            return None
+        name, descend = (segment[:-2], True) if segment.endswith("[]") else (segment, False)
+        if name:
+            holder, last = node, name
+            nxt = _properties(node).get(name)
+            node = nxt if isinstance(nxt, dict) else None
+            if node is None:
+                return None
+        if descend:
+            node = _items(node)
+            if node is None:
+                return None
+    if holder is None or last is None:
+        return None
+    return last in _required_names(holder)
+
+
 def resolve_field(schema: dict[str, Any], path: str) -> dict[str, Any] | None:
     """The schema node at ``path``, or None when the path is not there."""
     chain = resolve_chain(schema, path)
