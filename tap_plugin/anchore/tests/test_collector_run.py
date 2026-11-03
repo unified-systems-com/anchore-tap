@@ -57,8 +57,20 @@ class Instance:
             "/openapi.json": lambda r: response(200, SPEC),
             "/images": lambda r: response(200, {"items": self.images}),
         }
+        self.sboms: dict[tuple[str, str], object] = {}
         for digest in (DIGEST, OTHER):
             self.transport.routes[f"/images/{digest}/vuln/all"] = self._vulns(digest)
+            for fmt in ("native-json", "spdx-json", "cyclonedx-json"):
+                self.transport.routes[f"/images/{digest}/sboms/{fmt}"] = self._sbom(digest, fmt)
+
+    def _sbom(self, digest, fmt):
+        def answer(request):
+            body = self.sboms.get((digest, fmt))
+            if body is None:
+                body = {"bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79", "version": 1, "metadata": {"timestamp": "2026-11-03T10:00:00Z"}, "components": [{"name": "a"}, {"name": "b"}]} if fmt == "cyclonedx-json" else {"format": fmt, "digest": digest}
+            return response(200, body)
+
+        return answer
 
     def _vulns(self, digest):
         def answer(request):
@@ -104,7 +116,7 @@ class TestFirstRun:
         assert scanner.scanner_key == KEY and scanner.reported_version == "5.1.0"
         run = AnchoreScanRun.objects.get()
         assert run.scanner_key == KEY and run.selftest_verdict == "pass"
-        assert run.scopes_read == ["source:images", f"image:{DIGEST}"] and run.scopes_not_read == []
+        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 5 and run.scopes_not_read == []
         assert run.status == {"version": "5.1.0", "up": True} and isinstance(run.feeds, list)
         found = findings()
         assert set(found) == {("CVE-2024-0001", DIGEST), ("CVE-2024-0002", DIGEST)}

@@ -12,7 +12,7 @@ description = "Anchore Enterprise vulnerability findings, SBOMs, VEX statements 
 # edge (req-anchore-findings) is a vocabulary reference to review when those edges are added.
 depends_on = [
   { slug = "computing_core", note = "image host (oci-digest realm), package and sbom_document the Anchore nodes link to; the SBOM parser" },
-  { slug = "compliance_core", note = "vocabulary dependency, not an import: ABOUT_VULNERABILITY__anchore names compliance_core__compliance_vulnerability as its target, and writes no compliance_core node" },
+  { slug = "compliance_core", note = "ABOUT_VULNERABILITY__anchore targets compliance_core__compliance_vulnerability; the collector imports that model only to check a vulnerability exists with exactly the finding's identifier before linking, and writes no compliance_core node" },
 ]
 
 # The author's DECLARED crypto posture (req-tap-plugin-manifest-v0-fips; spec-fips.md declare-vs-decide).
