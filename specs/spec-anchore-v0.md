@@ -53,7 +53,7 @@ Six consequences shape v0:
 | req-anchore-connection | [Connection And Credential](#connection-and-credential) | Proposed | One operator-owned secret envelope per Anchore instance and account holds the credential and its connection settings; never fields on a node |
 | req-anchore-client | [The Read-Only Client](#the-read-only-client) | Proposed | A thin `requests` client, GET only, cursor paging, timeouts, backoff, TLS verification on |
 | req-anchore-observe | [The Trial Observation Command](#the-trial-observation-command) | Proposed | A read-only command that records what an instance returns, in a fixed order, locally, so shapes are observed before they are parsed |
-| req-anchore-probe | [Probe And Provenance](#probe-and-provenance) | Proposed | Version, status and feed freshness read first and recorded on the scan run |
+| req-anchore-probe | [Probe And Provenance](#probe-and-provenance) | In Development | Version, status and feed freshness read first and recorded on the scan run |
 | req-anchore-selftest | [Per-Run Schema Self-Test](#per-run-schema-self-test) | In Development | The instance's own spec is checked against the committed extract before any data is read; error, warn or pass |
 | req-anchore-contract-extract | [Contract Extract And Offline Tests](#contract-extract-and-offline-tests) | Proposed | A script-generated extract of the consumed paths and schemas, and tests against it with no network |
 | req-anchore-drift-ci | [Scheduled Drift Check](#scheduled-drift-check) | Proposed | A scheduled workflow compares the vendor's public file with the extract and fails on drift in what we consume |
@@ -160,13 +160,15 @@ An instrument for the first sessions against a real instance, and for any later 
 ----
 RID: `req-anchore-probe`
 
-Status: `Proposed`
+Status: `In Development`
 
 Before reading data, the collector asks the instance what it is and how fresh its data is, and records the answer on the scan run, so a finding can be judged against the data behind it.
 
 #### Implementation
 
 Reads `GET /account` first (documented: it returns the account of the authenticated user, with the configured `x-anchore-account` applied), and the run requires the returned account name to equal the configured `account`; a mismatch, or a failure to read it, ends the run before any scope is read (`req-anchore-probe-4`). Then reads `GET /status`, `GET /system` and `GET /system/feeds` (documented in the OpenAPI file; the hosted service may restrict the admin surface, which is why each is optional). Recorded on the scan run: the base URL host, the reported version, and the feed names with their last-sync times, each `null` when the instance did not answer. A feed older than a configured age records a warning on the run, and findings from it are still written, with the age visible.
+
+**Build state.** The probe is built as a function over the read-only client (`collectors/anchore_collector/probe.py`): it reads the manifest's probe sources in order, stops with no other read when `/account` cannot be read or names a different account, and records each optional read as read or *not read* with a reason (refused, not offered, failed after retries, not JSON), never as empty. The version is taken from `/status` only when it is a string. Feed freshness is computed from each group's `last_sync` (a feed with no groups from `last_full_sync`; both documented, neither observed); a group with no observed sync is neither stale nor fresh. Not yet built: the configured age itself (no envelope setting exists, so no staleness warning is raised until one does), writing the results onto the scan run, and the host of the base URL.
 
 #### Acceptance Criteria
 

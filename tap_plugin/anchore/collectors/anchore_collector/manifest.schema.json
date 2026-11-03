@@ -22,12 +22,12 @@
           "required": {"type": "boolean", "description": "True when the run cannot proceed without this source: its absence, or a changed required field, is an error. False when its absence is recorded as not read and the run continues."},
           "required_fields": {
             "type": "array",
-            "items": {"type": "string", "pattern": "^([a-z_]+)?(\\[\\])?(\\.[a-z_0-9]+(\\[\\])?)*$"},
+            "items": {"type": "string", "minLength": 1, "pattern": "^([a-z_]+)?(\\[\\])?(\\.[a-z_0-9]+(\\[\\])?)*$"},
             "description": "Response fields the parser cannot work without, as dotted paths; [] after a name means the items of that array, and a path may begin with [] for a response that is itself an array. A path missing from, or retyped in, the instance's description is an error."
         },
           "optional_fields": {
             "type": "array",
-            "items": {"type": "string", "pattern": "^([a-z_]+)?(\\[\\])?(\\.[a-z_0-9]+(\\[\\])?)*$"},
+            "items": {"type": "string", "minLength": 1, "pattern": "^([a-z_]+)?(\\[\\])?(\\.[a-z_0-9]+(\\[\\])?)*$"},
             "description": "Response fields the collector stores when present. A path missing from the instance's description is a warning, and the stored value is null, never a default."
           }
         }
