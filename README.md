@@ -10,9 +10,10 @@ exist and are tested against a canned instance. Every field is taken from Anchor
 (2.20.0), not from a recorded response, so expect the first real run to find differences. The spec says no
 requirement reaches `Implemented` before a recorded response replaces its assumptions.
 
-## What it owns
+## What it owns, and will own
 
 - A read-only collector for Anchore's REST API (`/v2`), using `requests`.
+- Built so far: the scanner, scan run and finding nodes, the image documents and the links described below. Still to build: VEX annotations, applications, versions, assets and runtime observations.
 - Anchore-owned nodes (scanner, scan run, finding, VEX annotation, application, version, asset and
   runtime observations) holding Anchore's fields unchanged, linked to the `computing_core` image host,
   package and SBOM nodes they concern, and to the shared vulnerability node when it exists.
