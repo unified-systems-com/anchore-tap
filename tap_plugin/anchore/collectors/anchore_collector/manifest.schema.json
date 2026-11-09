@@ -18,7 +18,7 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "A stable name for the source, used on the scan run to say which source was not read."},
           "path": {"type": "string", "pattern": "^/", "description": "The GET path template, exactly as it appears in the committed extract (consumed.json)."},
-          "scope": {"type": "string", "enum": ["probe", "image"], "description": "probe: read once before any data. image: read per image."},
+          "scope": {"type": "string", "enum": ["probe", "image", "inventory"], "description": "probe: read once before any data. image: read per image. inventory: the runtime inventory, read once per run to decide which images are running."},
           "required": {"type": "boolean", "description": "True when the run cannot proceed without this source: its absence, or a changed required field, is an error. False when its absence is recorded as not read and the run continues."},
           "required_fields": {
             "type": "array",

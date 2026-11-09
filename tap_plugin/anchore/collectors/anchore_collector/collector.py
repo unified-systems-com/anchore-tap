@@ -8,10 +8,15 @@ committed contract does not describe, is skipped with nothing written for it; a 
 as returned (req-anchore-findings-3); a finding a successful read of its image no longer reports is
 marked resolved, never deleted, and an image that could not be read leaves its findings untouched.
 
-Not in this slice: the edges from a finding to the host, package, vulnerability and SBOM document
-(they need those nodes resolved on the grid first), SBOM, VEX, application and inventory reads.
+Which images are read is the scope's decision (req-anchore-scope): the run reads Anchore's runtime
+inventory, selects the records that count as running and are in scope, and reads only those images,
+or every listed image when the envelope sets ``running_only`` false. Each selected inventory record
+is written as a runtime image node. An image the scope leaves out is not read and its findings are
+left as they were.
 
-Spec: specs/spec-anchore-v0.md (req-anchore-findings, -probe, -selftest, -states).
+Not in this slice: the ECS link and creation, the Kubernetes objects, VEX and application reads.
+
+Spec: specs/spec-anchore-v0.md (req-anchore-findings, -probe, -selftest, -states, -scope, -inventory).
 """
 
 import json
@@ -24,6 +29,7 @@ from typing import Any, ClassVar
 from tap import secrets_root
 
 from tap_cares.collectors import CeilingExceeded, CollectorBase, run_with_ceiling
+from tap_plugin.anchore import scope as scoping
 from tap_cares.collectors.readiness import CollectorReadinessStatus, CollectorSelfTestResult, check_fail, check_pass
 from tap_plugin.anchore.client import TOTAL_BUDGET_SECONDS, ClientError, ReadOnlyClient, fill
 from tap_plugin.anchore.collectors.anchore_collector import decompose, store
@@ -50,6 +56,9 @@ _SITE_SBOM_NOT_READ = "bf32"
 _SITE_NOT_LINKED = "f422"
 _SITE_HOST_CREATED = "729b"
 _SITE_PLAINTEXT = "684a"
+_SITE_INVENTORY_NOT_READ = "8828"
+_SITE_SCOPE = "8f55"
+_SITE_INVENTORY_UNUSABLE = "a83a"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -58,6 +67,9 @@ READ_CEILING_SECONDS = TOTAL_BUDGET_SECONDS + 30
 FEED_MAX_AGE = timedelta(days=2)
 #: How many dropped values a run record lists by name; the counts are always exact.
 _LISTED = 50
+#: The most pages of ECS containers one run reads. The list has no documented end marker, so a page
+#: that adds nothing new ends it; this is the stop for an instance that never sends one.
+ECS_PAGE_LIMIT = 500
 
 
 class AnchoreCollectorError(Exception):
@@ -83,6 +95,9 @@ class _Scanner:
     hosts: set[str] = field(default_factory=set)
     sbom_refs: dict[str, str] = field(default_factory=dict)
     describes: set[tuple[str, str]] = field(default_factory=set)
+    runtime_images: int = 0
+    #: The scope fields the scan run records (req-anchore-scope-14).
+    run_fields: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -114,10 +129,10 @@ class Failure:
     incompatible: bool = False
 
 
-def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, path: str) -> tuple[Any, Failure | None]:
+def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, path: str, params: dict[str, Any] | None = None) -> tuple[Any, Failure | None]:
     """(body, None) for a read that returned the committed shape, else (None, why). Never raises for what the instance does."""
     try:
-        reply = _bounded(lambda: client.get(path), source.id)
+        reply = _bounded(lambda: client.get(path, params=params), source.id)
     except CeilingExceeded:
         return None, Failure("the read did not finish within its ceiling")
     except ClientError as exc:
@@ -183,7 +198,7 @@ class AnchoreCollector(CollectorBase):
             shared.absorb(scanner)
             nodes.extend(scanner.nodes)
             edges.extend(scanner.edges)
-            written.append(f"{credential.qualified}: {scanner.findings} finding(s), {scanner.resolved} resolved, {scanner.images_read} image(s) read, {scanner.images_not_read} not read, {scanner.sboms} SBOM(s) recorded")
+            written.append(f"{credential.qualified}: {scanner.findings} finding(s), {scanner.resolved} resolved, {scanner.images_read} image(s) read, {scanner.images_not_read} not read, {scanner.sboms} SBOM(s) recorded, {scanner.runtime_images} running image record(s)")
         if not written:
             self.summary = "No scanner could be read; nothing was written."
             self.record_error(_SITE_NOTHING_WRITTEN, "NOTHING_WRITTEN", self.summary)
@@ -228,7 +243,7 @@ class AnchoreCollector(CollectorBase):
             for stale in probe.stale_feeds(started, FEED_MAX_AGE):
                 self.record_warn(_SITE_STALE_FEEDS, "FEED_STALE", f"{credential.qualified}: feed {stale['feed']} group {stale['group']} last synced {stale['age_seconds']} seconds ago.", message_data=stale)
 
-            self._images(client, credential, extract, by_id, run_id, out, read, not_read, tag, shared)
+            self._images(client, credential, extract, by_id, run_id, out, read, not_read, tag, shared, started)
 
         finished = datetime.now(UTC)
         scanner_ref, run_ref = f"{tag}:scanner", f"{tag}:run"
@@ -239,11 +254,12 @@ class AnchoreCollector(CollectorBase):
             status=probe.body("status") if isinstance(probe.body("status"), dict) else None,
             feeds=probe.body("feeds") if isinstance(probe.body("feeds"), list) else None,
             selftest_verdict=gate.verdict, selftest_detail=gate.detail, scopes_read=read, scopes_not_read=not_read,
+            **out.run_fields,
         ))
         out.edges.append(decompose.edge(f"{tag}:run-of", "RUN_OF_SCANNER__anchore", run_ref, scanner_ref))
         return out
 
-    def _images(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], run_id: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], tag: str, shared: _Shared) -> None:
+    def _images(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], run_id: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], tag: str, shared: _Shared, started: datetime) -> None:
         # The image list is a required source (req-anchore-selftest-6): without it there is no walk, so the
         # scanner stops with nothing written rather than recording a run that read nothing.
         listed, failure = _get_json(client, extract, by_id["images"], by_id["images"].path)
@@ -268,7 +284,28 @@ class AnchoreCollector(CollectorBase):
                     chosen[digest] = image
             else:
                 chosen[digest] = image
-        for index, (digest, image) in enumerate(chosen.items()):
+        # Which of the listed images this run reads (req-anchore-scope). The rest are out of scope:
+        # not read, not listed one by one, and their findings left exactly as they were.
+        settings = credential.settings
+        inventory_read: list[str] = []
+        running = self._running(client, credential, extract, by_id, started, inventory_read, not_read)
+        plan = scoping.images_to_read(chosen, running.digests if running is not None else None, settings)
+        if not settings.running_only and settings.has_running_selector:
+            not_read.append({"scope": "scope:selectors-do-not-narrow-images", "reason": "running_only is false, so the account and context selectors did not narrow the images read; they decide only which inventory records are written"})
+        for absent in plan.not_in_anchore:
+            # Running, by the inventory, and unknown to the image list: no findings, which is not none found.
+            not_read.append({"scope": f"image:{absent}", "reason": "reported running by the inventory but not in Anchore's image list (scope:not-in-anchore)"})
+        out.run_fields = {
+            "settings": settings.as_recorded(),
+            "images_listed": plan.images_listed,
+            "images_selected": plan.images_selected,
+            "images_out_of_scope": plan.images_out_of_scope,
+            "images_not_in_anchore": len(plan.not_in_anchore),
+            "inventory_stale": running.stale if running is not None else None,
+        }
+        self.record_info(_SITE_SCOPE, "SCOPE_APPLIED", f"{credential.qualified}: {plan.images_selected} of {plan.images_listed} listed image(s) selected, {plan.images_out_of_scope} out of scope, {len(plan.not_in_anchore)} running digest(s) not in the image list.", message_data=out.run_fields)
+        for index, digest in enumerate(plan.digests):
+            image = chosen[digest]
             scope = f"image:{digest}"
             if image.get("analysis_status") != "analyzed":
                 not_read.append({"scope": scope, "reason": f"analysis_status is {image.get('analysis_status')!r}"})
@@ -310,6 +347,8 @@ class AnchoreCollector(CollectorBase):
             skipped += result.skipped_entries
             duplicates += result.duplicate_entries
             uncarried |= result.uncarried_keys
+        self._runtime_images(credential, running, out, tag, shared)
+        read.extend(inventory_read)
         for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
             # An image that left the list is not a cleared image: its findings stay as they were, and say so.
             not_read.append({"scope": f"image:{gone}", "reason": "no longer in the image list; its findings were left as they were"})
@@ -329,6 +368,73 @@ class AnchoreCollector(CollectorBase):
             self.record_warn(_SITE_FIELDS_DROPPED, "FIELDS_DROPPED", f"{credential.qualified}: {len(dropped)} value(s) could not be held by the model; each is listed with what became of it.", message_data={"count": len(dropped), "values": dropped[:_LISTED]})
         if skipped or duplicates or uncarried:
             self.record_warn(_SITE_ENTRIES, "ENTRIES_NOT_STORED", f"{credential.qualified}: {skipped} entry(ies) named no usable identifier, {duplicates} repeated an assertion already held, and {len(uncarried)} response key(s) are not stored.", message_data={"skipped": skipped, "duplicates": duplicates, "uncarried_keys": sorted(uncarried)})
+
+    def _running(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], started: datetime, read: list[str], not_read: list[dict[str, str]]) -> scoping.Running | None:
+        """The running selection from Anchore's inventory, or None when the inventory could not be read.
+
+        None selects nothing (req-anchore-scope-9): a run never widens to every image because a selector
+        failed. The ECS container list is a second read; without it no ECS container is in the selection
+        and the account selector matches nothing, and the run says so.
+        """
+        source = by_id["inventories"]
+        body, failure = _get_json(client, extract, source, source.path)
+        items = body.get("items") if isinstance(body, dict) else None
+        if failure is not None or not isinstance(items, list):
+            why = failure.reason if failure is not None else "the response held no item list"
+            not_read.append({"scope": "source:inventories", "reason": f"{why}; no running image was selected"})
+            self.record_warn(_SITE_INVENTORY_NOT_READ, "INVENTORY_NOT_READ", f"{credential.qualified}: the runtime inventory was not read ({why}); no running image was selected.")
+            return None
+        read.append("source:inventories")
+        containers, why = self._ecs_containers(client, extract, by_id["ecs_containers"])
+        if why is None:
+            read.append("source:ecs-containers")
+        else:
+            not_read.append({"scope": "source:ecs-containers", "reason": f"{why}; no ECS container was selected"})
+            self.record_warn(_SITE_INVENTORY_NOT_READ, "ECS_CONTAINERS_NOT_READ", f"{credential.qualified}: the ECS container list was not read ({why}); no ECS container was selected.")
+        return scoping.select_running([item for item in items if isinstance(item, dict)], containers, credential.settings, started)
+
+    def _ecs_containers(self, client: ReadOnlyClient, extract: dict[str, Any], source: Source) -> tuple[list[dict[str, Any]], str | None]:
+        """(every ECS container record, None), or ([], why) when the list could not be read whole.
+
+        The list is paged by a required ``page`` and documents no end marker, so reading stops at the
+        first page that adds no record not already seen: an empty page, or an instance that ignores
+        the parameter and repeats itself. A partial list is no list: a selector fails closed.
+        """
+        seen: dict[str, dict[str, Any]] = {}
+        for page in range(1, ECS_PAGE_LIMIT + 1):
+            body, failure = _get_json(client, extract, source, source.path, params={"page": page})
+            rows = body.get("containers") if isinstance(body, dict) else None
+            if failure is not None or not isinstance(rows, list):
+                return [], f"page {page}: {failure.reason if failure is not None else 'the response held no container list'}"
+            before = len(seen)
+            for row in rows:
+                if isinstance(row, dict):
+                    seen.setdefault(json.dumps(row, sort_keys=True, default=str), row)
+            if len(seen) == before:
+                return list(seen.values()), None
+        return [], f"the list did not end within {ECS_PAGE_LIMIT} pages"
+
+    def _runtime_images(self, credential: Credential, running: scoping.Running | None, out: _Scanner, tag: str, shared: _Shared) -> None:
+        """One runtime image node per selected inventory item, joined to its image host (req-anchore-scope-12).
+
+        Written whatever else the run creates. The host is staged with only its digest where neither the
+        batch nor the grid has one, for an image Anchore never analyzed as for any other.
+        """
+        if running is None:
+            return
+        unusable = 0
+        for number, item in enumerate(running.items):
+            if not decompose.runtime_image_identified(item):
+                unusable += 1
+                continue
+            digest = item["image_digest"]
+            self._ensure_host(out, digest, f"{tag}:rh{number}", shared)
+            ref = f"{tag}:ri{number}"
+            out.nodes.append(decompose.runtime_image_node(ref, credential.scanner_key, item))
+            out.edges.append(decompose.edge_to_key(f"{ref}:image", "OBSERVES_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
+            out.runtime_images += 1
+        if unusable or running.no_digest or running.ecs_without_inventory:
+            self.record_warn(_SITE_INVENTORY_UNUSABLE, "INVENTORY_RECORDS_NOT_USED", f"{credential.qualified}: {running.no_digest} inventory record(s) named no usable digest, {unusable} named no usable type or context, and {running.ecs_without_inventory} ECS container(s) had no recent inventory item to take a last-seen time from.", message_data={"no_digest": running.no_digest, "unusable": unusable, "ecs_without_inventory": running.ecs_without_inventory})
 
     def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared) -> None:
         """Stage the image host for a digest only where neither this batch nor the grid has one.

@@ -60,6 +60,12 @@ class AnchoreScanRun(BaseModel):
         "selftest_detail": _OBJECT_OR_NULL,
         "scopes_read": _SCOPES_READ,
         "scopes_not_read": _SCOPES_NOT_READ,
+        "settings": _OBJECT_OR_NULL,
+        "images_listed": {"type": ["integer", "null"], "minimum": 0},
+        "images_selected": {"type": ["integer", "null"], "minimum": 0},
+        "images_out_of_scope": {"type": ["integer", "null"], "minimum": 0},
+        "images_not_in_anchore": {"type": ["integer", "null"], "minimum": 0},
+        "inventory_stale": {"type": ["integer", "null"], "minimum": 0},
     }
     FIELD_VALIDATION_SCHEMA: ClassVar[dict[str, Any]] = {
         name: {"validation": "jsonschema", "schema": schema}
@@ -92,6 +98,14 @@ class AnchoreScanRun(BaseModel):
     scopes_not_read = models.JSONField(
         null=True, blank=True, default=None, help_text="Scopes this run could not read, each with the reason; [] when none were missed, null when unobserved."
     )
+    settings = models.JSONField(
+        null=True, blank=True, default=None, help_text="The scope and create settings this run used, as configured (req-anchore-scope-14); never a credential. Null when unobserved."
+    )
+    images_listed = models.IntegerField(null=True, blank=True, default=None, help_text="Images in Anchore's list for the account in this run; null when the run did not get that far.")
+    images_selected = models.IntegerField(null=True, blank=True, default=None, help_text="Digests the scope selected for reading in this run; null when the run did not get that far.")
+    images_out_of_scope = models.IntegerField(null=True, blank=True, default=None, help_text="Listed images the scope left out in this run; their findings were not touched; null when the run did not get that far.")
+    images_not_in_anchore = models.IntegerField(null=True, blank=True, default=None, help_text="Selected running digests Anchore's image list does not hold; null when the run did not get that far.")
+    inventory_stale = models.IntegerField(null=True, blank=True, default=None, help_text="Inventory records older than the freshness window, or with no last_seen; null when the run did not get that far.")
 
     class Meta(BaseModel.Meta):
         db_table = "anchore_scan_run"
