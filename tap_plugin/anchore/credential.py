@@ -24,6 +24,8 @@ from requests.auth import HTTPBasicAuth
 from tap.runtime_secrets import RuntimeSecretError, SecretEnvelope, load_secret_envelope
 from tap.secret_naming import SECRET_EXAMPLE_SUFFIX, SECRET_SUFFIX
 
+from tap_plugin.anchore.scope import Settings
+
 SCOPE = "anchore"
 KIND = "anchore_api_credential"
 SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "anchore_api_credential.schema.json"
@@ -122,6 +124,7 @@ class Credential:
     ca_bundle: str | None
     annotation_allowlist: tuple[str, ...]
     scanner_key: str
+    settings: Settings
     auth: Auth = field(repr=False)
 
     @property
@@ -233,6 +236,7 @@ def credential_from_envelope(envelope: SecretEnvelope) -> Credential:
         ca_bundle=data.get("ca_bundle"),
         annotation_allowlist=tuple(data.get("annotation_allowlist", ())),
         scanner_key=scanner_key(root, data["account"]),
+        settings=Settings.from_data(data),
         auth=auth,
     )
 
