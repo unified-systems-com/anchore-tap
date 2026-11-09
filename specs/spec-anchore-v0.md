@@ -330,7 +330,7 @@ Which images the collector reads, and which of Anchore's runtime records it turn
 
 Every other setting is optional. A list setting that is absent is not used. An empty list is refused by the schema, so "select nothing" cannot be configured by accident, and so is an unknown key.
 
-**What counts as running.** Anchore keeps an inventory record for up to 120 days after its agent last reported it, so presence in the inventory is not evidence of running. A record counts as running when its `last_seen` is within `inventory_max_age_hours` of the run's start. A record with no `last_seen`, or an older one, is not running: it selects nothing, creates nothing, and is counted on the run. Anchore's ECS container records carry no `last_seen` of their own, so an ECS container takes the `last_seen` of the `/inventories` item with the same context and image digest.
+**What counts as running.** Anchore keeps an inventory record for up to 120 days after its agent last reported it, so presence in the inventory is not evidence of running. A record counts as running when its `last_seen` is within `inventory_max_age_hours` of the run's start. A record with no `last_seen`, or an older one, is not running: it selects nothing, creates nothing, and is counted on the run. Anchore's ECS container records carry no `last_seen` of their own, so an ECS container takes the `last_seen` of the `/inventories` item with the same context and image digest. That is the nearest evidence there is, and it is weaker than it looks: a context and a digest do not identify a container. Where two containers in one context run the same image, one recent sighting of the image makes both count as running, including one Anchore still lists but that has stopped. Whether `/ecs-containers` keeps records of stopped containers at all is unobserved (open question 3).
 
 **The running selectors.** `GET /inventories` lists images in use, each with an inventory type, a context, a digest and `last_seen`.
 
@@ -392,7 +392,7 @@ With `running_only` false the account and context settings do not narrow the ima
 
 1. Should findings of an image that has left the scope be marked in some way, so "current" does not also mean "no longer being read"?
 2. Is 24 hours the right default for `inventory_max_age_hours`? It depends on how often Anchore's agents report, which is unobserved.
-3. Does every ECS container in `/ecs-containers` have a matching `/inventories` item to take `last_seen` from? If not, those containers can never count as running.
+3. Does every ECS container in `/ecs-containers` have a matching `/inventories` item to take `last_seen` from? If not, those containers can never count as running. And does `/ecs-containers` keep records of containers that have stopped? If it does, a stopped container shares its freshness with any running container of the same image in its context, and a container-specific signal is needed before `create.ecs` can be trusted there.
 
 ### Findings And Vulnerabilities
 ----
@@ -578,6 +578,7 @@ Anchore's runtime inventory describes things other plugins collect from the sour
 | An ECS node whose values match what Anchore reported long ago and no longer match AWS. | Anchore created it, never updates it, and no AWS collector runs for that account. | 2 | `unified-systems-com/tap#1172` |
 | A container the AWS collector retired is live again as a new node with a new id. | Anchore saw it within `inventory_max_age_hours` and could not see the tombstone. | 5 | `unified-systems-com/tap#1170`, `unified-systems-com/aws-core-tap#211` |
 | Tags on a task or service that were there after Anchore's run are gone after the AWS collector's. | The AWS collector's write replaces the whole tag map; a tag only Anchore reported is discarded. | 3 | `unified-systems-com/tap#1171` |
+| A stopped ECS container created as a node although Anchore had not seen that container recently. | Freshness is borrowed from the inventory item for the container's context and image, and another container of the same image in that context was seen recently (`req-anchore-scope-4`). | 5 | open question 3 of `req-anchore-scope` |
 | An ECS node with a field history showing this plugin's batch after the AWS collector's. | The read-then-write race: Anchore replaced a node the provider created in between. | 1 | `unified-systems-com/tap#1071` |
 
 A node's field history and provenance say which collector wrote each value and when; that is where to look first. Turning `create.ecs` off stops new cases and repairs none.
