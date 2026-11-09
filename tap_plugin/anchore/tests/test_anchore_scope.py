@@ -162,6 +162,15 @@ class TestSelectRunning:
         namespace = scope.select_running(inventory, [], settings(context_prefixes=("prod-east/payments",)), NOW)
         assert namespace.digests == {D1}
 
+    def test_a_prefix_has_no_boundary_unless_it_ends_with_one(self):
+        inventory = [item("prod-east/payments", D1), item("prod-east/payments-archive", D2), item("prod-eastern/payments", D3)]
+        loose = scope.select_running(inventory, [], settings(context_prefixes=("prod-east/payments",)), NOW)
+        assert loose.digests == {D1, D2}
+        cluster = scope.select_running(inventory, [], settings(context_prefixes=("prod-east/",)), NOW)
+        assert cluster.digests == {D1, D2}
+        assert scope.passes_repository(image(D1, "registry", "team/application"), ("registry/team/app",))
+        assert not scope.passes_repository(image(D1, "registry", "team/application"), ("registry/team/app/",))
+
     def test_account_is_read_from_the_container_arn_not_the_context(self):
         inventory = [item("ctx-a", D1, kind="ecs"), item("ctx-b", D2, kind="ecs")]
         containers = [container("123456789012", "ctx-a", D1), container("999999999999", "ctx-b", D2)]

@@ -59,13 +59,13 @@ Six consequences shape v0:
 | req-anchore-drift-ci | [Scheduled Drift Check](#scheduled-drift-check) | Proposed | A scheduled workflow compares the vendor's public file with the extract and fails on drift in what we consume |
 | req-anchore-states | [Three States And Resolution](#three-states-and-resolution) | Proposed | Not read is never clean; null is unobserved; a run resolves only what it read |
 | req-anchore-scope-walk | [The Scope Walk](#the-scope-walk) | Proposed | Images, sources and application versions walked with GET calls; what is read at each |
-| req-anchore-scope | [Collection Scope](#collection-scope) | Proposed | Settings that narrow the image walk to what Anchore's inventory reports as running, by AWS account, context prefix and repository prefix, and say which runtime records become nodes; the operator must state running-only or everything; out of scope is never clean |
+| req-anchore-scope | [Collection Scope](#collection-scope) | In Development | Settings that narrow the image walk to what Anchore's inventory reports as running, by AWS account, context prefix and repository prefix, and say which runtime records become nodes; the operator must state running-only or everything; out of scope is never clean |
 | req-anchore-findings | [Findings And Vulnerabilities](#findings-and-vulnerabilities) | In Development | Anchore-owned scanner, scan-run and finding nodes holding Anchore's fields as returned, keyed by what they assert and linked to the shared vulnerability |
 | req-anchore-sbom | [SBOMs](#sboms) | In Development | Three formats stored as documents; CycloneDX parsed into packages under the source-authenticated outcome |
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
 | req-anchore-vex | [VEX Annotations](#vex-annotations) | Proposed | One annotation type for image and application-version scope, with edges to its scope and its subject |
 | req-anchore-policy-result | [Policy Results](#policy-results) | Proposed | Version-level policy status and counts stored on the application version |
-| req-anchore-inventory | [Runtime Inventory: Images In Use](#runtime-inventory-images-in-use) | Proposed | The flat list of images in use, per context, with when each was last seen |
+| req-anchore-inventory | [Runtime Inventory: Images In Use](#runtime-inventory-images-in-use) | In Development | The flat list of images in use, per context, with when each was last seen |
 | req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | Proposed | Cluster, namespace, node, pod and container written into `computing_core`'s Kubernetes types when `create.kubernetes` is on, joined to the image host |
 | req-anchore-shared | [Shared Nodes With Provider Collectors](#shared-nodes-with-provider-collectors) | Proposed | The provider collector wins. Anchore never writes an existing provider-owned node; by default it only links, and with `create.ecs` it creates the ECS nodes the grid lacks |
 | req-anchore-inventory-ecs | [Runtime Inventory: ECS](#runtime-inventory-ecs) | Proposed | Container joined to `aws_core`'s ECS container by ARN and to the image host; tasks, services and absent nodes written only with `create.ecs` |
@@ -308,7 +308,7 @@ The vendor's `/query/*` reads and the account-wide listings that return the same
 ----
 RID: `req-anchore-scope`
 
-Status: `Proposed`
+Status: `In Development`
 
 Which images the collector reads, and which of Anchore's runtime records it turns into nodes. An Anchore account can hold far more images than are deployed, and the per-image reads (vulnerabilities, three SBOM formats) are where a run's volume comes from. The scope narrows the walk to what is running, where the operator says, and to named repositories. What is running is taken from Anchore's own runtime inventory, not derived from the grid: a container that starts between two runs of another collector would be missed, and no AWS collector sees inside an EKS cluster. Each source reports what it has seen, and the grid is where the reports meet (ruled 2026-11-09, maintainer; this replaces the grid-driven selector an earlier draft of this requirement had).
 
@@ -334,12 +334,12 @@ Every other setting is optional. A list setting that is absent is not used. An e
 
 **The running selectors.** `GET /inventories` lists images in use, each with an inventory type, a context, a digest and `last_seen`.
 
-- `context_prefixes` keeps the items whose `context` begins with a listed prefix, compared as written. Anchore documents a Kubernetes context as the cluster name, a slash, and the namespace, so `prod-east/` selects one cluster and `prod-east/payments` one namespace.
+- `context_prefixes` keeps the items whose `context` begins with a listed prefix, compared as written. A prefix has no notion of a boundary: `prod-east/payments` also matches `prod-east/payments-archive`. End a prefix with the separator to stop at one (`prod-east/payments/` cannot match a context, since a context ends at the namespace, so name the cluster with its slash, `prod-east/`, or accept the namespaces that share the prefix). Anchore documents a Kubernetes context as the cluster name, a slash, and the namespace, so `prod-east/` selects one cluster and `prod-east/payments` one namespace.
 - `aws_account_ids` keeps ECS containers whose ARN names a listed account. It reads `GET /ecs-containers` and takes the account from the container's `arn`, the fifth colon-separated field of every ECS ARN. It does not depend on what an ECS inventory context looks like, which the vendor's file does not say.
 
 The two are a union. With neither set, every running record is selected. An item with no digest selects nothing and is counted.
 
-**The repository filter.** Anchore's image record carries, per tag, a `registry` and a `repo`. An image passes when, for at least one of its tags, the registry, a slash, and the repo begin with a listed prefix, compared as written. A prefix of `123456789012.dkr.ecr.us-gov-west-1.amazonaws.com/platform/` passes every repository under that path in that registry. With no prefixes set, every image passes.
+**The repository filter.** Anchore's image record carries, per tag, a `registry` and a `repo`. An image passes when, for at least one of its tags, the registry, a slash, and the repo begin with a listed prefix, compared as written. A prefix of `123456789012.dkr.ecr.us-gov-west-1.amazonaws.com/platform/` passes every repository under that path in that registry. As with contexts, a prefix without a trailing slash also passes lookalikes: `registry/team/app` passes `registry/team/application`. With no prefixes set, every image passes.
 
 **How they combine.**
 
@@ -365,6 +365,8 @@ With `running_only` false the account and context settings do not narrow the ima
 | `images_out_of_scope` | listed images the scope left out |
 | `images_not_in_anchore` | selected digests Anchore does not hold |
 | `inventory_stale` | inventory records older than `inventory_max_age_hours`, or with no `last_seen` |
+
+**Build state.** Built, against a canned instance and the vendor's file only: the settings in the envelope schema (strict; `running_only` required); `tap_plugin/anchore/scope.py`, which decides what counts as running, what is in scope and which images a run reads; the collector's inventory and ECS-container reads and the narrowed image walk; the `anchore_runtime_image` node and `OBSERVES_IMAGE__anchore`; and the settings and counts on the scan run. Not built: anything `create.kubernetes` or `create.ecs` would write, and the ECS link; both settings are read and recorded and change nothing yet. No field here has met a real Anchore.
 
 **A consequence to know.** A finding is resolved only when its image is read again and no longer reports it. An image that stops running leaves the scope, is no longer read, and keeps its findings as `current`. The scan run's recorded settings are what tell a reader those findings are no longer being refreshed (open question 1).
 
@@ -526,7 +528,7 @@ From `GET /apps/{app_id}/versions/{version_id}/policy/status` and the policy-fin
 ----
 RID: `req-anchore-inventory`
 
-Status: `Proposed`
+Status: `In Development`
 
 Anchore's runtime inventory says which images are running, and where. Two Anchore agents (one for Kubernetes, one for ECS) report running containers to Anchore on a schedule, and Anchore keeps what was last reported and expires the rest: by default 120 days after an agent last reported it, or by overwrite per cluster and namespace. This requirement reads the flat list of images in use.
 
@@ -593,7 +595,7 @@ A node's field history and provenance say which collector wrote each value and w
 | req-anchore-shared-2 | Link When Found | Proposed | A record whose provider-owned node exists gets this plugin's edge to that node and changes nothing on it. | |
 | req-anchore-shared-3 | Unresolved Is Counted | Proposed | With `create.ecs` false, a record whose provider-owned node does not exist is counted on the run as unresolved and does not fail it. | |
 | req-anchore-shared-4 | Optional Dependency | Proposed | `depends_on` names `aws_core` as optional; without it the ECS join and ECS creation are recorded as not read, with the reason. | |
-| req-anchore-shared-5 | Creation Is Opt-In And Absent At Lookup | Proposed | With `create.ecs` true, a selected ECS container whose node the lookup does not find is created with only the fields Anchore reported; one it finds is linked and not written. The lookup and the write are not atomic, and a test states the interleaving in which this plugin's write replaces a node the provider created in between. | Supersedes the earlier gate on tap capabilities, by the maintainer's ruling. `unified-systems-com/tap#1071`. |
+| req-anchore-shared-5 | Creation Is Opt-In And Absent At Lookup | Proposed | With `create.ecs` true, a selected ECS container whose node the lookup does not find is created with the fields Anchore reported and the two this section derives from its ARN (the placeholder name of rule 4 and the dimensions of rule 8), and no others; one it finds is linked and not written. The lookup and the write are not atomic, and a test states the interleaving in which this plugin's write replaces a node the provider created in between. | Supersedes the earlier gate on tap capabilities, by the maintainer's ruling. `unified-systems-com/tap#1071`. |
 | req-anchore-shared-12 | Only Well-Formed, Consistent ARNs | Proposed | A node is created only from an ECS ARN of the right resource kind whose partition, region and account match the selected container's, and, where `aws_account_ids` is set, whose account is listed; any other record creates nothing and is counted. | Anchore's records are second-hand; a created node looks provider-collected. |
 | req-anchore-shared-11 | Only Ancestors Of Selected Containers | Proposed | A task, service or cluster is created only when a selected ECS container leads to it by ARN (`task_arn`, then `service_arn` and `cluster_arn`); no other record from `/ecs-tasks` or `/ecs-services` creates a node. | |
 | req-anchore-shared-6 | Created Nodes Are Not Updated | Proposed | A node this plugin created in an earlier run is treated as existing: linked, never rewritten. | `unified-systems-com/tap#1172`. |
