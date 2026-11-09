@@ -4,12 +4,17 @@ The scanner reads are of this plugin's own nodes; the host and vulnerability rea
 checks on two shared types (computing_core's image host, compliance_core's vulnerability), which
 this plugin links to and never rewrites. All go through the models' default manager, which excludes
 tombstoned rows and is guarded to a bound actor (the collector task binds one).
+
+The ECS container read is of a type this plugin does not import: aws_core is an optional
+dependency (req-anchore-shared-4), so its model is taken from the registry by name, and its
+absence is an answer, not an error.
 """
 
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.host import Host
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
+from tap_grid.registry import get_model_class
 from tap_plugin.anchore.models.finding import AnchoreFinding
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 
@@ -58,3 +63,23 @@ def sbom_document_exists(content_digest: str) -> bool:
     is the same node; this plugin links to it and never rewrites it.
     """
     return SbomDocument.objects.filter(content_digest=content_digest).exists()
+
+
+#: The aws_core type an Anchore ECS container record is joined to, and the field its ARN is in.
+ECS_CONTAINER_TYPE = "aws_core__aws_ecs_container"
+ECS_CONTAINER_KEY = "container_arn"
+
+
+def ecs_containers_on_grid(arns: set[str]) -> set[str] | None:
+    """Which of these ARNs name a live aws_core ECS container on the grid; None when aws_core is not installed.
+
+    An existence check only: the plugin links to a container it finds and writes no field of it
+    (req-anchore-shared-1).
+    """
+    try:
+        model = get_model_class(ECS_CONTAINER_TYPE)
+    except KeyError:
+        return None
+    if not arns:
+        return set()
+    return set(model.objects.filter(**{f"{ECS_CONTAINER_KEY}__in": arns}).values_list(ECS_CONTAINER_KEY, flat=True))
