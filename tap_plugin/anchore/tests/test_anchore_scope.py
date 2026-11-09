@@ -35,15 +35,25 @@ def image(digest: str, registry: str = "docker.io", repo: str = "library/nginx")
     return {"image_digest": digest, "image_detail": [{"registry": registry, "repo": repo, "tag": "1"}]}
 
 
-def settings(**over) -> scope.Settings:
-    return scope.Settings(**over)
+def settings(running_only: bool = True, **over) -> scope.Settings:
+    return scope.Settings(running_only=running_only, **over)
 
 
 class TestSettings:
-    def test_defaults_with_no_settings(self):
+    def test_running_only_must_be_stated(self):
+        for payload in ({}, {"scope": {}}, {"scope": {"context_prefixes": ["prod/"]}}):
+            without = {k: v for k, v in data().items() if k != "scope"} | payload
+            with pytest.raises(cred.CredentialError):
+                cred.credential_from_envelope(envelope(payload=without))
+
+    def test_true_and_false_are_both_accepted_and_kept(self):
+        for choice in (True, False):
+            got = cred.credential_from_envelope(envelope(payload=data(scope={"running_only": choice}))).settings
+            assert got.running_only is choice
+
+    def test_the_other_settings_default(self):
         got = cred.credential_from_envelope(envelope()).settings
-        assert got == scope.Settings()
-        assert got.running_only is True
+        assert got == scope.Settings(running_only=True)
         assert got.create_kubernetes is True
         assert got.create_ecs is False
         assert got.inventory_max_age_hours == 24
@@ -67,13 +77,13 @@ class TestSettings:
     @pytest.mark.parametrize(
         "over",
         [
-            {"scope": {"aws_account_ids": []}},
-            {"scope": {"context_prefixes": []}},
-            {"scope": {"repository_prefixes": []}},
-            {"scope": {"aws_account_ids": ["12345"]}},
-            {"scope": {"aws_account_ids": ["12345678901a"]}},
-            {"scope": {"context_prefixes": [""]}},
-            {"scope": {"kubernetes_cluster_names": ["prod"]}},
+            {"scope": {"running_only": True, "aws_account_ids": []}},
+            {"scope": {"running_only": True, "context_prefixes": []}},
+            {"scope": {"running_only": True, "repository_prefixes": []}},
+            {"scope": {"running_only": True, "aws_account_ids": ["12345"]}},
+            {"scope": {"running_only": True, "aws_account_ids": ["12345678901a"]}},
+            {"scope": {"running_only": True, "context_prefixes": [""]}},
+            {"scope": {"running_only": True, "kubernetes_cluster_names": ["prod"]}},
             {"scope": {"running_only": "yes"}},
             {"inventory_max_age_hours": 0},
             {"inventory_max_age_hours": 1.5},
@@ -86,7 +96,7 @@ class TestSettings:
             cred.credential_from_envelope(envelope(payload=data(**over)))
 
     def test_the_recorded_form_holds_every_setting_and_no_credential(self):
-        payload = data(scope={"context_prefixes": ["prod/"]})
+        payload = data(scope={"running_only": True, "context_prefixes": ["prod/"]})
         credential = cred.credential_from_envelope(envelope(payload=payload))
         recorded = credential.settings.as_recorded()
         assert recorded["scope"]["context_prefixes"] == ["prod/"]
@@ -240,10 +250,10 @@ class TestImagesToRead:
         assert got.images_out_of_scope == 3
 
     def test_all_images_mode_reads_what_passes_the_repository_filter(self):
-        everything = scope.images_to_read(self.LISTED, None, settings(running_only=False))
+        everything = scope.images_to_read(self.LISTED, None, settings(False))
         assert everything.digests == [D1, D2, D3]
         assert everything.not_in_anchore == []
-        ecr_only = scope.images_to_read(self.LISTED, {D3}, settings(running_only=False, repository_prefixes=(f"{ECR}/",)))
+        ecr_only = scope.images_to_read(self.LISTED, {D3}, settings(False, repository_prefixes=(f"{ECR}/",)))
         assert ecr_only.digests == [D1, D2]
         assert ecr_only.images_out_of_scope == 1
 

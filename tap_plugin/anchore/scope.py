@@ -22,11 +22,12 @@ DEFAULT_MAX_AGE_HOURS = 24
 class Settings:
     """The operator's scope and creation settings, with the defaults of ``req-anchore-scope``.
 
-    A list setting that is empty here was absent from the envelope: the schema refuses an empty
-    list, so "configured to select nothing" cannot reach this class.
+    ``running_only`` has no default: the envelope must state it (req-anchore-scope-1). A list
+    setting that is empty here was absent from the envelope: the schema refuses an empty list, so
+    "configured to select nothing" cannot reach this class.
     """
 
-    running_only: bool = True
+    running_only: bool
     aws_account_ids: tuple[str, ...] = ()
     context_prefixes: tuple[str, ...] = ()
     repository_prefixes: tuple[str, ...] = ()
@@ -36,13 +37,16 @@ class Settings:
 
     @classmethod
     def from_data(cls, data: Mapping[str, Any]) -> Settings:
-        """Build from an envelope's validated ``data``. Absent keys take the defaults."""
+        """Build from an envelope's validated ``data``. Absent optional keys take the defaults.
+
+        Raises KeyError when ``scope.running_only`` is missing; the schema refuses that envelope first.
+        """
         # WORKAROUND(unified-systems-com/tap#907): these settings live in the credential envelope
         # because tap has no per-run collector configuration yet.
-        scope = data.get("scope") or {}
+        scope = data["scope"]
         create = data.get("create") or {}
         return cls(
-            running_only=scope.get("running_only", True),
+            running_only=scope["running_only"],
             aws_account_ids=tuple(scope.get("aws_account_ids", ())),
             context_prefixes=tuple(scope.get("context_prefixes", ())),
             repository_prefixes=tuple(scope.get("repository_prefixes", ())),

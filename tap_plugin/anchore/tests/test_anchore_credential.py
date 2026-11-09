@@ -13,7 +13,7 @@ SECRET = "pw-not-a-real-secret-value"
 
 
 def data(scheme: str = "basic", **over):
-    base = {"base_url": "https://anchore.example:8228/v2", "account": "acct", "scheme": scheme}
+    base = {"base_url": "https://anchore.example:8228/v2", "account": "acct", "scheme": scheme, "scope": {"running_only": True}}
     if scheme == "basic":
         base.update(username="reader", password=SECRET)
     elif scheme == "api_key":
