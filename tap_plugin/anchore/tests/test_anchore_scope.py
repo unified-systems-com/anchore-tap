@@ -144,8 +144,10 @@ class TestFresh:
         assert scope.is_fresh("2026-11-09T11:30:00", NOW, 1)
         assert scope.is_fresh("2026-11-09T11:30:00.123456+00:00", NOW, 1)
 
-    def test_a_time_ahead_of_ours_is_running(self):
-        assert scope.is_fresh(ago(-2), NOW, 1)
+    def test_a_clock_a_little_ahead_is_running_and_one_far_ahead_is_not(self):
+        assert scope.is_fresh(ago(-0.5), NOW, 1)
+        assert not scope.is_fresh(ago(-2), NOW, 1)
+        assert not scope.is_fresh("2099-01-01T00:00:00Z", NOW, 24)
 
 
 class TestSelectRunning:

@@ -102,11 +102,13 @@ def is_fresh(last_seen: Any, now: datetime, max_age_hours: int) -> bool:
     """Whether a record was seen recently enough to count as running (req-anchore-scope-4).
 
     Anchore keeps a record for up to 120 days after its agent last reported it, so presence is
-    not evidence of running. No ``last_seen``, or one that cannot be read, is not fresh. A
-    ``last_seen`` in the future (a clock ahead of ours) is fresh.
+    not evidence of running. No ``last_seen``, or one that cannot be read, is not fresh. The
+    window is applied on both sides of ``now``: a ``last_seen`` a little ahead of ours is a clock
+    that runs fast and is fresh, but one further ahead than the window is not evidence of
+    anything, and would otherwise count as running for as long as its date stays in the future.
     """
     seen = parse_time(last_seen)
-    return seen is not None and now - seen <= timedelta(hours=max_age_hours)
+    return seen is not None and abs(now - seen) <= timedelta(hours=max_age_hours)
 
 
 def _starts_with_any(value: Any, prefixes: Iterable[str]) -> bool:
