@@ -22,7 +22,9 @@ from django.db import models as dj_models
 from tap_plugin.computing_core.models.host import Host
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
+from tap_plugin.anchore import scope
 from tap_plugin.anchore.models.finding import AnchoreFinding, package_key_for
+from tap_plugin.anchore.models.runtime_image import AnchoreRuntimeImage
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.models.scanner import AnchoreScanner
 
@@ -117,6 +119,38 @@ def host_node(ref: str, digest: str) -> dict[str, Any]:
 
 def host_key(digest: str) -> dict[str, str]:
     return {"realm": IMAGE_REALM, "stable_id": digest}
+
+
+#: The longest inventory type and context the runtime image node can hold.
+MAX_INVENTORY_TYPE = 32
+MAX_CONTEXT = 1024
+_MAX_IMAGE_TAG = 2048
+
+
+def runtime_image_identified(item: Any) -> bool:
+    """Whether an inventory item names the inventory type and context a runtime image node is keyed by."""
+    kind, context = item.get("inventory_type"), item.get("context")
+    return isinstance(kind, str) and 0 < len(kind) <= MAX_INVENTORY_TYPE and isinstance(context, str) and 0 < len(context) <= MAX_CONTEXT
+
+
+def runtime_image_node(ref: str, scanner_key: str, item: Any) -> dict[str, Any]:
+    """Anchore's observation that an image was in use in a context (req-anchore-inventory, req-anchore-scope-12).
+
+    The item must be identified (:func:`runtime_image_identified`) and carry a sha256 digest. A tag
+    or a time the response did not carry, or that the model cannot hold, is null (req-anchore-states-2).
+    """
+    tag = item.get("image_tag")
+    fields: dict[str, Any] = {
+        "scanner_key": scanner_key,
+        "inventory_type": item["inventory_type"],
+        "context": item["context"],
+        "image_digest": item["image_digest"],
+        "image_tag": tag if isinstance(tag, str) and len(tag) <= _MAX_IMAGE_TAG else None,
+    }
+    for name in ("created_at", "last_updated", "last_seen"):
+        seen = scope.parse_time(item.get(name))
+        fields[name] = seen.isoformat() if seen is not None else None
+    return envelope(ref, AnchoreRuntimeImage, f"{fields['image_tag'] or fields['image_digest']} in {fields['context']}", fields)
 
 
 def _no_constant(name: str) -> Any:

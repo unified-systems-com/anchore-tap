@@ -218,28 +218,26 @@ class ImagesToRead:
 
 
 def images_to_read(
-    listed: Iterable[Mapping[str, Any]],
+    listed: Mapping[str, Mapping[str, Any]],
     running_digests: Iterable[str] | None,
     settings: Settings,
 ) -> ImagesToRead:
     """Combine the running selection with the repository filter (req-anchore-scope-3).
 
-    ``running_digests`` is None when the running selection could not be read: with
-    ``running_only`` that selects nothing (req-anchore-scope-9), never everything.
+    ``listed`` is Anchore's image list by digest, one record per digest, in list order; the
+    digests are returned in that order. ``running_digests`` is None when the running selection
+    could not be read: with ``running_only`` that selects nothing (req-anchore-scope-9), never
+    everything.
     """
     out = ImagesToRead()
-    by_digest: dict[str, Mapping[str, Any]] = {}
-    for image in listed:
-        digest = _digest(image.get("image_digest"))
-        if digest is not None:
-            by_digest.setdefault(digest, image)
+    by_digest = listed
     out.images_listed = len(by_digest)
     if settings.running_only:
-        wanted = sorted(set(running_digests or ()))
-        out.not_in_anchore = [digest for digest in wanted if digest not in by_digest]
-        candidates = [digest for digest in wanted if digest in by_digest]
+        wanted = set(running_digests or ())
+        out.not_in_anchore = sorted(digest for digest in wanted if digest not in by_digest)
+        candidates = [digest for digest in by_digest if digest in wanted]
     else:
-        candidates = sorted(by_digest)
+        candidates = list(by_digest)
     out.digests = [digest for digest in candidates if passes_repository(by_digest[digest], settings.repository_prefixes)]
     out.images_selected = len(out.digests)
     out.images_out_of_scope = out.images_listed - out.images_selected

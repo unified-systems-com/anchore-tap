@@ -52,7 +52,7 @@ class TestSettings:
             assert got.running_only is choice
 
     def test_the_other_settings_default(self):
-        got = cred.credential_from_envelope(envelope()).settings
+        got = cred.credential_from_envelope(envelope(payload=data(scope={"running_only": True}))).settings
         assert got == scope.Settings(running_only=True)
         assert got.create_kubernetes is True
         assert got.create_ecs is False
@@ -226,7 +226,7 @@ class TestRepositoryFilter:
 
 
 class TestImagesToRead:
-    LISTED = [image(D1, ECR, "platform/api"), image(D2, ECR, "data/etl"), image(D3)]
+    LISTED = {D1: image(D1, ECR, "platform/api"), D2: image(D2, ECR, "data/etl"), D3: image(D3)}
 
     def test_running_only_reads_the_running_selection(self):
         got = scope.images_to_read(self.LISTED, {D1, D3}, settings())
@@ -257,7 +257,11 @@ class TestImagesToRead:
         assert ecr_only.digests == [D1, D2]
         assert ecr_only.images_out_of_scope == 1
 
-    def test_an_image_listed_twice_is_one_image(self):
-        got = scope.images_to_read([image(D1), image(D1), {"image_digest": "bad"}], {D1}, settings())
-        assert got.images_listed == 1
-        assert got.digests == [D1]
+    def test_the_list_order_is_kept(self):
+        listed = {D3: image(D3), D1: image(D1), D2: image(D2)}
+        assert scope.images_to_read(listed, {D1, D2, D3}, settings()).digests == [D3, D1, D2]
+        assert scope.images_to_read(listed, None, settings(False)).digests == [D3, D1, D2]
+
+    def test_a_listed_digest_of_any_form_is_read_in_all_images_mode(self):
+        got = scope.images_to_read({"md5:abc": {"image_digest": "md5:abc"}}, None, settings(False))
+        assert got.digests == ["md5:abc"]

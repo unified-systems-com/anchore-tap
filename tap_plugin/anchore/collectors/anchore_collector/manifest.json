@@ -1,5 +1,5 @@
 {
-  "description": "The reads the Anchore collector makes in this slice: the probe (account, status, system, feeds) and, per image, the image list, the vulnerabilities and the three SBOM formats. Every path is in the committed extract. The vendor file describes each SBOM body as a string, which is not what an instance returns, so those bodies are stored by the digest of their exact bytes and checked only for being JSON, never against that schema. Not yet covered: VEX, source, application-version and inventory reads, which later slices add. Field lists are spec-derived from the OpenAPI file (2.20.0) and not yet observed on a real instance.",
+  "description": "The reads the Anchore collector makes in this slice: the probe (account, status, system, feeds) and, per image, the image list, the vulnerabilities and the three SBOM formats. Every path is in the committed extract. The vendor file describes each SBOM body as a string, which is not what an instance returns, so those bodies are stored by the digest of their exact bytes and checked only for being JSON, never against that schema. The inventory reads (the images in use and the ECS containers) decide which images a run reads (req-anchore-scope). Not yet covered: VEX, source, application-version, ECS task and service, and Kubernetes object reads, which later slices add. Field lists are spec-derived from the OpenAPI file (2.20.0) and not yet observed on a real instance.",
   "sources": [
     {
       "id": "account",
@@ -113,6 +113,36 @@
       "required": false,
       "required_fields": [],
       "optional_fields": []
+    },
+    {
+      "id": "inventories",
+      "path": "/inventories",
+      "scope": "inventory",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "items[].inventory_type",
+        "items[].context",
+        "items[].image_tag",
+        "items[].image_digest",
+        "items[].created_at",
+        "items[].last_updated",
+        "items[].last_seen"
+      ]
+    },
+    {
+      "id": "ecs_containers",
+      "path": "/ecs-containers",
+      "scope": "inventory",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "containers[].arn",
+        "containers[].task_arn",
+        "containers[].context",
+        "containers[].image_tag",
+        "containers[].image_digest"
+      ]
     }
   ]
 }

@@ -48,6 +48,9 @@ class Instance:
         self.images = images if images is not None else [{"image_digest": DIGEST, "analysis_status": "analyzed"}]
         self.account = account
         self.failing: set[str] = set()
+        #: The runtime inventory, empty unless a test fills it; and the ECS containers, served on page 1.
+        self.inventory: list = []
+        self.ecs: list = []
         self.transport = FakeTransport(default=None)
         self.transport.routes = {
             "/account": lambda r: response(200, {"name": self.account, "type": "user"}),
@@ -56,6 +59,8 @@ class Instance:
             "/system/feeds": lambda r: response(200, [{"dataset_name": "vulnerabilities", "enabled": True, "groups": [{"name": "debian:11", "last_sync": "2026-11-03T00:00:00Z"}]}]),
             "/openapi.json": lambda r: response(200, SPEC),
             "/images": lambda r: response(200, {"items": self.images}),
+            "/inventories": lambda r: response(200, {"items": self.inventory}),
+            "/ecs-containers": lambda r: response(200, {"containers": self.ecs if "page=1" in str(r.url) else []}),
         }
         self.sboms: dict[tuple[str, str], object] = {}
         for digest in (DIGEST, OTHER):
@@ -116,7 +121,8 @@ class TestFirstRun:
         assert scanner.scanner_key == KEY and scanner.reported_version == "5.1.0"
         run = AnchoreScanRun.objects.get()
         assert run.scanner_key == KEY and run.selftest_verdict == "pass"
-        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 5 and run.scopes_not_read == []
+        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 7 and run.scopes_not_read == []
+        assert run.scopes_read[-2:] == ["source:inventories", "source:ecs-containers"]
         assert run.status == {"version": "5.1.0", "up": True} and isinstance(run.feeds, list)
         found = findings()
         assert set(found) == {("CVE-2024-0001", DIGEST), ("CVE-2024-0002", DIGEST)}
