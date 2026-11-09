@@ -86,6 +86,8 @@ class TestSettings:
             {"scope": {"running_only": True, "kubernetes_cluster_names": ["prod"]}},
             {"scope": {"running_only": "yes"}},
             {"inventory_max_age_hours": 0},
+            {"inventory_max_age_hours": 8761},
+            {"inventory_max_age_hours": 10**100},
             {"inventory_max_age_hours": 1.5},
             {"create": {"eks": True}},
             {"create": {"ecs": "true"}},
