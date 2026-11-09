@@ -322,7 +322,7 @@ Which images the collector reads, and which of Anchore's runtime records it turn
 | `scope.aws_account_ids` | 12-digit AWS account ids | unset | Running in ECS in one of these accounts. |
 | `scope.context_prefixes` | strings | unset | Running in an inventory context that begins with one of these. |
 | `scope.repository_prefixes` | strings | unset | The image's registry and repository begin with one of these. |
-| `inventory_max_age_hours` | integer, 1 or more | `24` | How recently Anchore must have seen an inventory record for it to count as running. |
+| `inventory_max_age_hours` | integer, 1 to 8760 | `24` | How recently Anchore must have seen an inventory record for it to count as running. |
 | `create.kubernetes` | boolean | `true` | Write the Kubernetes objects Anchore reports (`req-anchore-inventory-kubernetes`). |
 | `create.ecs` | boolean | `false` | Write `aws_core` ECS nodes the grid does not have yet (`req-anchore-shared`). |
 
@@ -375,7 +375,7 @@ With `running_only` false the account and context settings do not narrow the ima
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
 | req-anchore-scope-1 | Running Only Must Be Stated | Proposed | An envelope without `scope.running_only` fails validation and its instance is not read; with it `true` and no selector the collector reads the images of every running record; with it `false` it reads every image on the instance that passes the repository filter. | No default, by the maintainer's ruling. An envelope from before this requirement needs the setting added. |
-| req-anchore-scope-2 | Strict Settings | Proposed | The schema refuses an unknown key, an empty list, an account id that is not 12 digits, an empty string, and an `inventory_max_age_hours` below 1. | |
+| req-anchore-scope-2 | Strict Settings | Proposed | The schema refuses an unknown key, an empty list, an account id that is not 12 digits, an empty string, and an `inventory_max_age_hours` below 1 or above 8760 (one year). | |
 | req-anchore-scope-3 | The Switch | Proposed | With `running_only` true, only running records select images; with it false, every listed image that passes the repository filter is read, and if an account or context selector is also set the run records that those selectors did not narrow the images read. | |
 | req-anchore-scope-4 | Running Means Seen Recently | Proposed | An inventory record selects and creates only when its `last_seen` is within `inventory_max_age_hours` of the run's start; an ECS container takes the `last_seen` of the inventory item with its context and digest; the rest are counted as `inventory_stale`. | Anchore keeps records for up to 120 days. |
 | req-anchore-scope-5 | Context Prefixes | Proposed | `context_prefixes` selects inventory items whose context begins with a listed prefix, compared as written. | The Kubernetes context format is read from Anchore's documentation and not yet observed. |
