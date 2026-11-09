@@ -9,7 +9,7 @@
 | Slug | `anchore` |
 | Display name | TAP Anchore |
 | Description | A read-only collector for Anchore Enterprise (hosted or on-prem) that lands vulnerability findings, SBOMs, VEX statements, policy results and runtime inventory on the grid. |
-| Kind | Leaf plugin: consumes `computing_core` (package, sbom_document, host as the image host, and the SBOM parser) and links to the shared `compliance_core` vulnerability when one exists, without writing to `compliance_core`; read by VDR plugins (`fedramp_20x_vdr`, `stackarmor_vdr`) through the grid, with no import, once a later layer maps Anchore's nodes to theirs. |
+| Kind | Leaf plugin: consumes `computing_core` (package, sbom_document, host as the image host, the Kubernetes vocabulary and the SBOM parser) and `aws_core` (ECS and EKS nodes, created only when absent, `req-anchore-shared`) and links to the shared `compliance_core` vulnerability when one exists, without writing to `compliance_core`; read by VDR plugins (`fedramp_20x_vdr`, `stackarmor_vdr`) through the grid, with no import, once a later layer maps Anchore's nodes to theirs. |
 
 **Default dimensions.**
 
@@ -65,8 +65,9 @@ Six consequences shape v0:
 | req-anchore-vex | [VEX Annotations](#vex-annotations) | Proposed | One annotation type for image and application-version scope, with edges to its scope and its subject |
 | req-anchore-policy-result | [Policy Results](#policy-results) | Proposed | Version-level policy status and counts stored on the application version |
 | req-anchore-inventory | [Runtime Inventory: Images In Use](#runtime-inventory-images-in-use) | Proposed | The flat list of images in use, per context, with when each was last seen |
-| req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | Proposed | Namespace, node, pod and container as Anchore reports them, joined to the image host |
-| req-anchore-inventory-ecs | [Runtime Inventory: ECS](#runtime-inventory-ecs) | Proposed | Container, joined to `aws_core`'s ECS container by ARN and to the image host; tasks and services not read in v0 |
+| req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | Proposed | Namespace, node, pod and container written into the vocabulary `computing_core` gains, joined to the image host |
+| req-anchore-shared | [Shared Nodes With Provider Collectors](#shared-nodes-with-provider-collectors) | Proposed | Anchore creates a node another plugin owns only when absent and never writes one that exists; the provider wins, either run order |
+| req-anchore-inventory-ecs | [Runtime Inventory: ECS](#runtime-inventory-ecs) | Proposed | Container, task and service placed on `aws_core`'s nodes by ARN, created only if absent, joined to the image host |
 | req-anchore-differences-ledger | [Hosted And On-Prem Differences](#hosted-and-on-prem-differences) | Proposed | The ledger of known and unknown differences, refreshed from the trial and from each run's self-test |
 | req-anchore-fips | [FIPS Posture](#fips-posture) | Proposed | `requests` over system OpenSSL, no native binary, declared in `[fips]` |
 | req-anchore-nongoals | [v0 Non-Goals](#v0-non-goals) | Proposed | What this plugin deliberately does not do, and who owns it |
@@ -270,7 +271,7 @@ A scope the instance does not offer, a call that failed after its retries, an im
 | req-anchore-states-2 | Null Is Unobserved | Proposed | A field the response did not carry is `null`, never `""`, `0` or `false`. | |
 | req-anchore-states-3 | Resolve Only What Was Read | Proposed | A finding resolves only when its target was read successfully by the same scanner and that scanner no longer reports it. | |
 | req-anchore-states-4 | Unanalysed Image Has No Verdict | Proposed | An image in Anchore's inventory with no analysis results is recorded as having no verdict, not as clean. | Anchore's ECS page states such images "never gain vulnerability or policy results". |
-| req-anchore-states-5 | Withdrawn, Not Deleted | Proposed | An Anchore-specific node that is an assertion or a structure (an annotation, an application, version or asset) and that a successful read of its scope no longer reports is marked `withdrawn` with the run that saw it gone, never deleted; a scope not read leaves its nodes `current` as they were. A consumer must not treat a withdrawn node as asserted. Runtime-observation nodes (`anchore_runtime_image` and the `anchore_k8s_*` types) are the exception and are never withdrawn: their absence can be expiry or an agent outage, so they carry `last_seen` only (`req-anchore-inventory-3`). | Absence is evidence only for the scope that was read. |
+| req-anchore-states-5 | Withdrawn, Not Deleted | Proposed | An Anchore-specific node that is an assertion or a structure (an annotation, an application, version or asset) and that a successful read of its scope no longer reports is marked `withdrawn` with the run that saw it gone, never deleted; a scope not read leaves its nodes `current` as they were. A consumer must not treat a withdrawn node as asserted. Runtime-observation nodes (`anchore_runtime_image`) are the exception and are never withdrawn: their absence can be expiry or an agent outage, so they carry `last_seen` only (`req-anchore-inventory-3`). | Absence is evidence only for the scope that was read. |
 
 ### The Scope Walk
 ----
@@ -449,27 +450,67 @@ Anchore's runtime inventory says which images are running, and where. Two Anchor
 | req-anchore-inventory-3 | Absence Is Not Stopped | Proposed | A record missing from a later read is not deleted or marked stopped; `last_seen` is the only age signal. | |
 | req-anchore-inventory-4 | Joined To The Image Host | Proposed | Each node has `OBSERVES_IMAGE__anchore` to the `oci-digest` image host. | |
 
+### Shared Nodes With Provider Collectors
+----
+RID: `req-anchore-shared`
+
+Status: `Proposed`
+
+Anchore's runtime inventory describes things other plugins already collect from the source of record: `aws_core` collects ECS clusters, services, tasks and containers and EKS clusters from AWS itself, and `computing_core` owns the container-level vocabulary and (once built, `req-anchore-inventory-kubernetes`) Kubernetes's. Anchore sees a subset of what those collectors see, as its agents last reported it. This requirement makes the two cooperate on one node per thing, whichever runs first, and says who wins when they disagree: **the provider collector wins**, because it reads the source of record. This plugin depends on `aws_core` for the entity types and fields named below and on nothing else from it (`req-tap-test-hermetic-plugins`: a deliberate, narrow dependency stated here, not a reach-in).
+
+#### Implementation
+
+- **Same identity.** A shared node is addressed by the owner's natural key, the exact string Anchore reports (an ECS container, task or service ARN; an EKS cluster ARN). One ARN is one node however it was first created.
+- **Create only.** This plugin writes a shared node only when the grid has none (it reads first, as it does for the image host). A node that exists is never written by this plugin, by any field: a replace re-sends the model's required fields (an ECS container needs a `name`, which would replace the owner's) and replaces an object field (`tags`, `configuration`) whole, so a write to an existing node would overwrite the owner's values. The spine itself can be left alone by omitting the envelope's `name` and `dimensions` (`_sync_spine_for_replaced_nodes` skips what the envelope does not carry), so it is not the blocker. Create-only is the interim until tap offers a fill-only write (`req-anchore-shared`, open question 1). On an existing node the plugin draws its own edges and nothing else.
+- **Only what it read.** A created node carries the fields Anchore reported and omits every other field, so those fields stay untouched (no FLIP entry: unknown unknown). A field Anchore read and found empty is written as the empty value or null, never omitted (`req-grid-node-observation`). This plugin never sends `configuration`, which Anchore cannot see.
+- **Tags, when created.** Where Anchore reports tags (ECS tasks and services; Kubernetes labels), they are written on creation only. When the provider collector next runs it replaces them, so the provider's tags win; a tag Anchore reports that the provider does not is dropped by that replacement and is still held on the Anchore node.
+- **Name.** The spine `name` of a created node is the owner's own derivation where Anchore reports the inputs to it. Where it does not (an ECS container, which Anchore reports with an ARN and no name), the name is the last path segment of the ARN, provisional: the provider's run replaces it.
+- **Dimensions.** A shared node this plugin creates carries the owner's `DEFAULT_DIMENSIONS` and never `anchore.area`.
+- **Provenance.** Creation is recorded against this plugin's batch like any write; nothing here claims a field the provider later fills.
+- **Time.** The three-level time update is unfinished, so for now: `last_seen` from Anchore is stored as reported on the Anchore runtime node and is source evidence; the run's own start time is collection time and lives on the scan run; nothing is written to stand for grid time. A single judgement is recorded here so it can be changed in one place when the model lands.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-shared-1 | Provider Wins | Proposed | A shared node is created by this plugin only when absent and is never written once it exists; this plugin then draws its edges and nothing else. | Required fields and whole-object replace are why; see the Implementation text. |
+| req-anchore-shared-2 | Order Independent | Proposed | Running this plugin's collector before or after the provider's, on the same ARN, leaves one node whose field values are the provider's. | The test runs both orders. |
+| req-anchore-shared-3 | Only What Was Read | Proposed | A created shared node omits every field Anchore did not report, and never sends `configuration`. | |
+| req-anchore-shared-4 | Tags On Creation Only | Proposed | Tags are written on a created shared node and never on an existing one. | |
+| req-anchore-shared-5 | Provisional Name | Proposed | A created ECS container's name is the last segment of its ARN until the provider's run replaces it. | Verify against `aws_core`'s own name derivation before building. |
+| req-anchore-shared-6 | Owner's Dimensions | Proposed | A created shared node carries the owner's default dimensions, not Anchore's. | |
+| req-anchore-shared-7 | Dependency Declared | Proposed | `depends_on` names `aws_core` with the entity types and fields consumed. | |
+| req-anchore-shared-8 | Time Is Provisional | Proposed | Anchore's `last_seen` is stored as reported; no grid-time value is invented. | Revisit with the three-level time update. |
+
+#### Open questions
+
+1. Filling a field the provider left null (an ECS container's `image_digest` when ECS did not report one) needs a fill-only write in tap (write a field only where the stored value is null or absent, and an object only where keys are absent), or a GRIFT patch mode. With either, `-1` loosens to field-level. Whether tap builds it is undecided.
+2. Does `aws_core`'s reconcile or falsifier end an ECS container it did not collect but Anchore created, because the account's listing does not show it?
+3. When both plugins draw the same relationship (`RUNS_CONTAINER` from task to container), is the edge one edge or a rejected duplicate? Edge identity and the one-edge-per-batch rule decide it.
+4. Do Anchore's `context` strings carry enough to find an EKS cluster by ARN, or is the join by cluster name and account?
+
 ### Runtime Inventory: Kubernetes
 ----
 RID: `req-anchore-inventory-kubernetes`
 
 Status: `Proposed`
 
-The Kubernetes side of the runtime inventory: the namespaces, nodes, pods and containers the Anchore Kubernetes agent reported, joined to the image each container runs.
+The Kubernetes side of the runtime inventory: the namespaces, nodes, pods and containers the Anchore Kubernetes agent reported, joined to the image each container runs. This is the first time TAP meets Kubernetes, so the vocabulary is built in `computing_core` next to its other container-level nodes and edges, guided by what Anchore needs, and this plugin writes into it under `req-anchore-shared`. Anything specific to EKS is `aws_core`'s.
 
 #### Implementation
 
-Reads `GET /kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods` and `/kubernetes-containers` (documented; each takes a required `page` and an optional `page_size`, default 1000). Four Anchore-specific types, each `anchore.area: runtime`, each keyed by the scanner key and the cluster context together with the uid Anchore reports: `anchore_k8s_namespace` (uid, name, labels, last seen), `anchore_k8s_node` (uid, name, labels, kernel, Kubernetes, kubelet, kube-proxy and container-runtime versions, architecture, operating system, last seen), `anchore_k8s_pod` (id, name, labels, last seen) and `anchore_k8s_container` (id, name, context, image tag, image digest). Edges: `IN_NAMESPACE__anchore` (pod to namespace), `SCHEDULED_ON__anchore` (pod to node), `CONTAINS_CONTAINER__anchore` (pod to container), and `RUNS_IMAGE__computing_core` from the container to the image host (an existing edge with an open source). Kubernetes annotations are not stored by default: they are free-form maps that routinely hold tool configuration (a last-applied manifest, for example) and can carry secrets. An operator setting names the annotation keys to keep, an empty list by default (`req-anchore-inventory-kubernetes-5`); labels are stored. These four types are provisional: they exist because no Kubernetes vocabulary is on the grid, and a neutral one should replace them if it appears. The vendor's schema declares the nodes and pods list responses under a wrapper key named `namespaces`, which looks like a copy of the namespaces response; the real key is unobserved, and the contract tests are where the correction lands.
+Reads `GET /kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods` and `/kubernetes-containers` (documented; each takes a required `page` and an optional `page_size`, default 1000). They carry: namespace (uid, name, labels, annotations, last seen); node (uid, name, labels, annotations, kernel, Kubernetes, kubelet, kube-proxy and container-runtime versions, architecture, operating system, last seen); pod (id, name, labels, annotations, node id, namespace id, last seen); container (id, name, pod id, context, image tag, image digest). The `computing_core` types, keys and edges (a pod in a namespace, scheduled on a node, containing containers, a container running an image through the existing `RUNS_IMAGE`) are specified and released there first; this plugin's reads wait for that release and add nothing here that `computing_core` does not own. Identity is the uid or id Anchore reports within a cluster, never the name. A cluster that is an EKS cluster is joined to the `aws_core` EKS cluster rather than duplicated. Kubernetes annotations are not stored by default: they are free-form maps that routinely hold tool configuration (a last-applied manifest, for example) and can carry secrets. An operator setting names the annotation keys to keep, an empty list by default (`req-anchore-inventory-kubernetes-5`); labels are stored. The vendor's schema declares the nodes and pods list responses under a wrapper key named `namespaces`, which looks like a copy of the namespaces response; the real key is unobserved, and the contract tests are where the correction lands.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-inventory-kubernetes-1 | The Chain | Proposed | A container reaches its pod, its namespace, its node and its image host by the edges above. | |
-| req-anchore-inventory-kubernetes-2 | Identity Is The Reported Uid Within A Cluster | Proposed | Each type is keyed by scanner key, context and the uid or id Anchore reports, never by name. | Names are mutable. |
+| req-anchore-inventory-kubernetes-1 | The Chain | Proposed | A container reaches its pod, its namespace, its node and its image host by `computing_core` edges. | |
+| req-anchore-inventory-kubernetes-2 | Identity Is The Reported Uid Within A Cluster | Proposed | Each node is keyed by cluster context and the uid or id Anchore reports, never by name. | Names are mutable. |
 | req-anchore-inventory-kubernetes-3 | Wrapper Key Observed | Proposed | The parser's wrapper keys for the nodes and pods responses are set from a recorded response, not from the vendor schema. | |
-| req-anchore-inventory-kubernetes-4 | Provisional Types | Proposed | The four types are documented as provisional pending a neutral Kubernetes vocabulary. | |
+| req-anchore-inventory-kubernetes-4 | Vocabulary Lives In computing_core | Proposed | No Kubernetes node or edge type is declared by this plugin; they are released in `computing_core` first. | Replaces the provisional `anchore_k8s_*` types. |
 | req-anchore-inventory-kubernetes-5 | Annotations Only By Allowlist | Proposed | No Kubernetes annotation is stored unless its key is on the operator's allowlist, which is empty by default; labels are stored. | The same setting governs application annotations. |
+| req-anchore-inventory-kubernetes-6 | EKS Joins aws_core | Proposed | A cluster that is an EKS cluster is joined to the `aws_core` EKS cluster by `req-anchore-shared`, not duplicated. | Join key is open (`req-anchore-shared`, open question 4). |
 
 ### Runtime Inventory: ECS
 ----
@@ -477,19 +518,20 @@ RID: `req-anchore-inventory-ecs`
 
 Status: `Proposed`
 
-The ECS side: tasks, services and containers the Anchore ECS agent reported. `aws_core` already collects ECS clusters, services, tasks and containers, so the runtime facts attach to those by ARN instead of duplicating them.
+The ECS side: tasks, services and containers the Anchore ECS agent reported, placed on the same `aws_core` nodes the AWS collector writes, by ARN, under `req-anchore-shared`.
 
 #### Implementation
 
-Reads `GET /ecs-containers` (documented; required `page`, optional `page_size`). There is no cluster list: the cluster is the `cluster_arn` or `context` on those records. For each ECS container Anchore reports (ARN, task ARN, context, image tag, image digest), the plugin looks up the `aws_core` ECS container by ARN and, when found, writes `RUNS_IMAGE__computing_core` from it to the image host. It never creates an `aws_core` node (a vocabulary it does not own); an ARN with no matching node is counted on the run as unresolved, and the observation is kept in `anchore_runtime_image`. `/ecs-tasks` and `/ecs-services` are not read in v0: the `aws_core` task and service nodes carry the same structure, and Anchore's copy adds only its own tags.
+Reads `GET /ecs-containers`, `/ecs-tasks` and `/ecs-services` (documented; each takes a required `page` and an optional `page_size`). There is no cluster list: the cluster is the `cluster_arn` or `context` on those records. A container carries its ARN, task ARN, context, image tag and image digest; a task its ARN, cluster, service, task definition and tags; a service its ARN, cluster and tags. For each, the plugin looks up the `aws_core` node by ARN. If it exists, nothing on it is written; the plugin draws `RUNS_IMAGE__computing_core` from a container to the image host and leaves the rest to the AWS collector. If it does not exist, the plugin creates it with only the fields Anchore reported (tags included) and the same edge, and the AWS collector fills and replaces it when it runs. Either run order gives one node. The image host is written with its digest and kind when the grid has none, for an image Anchore has never analyzed as well as for one it has, and such an image carries no findings and is recorded as having no verdict (`req-anchore-states-4`). The observation also stays in `anchore_runtime_image` (`req-anchore-inventory`), which has no ARN to join on.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-inventory-ecs-1 | Join By ARN | Proposed | An Anchore ECS container is joined to the `aws_core` container with the same ARN, and no `aws_core` node is created by this plugin. | |
-| req-anchore-inventory-ecs-2 | Unresolved Is Counted | Proposed | An ARN with no matching node is counted as unresolved on the run and does not fail it. | |
-| req-anchore-inventory-ecs-3 | Image Edge From The Container | Proposed | A resolved container gets `RUNS_IMAGE__computing_core` to the image host. | |
+| req-anchore-inventory-ecs-1 | Join By ARN | Proposed | An Anchore ECS container, task or service is placed on the `aws_core` node with the same ARN, created only if absent (`req-anchore-shared-1`). | Supersedes "never creates an aws_core node". |
+| req-anchore-inventory-ecs-2 | Unanalysed Image Still Known | Proposed | A running image Anchore never analyzed gets an image host with only what Anchore knows and no findings. | |
+| req-anchore-inventory-ecs-3 | Image Edge From The Container | Proposed | A container gets `RUNS_IMAGE__computing_core` to the image host whether or not this run created the container. | |
+| req-anchore-inventory-ecs-4 | Tasks And Services Read For Tags | Proposed | Task and service tags are read and written on creation only (`req-anchore-shared-4`). | Supersedes the v0 skip of `/ecs-tasks` and `/ecs-services`. |
 
 ### Hosted And On-Prem Differences
 ----
@@ -591,10 +633,6 @@ A design-time catalog, superseded by the manifest once the plugin ships.
 | Asset | `anchore__anchore_asset` | Anchore-specific | A named, typed thing in a version that references an image or an SBOM. |
 | VEX Annotation | `anchore__anchore_vex_annotation` | Anchore-specific | One type for both scopes; a vulnerability status statement. |
 | Runtime Image | `anchore__anchore_runtime_image` | Anchore-specific | An image in use in a context, with its last-seen times. |
-| Kubernetes Namespace | `anchore__anchore_k8s_namespace` | Anchore-specific, provisional | No Kubernetes vocabulary on the grid. |
-| Kubernetes Node | `anchore__anchore_k8s_node` | Anchore-specific, provisional | As above. |
-| Kubernetes Pod | `anchore__anchore_k8s_pod` | Anchore-specific, provisional | As above. |
-| Kubernetes Container | `anchore__anchore_k8s_container` | Anchore-specific, provisional | As above. |
 
 ## Edge types
 
@@ -614,6 +652,3 @@ A design-time catalog, superseded by the manifest once the plugin ships.
 | `ABOUT_VULNERABILITY__anchore` | VEX annotation or finding → vulnerability | none | Links to the shared vulnerability when it exists; never creates or patches it. |
 | `ABOUT_PACKAGE__anchore` | VEX annotation → package | none | Links to the neutral package when scoped. |
 | `OBSERVES_IMAGE__anchore` | runtime image → image host | none | Joins an image in use to the image host. |
-| `IN_NAMESPACE__anchore` | pod → namespace | none | Kubernetes placement. |
-| `SCHEDULED_ON__anchore` | pod → node | none | Kubernetes placement. |
-| `CONTAINS_CONTAINER__anchore` | pod → container | none | A pod holds its containers. |
