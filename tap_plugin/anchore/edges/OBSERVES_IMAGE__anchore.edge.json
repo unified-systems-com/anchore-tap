@@ -1,0 +1,17 @@
+{
+  "slug": "OBSERVES_IMAGE__anchore",
+  "name": "Observes Image",
+  "description": "Anchore's runtime inventory reported this image in use: the runtime image record points at the container image host with the same digest. A reference: the image outlives any one observation of it running.",
+  "sources": [
+    "anchore__anchore_runtime_image"
+  ],
+  "targets": [
+    "computing_core__host"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "runtime"
+  }
+}

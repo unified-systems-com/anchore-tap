@@ -25,6 +25,7 @@ status = "compatible"
 anchore__anchore_scanner = "tap_plugin.anchore.models.scanner.AnchoreScanner"
 anchore__anchore_scan_run = "tap_plugin.anchore.models.scan_run.AnchoreScanRun"
 anchore__anchore_finding = "tap_plugin.anchore.models.finding.AnchoreFinding"
+anchore__anchore_runtime_image = "tap_plugin.anchore.models.runtime_image.AnchoreRuntimeImage"
 
 [edges]
 RUN_OF_SCANNER__anchore = "edges/RUN_OF_SCANNER__anchore.edge.json"
@@ -32,6 +33,7 @@ FOUND_ON_IMAGE__anchore = "edges/FOUND_ON_IMAGE__anchore.edge.json"
 FOUND_IN_PACKAGE__anchore = "edges/FOUND_IN_PACKAGE__anchore.edge.json"
 FOUND_IN_SBOM__anchore = "edges/FOUND_IN_SBOM__anchore.edge.json"
 ABOUT_VULNERABILITY__anchore = "edges/ABOUT_VULNERABILITY__anchore.edge.json"
+OBSERVES_IMAGE__anchore = "edges/OBSERVES_IMAGE__anchore.edge.json"
 
 [[boot.records]]
 name = "ci"
