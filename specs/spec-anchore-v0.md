@@ -9,7 +9,7 @@
 | Slug | `anchore` |
 | Display name | TAP Anchore |
 | Description | A read-only collector for Anchore Enterprise (hosted or on-prem) that lands vulnerability findings, SBOMs, VEX statements, policy results and runtime inventory on the grid. |
-| Kind | Leaf plugin: consumes `computing_core` (package, sbom_document, host as the image host, the Kubernetes vocabulary and the SBOM parser) and, optionally, `aws_core` (ECS containers it links to by ARN and does not write, `req-anchore-shared`; no EKS cluster is linked or written, `req-anchore-inventory-kubernetes-6`) and links to the shared `compliance_core` vulnerability when one exists, without writing to `compliance_core`; read by VDR plugins (`fedramp_20x_vdr`, `stackarmor_vdr`) through the grid, with no import, once a later layer maps Anchore's nodes to theirs. |
+| Kind | Leaf plugin: consumes `computing_core` (package, sbom_document, host as the image host, the Kubernetes vocabulary and the SBOM parser) and, optionally, `aws_core` (ECS nodes it links to by ARN, never rewrites, and creates only where absent and only when `create.ecs` is set, `req-anchore-shared`; no EKS cluster is linked or written, `req-anchore-inventory-kubernetes-6`) and links to the shared `compliance_core` vulnerability when one exists, without writing to `compliance_core`; read by VDR plugins (`fedramp_20x_vdr`, `stackarmor_vdr`) through the grid, with no import, once a later layer maps Anchore's nodes to theirs. |
 
 **Default dimensions.**
 
@@ -59,15 +59,16 @@ Six consequences shape v0:
 | req-anchore-drift-ci | [Scheduled Drift Check](#scheduled-drift-check) | Proposed | A scheduled workflow compares the vendor's public file with the extract and fails on drift in what we consume |
 | req-anchore-states | [Three States And Resolution](#three-states-and-resolution) | Proposed | Not read is never clean; null is unobserved; a run resolves only what it read |
 | req-anchore-scope-walk | [The Scope Walk](#the-scope-walk) | Proposed | Images, sources and application versions walked with GET calls; what is read at each |
+| req-anchore-scope | [Collection Scope](#collection-scope) | Proposed | Settings that narrow the image walk to what Anchore's inventory reports as running, by AWS account, context prefix and repository prefix, and say which runtime records become nodes; no scope reads everything; out of scope is never clean |
 | req-anchore-findings | [Findings And Vulnerabilities](#findings-and-vulnerabilities) | In Development | Anchore-owned scanner, scan-run and finding nodes holding Anchore's fields as returned, keyed by what they assert and linked to the shared vulnerability |
 | req-anchore-sbom | [SBOMs](#sboms) | In Development | Three formats stored as documents; CycloneDX parsed into packages under the source-authenticated outcome |
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
 | req-anchore-vex | [VEX Annotations](#vex-annotations) | Proposed | One annotation type for image and application-version scope, with edges to its scope and its subject |
 | req-anchore-policy-result | [Policy Results](#policy-results) | Proposed | Version-level policy status and counts stored on the application version |
 | req-anchore-inventory | [Runtime Inventory: Images In Use](#runtime-inventory-images-in-use) | Proposed | The flat list of images in use, per context, with when each was last seen |
-| req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | Proposed | Namespace, node, pod and container written into the vocabulary `computing_core` gains, joined to the image host |
-| req-anchore-shared | [Shared Nodes With Provider Collectors](#shared-nodes-with-provider-collectors) | Proposed | The provider collector wins. Stage one: Anchore links to provider-owned nodes and writes none; stage two (Anchore alone, either order) is gated on tap capabilities |
-| req-anchore-inventory-ecs | [Runtime Inventory: ECS](#runtime-inventory-ecs) | Proposed | Container joined to `aws_core`'s ECS container by ARN and to the image host; no `aws_core` node written in stage one |
+| req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | Proposed | Cluster, namespace, node, pod and container written into `computing_core`'s Kubernetes types when `create.kubernetes` is on, joined to the image host |
+| req-anchore-shared | [Shared Nodes With Provider Collectors](#shared-nodes-with-provider-collectors) | Proposed | The provider collector wins. Anchore never writes an existing provider-owned node; by default it only links, and with `create.ecs` it creates the ECS nodes the grid lacks |
+| req-anchore-inventory-ecs | [Runtime Inventory: ECS](#runtime-inventory-ecs) | Proposed | Container joined to `aws_core`'s ECS container by ARN and to the image host; tasks, services and absent nodes written only with `create.ecs` |
 | req-anchore-differences-ledger | [Hosted And On-Prem Differences](#hosted-and-on-prem-differences) | Proposed | The ledger of known and unknown differences, refreshed from the trial and from each run's self-test |
 | req-anchore-fips | [FIPS Posture](#fips-posture) | Proposed | `requests` over system OpenSSL, no native binary, declared in `[fips]` |
 | req-anchore-nongoals | [v0 Non-Goals](#v0-non-goals) | Proposed | What this plugin deliberately does not do, and who owns it |
@@ -88,6 +89,7 @@ The secret is a plugin secret, not a core one: its consumer is the Anchore colle
 - `account`: the Anchore account the credential reads, part of every key; sent as `x-anchore-account` where the instance needs it. Required.
 - `ca_bundle`: the absolute path of a PEM file on the host, never its contents. Optional.
 - `annotation_allowlist`: annotation keys that may be stored; empty by default. Optional.
+- `scope`, `inventory_max_age_hours`, `create`: which images the collector reads and which runtime records it writes as nodes (`req-anchore-scope`); with no `scope` it reads every image. Optional.
 - `scheme`: `basic`, `api_key` or `bearer`, which selects the credential fields and admits no others. `basic` has `username` and `password`; `api_key` has `key`, sent as the user `_api_key` that Anchore documents; `bearer` has `token`, a token already minted and held in the envelope. The client never calls a token endpoint, because obtaining a token is a POST and the client sends only GET; minting and renewing the token is the operator's, out of band, and a change to any value takes effect on restart.
 
 The envelope's description states the least-privilege shape: a read-only Anchore role for the named account. Which of the three schemes the hosted service accepts, and what a read-only credential can read, is unknown until the trial (see the differences ledger).
@@ -301,6 +303,95 @@ The vendor's `/query/*` reads and the account-wide listings that return the same
 | req-anchore-scope-walk-4 | Account In Every Key | Proposed | Every Anchore-specific node key begins with the scanner key (canonical API root and account together), so two accounts on one instance never share a node, whether or not Anchore's identifiers are unique across accounts. | Uniqueness across accounts is unobserved. |
 | req-anchore-scope-walk-5 | Distinct Roots Are Distinct Scanners | Proposed | The same host and account on a different port or API root yields a different scanner key; a test asserts it, and asserts the key carries no credential. | Two instances on one host must not share a scanner key. |
 
+### Collection Scope
+----
+RID: `req-anchore-scope`
+
+Status: `Proposed`
+
+Which images the collector reads, and which of Anchore's runtime records it turns into nodes. An Anchore account can hold far more images than are deployed, and the per-image reads (vulnerabilities, three SBOM formats) are where a run's volume comes from. The scope narrows the walk to what is running, where the operator says, and to named repositories. What is running is taken from Anchore's own runtime inventory, not derived from the grid: a container that starts between two runs of another collector would be missed, and no AWS collector sees inside an EKS cluster. Each source reports what it has seen, and the grid is where the reports meet (ruled 2026-11-09, maintainer; this replaces the grid-driven selector an earlier draft of this requirement had).
+
+#### Implementation
+
+**Where it is set.** Optional settings in the credential envelope's `data`, beside `annotation_allowlist`, validated by the same schema. They hold no secret. They live in the envelope because tap has no per-run collector configuration yet (`unified-systems-com/tap#907`); the code that reads them carries `# WORKAROUND(unified-systems-com/tap#907)`, and they move when that lands.
+
+| setting | value | default | meaning |
+| --- | --- | --- | --- |
+| `scope.running_only` | boolean | `true` | Read only images Anchore's inventory reports as running, or every image that passes the repository filter. |
+| `scope.aws_account_ids` | 12-digit AWS account ids | unset | Running in ECS in one of these accounts. |
+| `scope.context_prefixes` | strings | unset | Running in an inventory context that begins with one of these. |
+| `scope.repository_prefixes` | strings | unset | The image's registry and repository begin with one of these. |
+| `inventory_max_age_hours` | integer, 1 or more | `24` | How recently Anchore must have seen an inventory record for it to count as running. |
+| `create.kubernetes` | boolean | `true` | Write the Kubernetes objects Anchore reports (`req-anchore-inventory-kubernetes`). |
+| `create.ecs` | boolean | `false` | Write `aws_core` ECS nodes the grid does not have yet (`req-anchore-shared`). |
+
+A list setting that is absent is not used. An empty list is refused by the schema, so "select nothing" cannot be configured by accident, and so is an unknown key. With no `scope` object at all the collector reads every image, as it did before this requirement; `running_only` defaults to `true` once a `scope` object is present (open question 1).
+
+**What counts as running.** Anchore keeps an inventory record for up to 120 days after its agent last reported it, so presence in the inventory is not evidence of running. A record counts as running when its `last_seen` is within `inventory_max_age_hours` of the run's start. A record with no `last_seen`, or an older one, is not running: it selects nothing, creates nothing, and is counted on the run. Anchore's ECS container records carry no `last_seen` of their own, so an ECS container takes the `last_seen` of the `/inventories` item with the same context and image digest.
+
+**The running selectors.** `GET /inventories` lists images in use, each with an inventory type, a context, a digest and `last_seen`.
+
+- `context_prefixes` keeps the items whose `context` begins with a listed prefix, compared as written. Anchore documents a Kubernetes context as the cluster name, a slash, and the namespace, so `prod-east/` selects one cluster and `prod-east/payments` one namespace.
+- `aws_account_ids` keeps ECS containers whose ARN names a listed account. It reads `GET /ecs-containers` and takes the account from the container's `arn`, the fifth colon-separated field of every ECS ARN. It does not depend on what an ECS inventory context looks like, which the vendor's file does not say.
+
+The two are a union. With neither set, every running record is selected. An item with no digest selects nothing and is counted.
+
+**The repository filter.** Anchore's image record carries, per tag, a `registry` and a `repo`. An image passes when, for at least one of its tags, the registry, a slash, and the repo begin with a listed prefix, compared as written. A prefix of `123456789012.dkr.ecr.us-gov-west-1.amazonaws.com/platform/` passes every repository under that path in that registry. With no prefixes set, every image passes.
+
+**How they combine.**
+
+| `running_only` | images read |
+| --- | --- |
+| `true` | the running selection, narrowed by the repository filter |
+| `false` | every image in Anchore's list that passes the repository filter, running or not |
+
+With `running_only` false the account and context settings do not narrow the images read, since they exist only for running records; they still decide which inventory records are written as nodes.
+
+**A selector that cannot be read selects nothing.** If an inventory read fails after its retries, the selector that needed it is recorded on the run as not read, with the reason, and selects no image. The run never widens to every image because a selector failed.
+
+**What happens to each selected digest.** It is looked up in Anchore's image list. An analyzed image is read as today. An image Anchore has not finished analyzing is recorded as today (`req-anchore-states-4`). A digest Anchore does not hold is recorded on the run as not read, `scope:not-in-anchore`, and counted: a running image Anchore never analyzed has no findings, which is not the same as none found. The digest a runtime reports can be a multi-platform index digest where Anchore analyzed one platform's manifest; such an image is counted here too, and how often that happens is unobserved.
+
+**What is written for the running selection.** Always, whatever the `create` settings: one `anchore_runtime_image` per selected inventory item (`req-anchore-inventory`), so what Anchore saw running is on the grid on a node this plugin owns. Then, where `create.kubernetes` is true, the Kubernetes objects behind the selected Kubernetes records; and where `create.ecs` is true, the `aws_core` ECS nodes behind the selected ECS records that the grid does not already hold. With a `create` setting false, nothing of that kind is written and the records are counted.
+
+**Out of scope is not clean.** An image the scope leaves out is not read, and its findings on the grid are left exactly as they were: nothing is resolved (`req-anchore-states-3`). Out-of-scope images are not listed one by one; the run records how many there were. The scan run also records the settings it ran with, each selector's outcome in `scopes_read` or `scopes_not_read`, and these counts:
+
+| count on the scan run | meaning |
+| --- | --- |
+| `images_listed` | images in Anchore's list for the account |
+| `images_selected` | digests the scope selected |
+| `images_out_of_scope` | listed images the scope left out |
+| `images_not_in_anchore` | selected digests Anchore does not hold |
+| `inventory_stale` | inventory records older than `inventory_max_age_hours`, or with no `last_seen` |
+
+**A consequence to know.** A finding is resolved only when its image is read again and no longer reports it. An image that stops running leaves the scope, is no longer read, and keeps its findings as `current`. The scan run's recorded settings are what tell a reader those findings are no longer being refreshed (open question 2).
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-scope-1 | No Scope Reads Everything | Proposed | With no `scope` object the collector reads every image as before. | Open question 1. |
+| req-anchore-scope-2 | Strict Settings | Proposed | The schema refuses an unknown key, an empty list, an account id that is not 12 digits, an empty string, and an `inventory_max_age_hours` below 1. | |
+| req-anchore-scope-3 | Running Only By Default | Proposed | With a `scope` object and `running_only` unset or true, only running records select images; with it false, every listed image that passes the repository filter is read. | |
+| req-anchore-scope-4 | Running Means Seen Recently | Proposed | An inventory record selects and creates only when its `last_seen` is within `inventory_max_age_hours` of the run's start; an ECS container takes the `last_seen` of the inventory item with its context and digest; the rest are counted as `inventory_stale`. | Anchore keeps records for up to 120 days. |
+| req-anchore-scope-5 | Context Prefixes | Proposed | `context_prefixes` selects inventory items whose context begins with a listed prefix, compared as written. | The Kubernetes context format is read from Anchore's documentation and not yet observed. |
+| req-anchore-scope-6 | Accounts From The ARN | Proposed | `aws_account_ids` selects ECS containers whose `arn` names a listed account; no context format is assumed. | |
+| req-anchore-scope-7 | Selectors Are A Union | Proposed | A record matched by either running selector is selected; with neither set every running record is. | |
+| req-anchore-scope-8 | Prefix On Registry And Repository | Proposed | An image passes the repository filter when the registry, a slash, and the repo of at least one of its tags begin with a listed prefix; with none set every image passes. | |
+| req-anchore-scope-9 | A Selector That Cannot Be Read Selects Nothing | Proposed | A selector whose read failed is listed in `scopes_not_read` with the reason and selects no image; the run never falls back to every image. | |
+| req-anchore-scope-10 | Out Of Scope Resolves Nothing | Proposed | A finding whose image is out of scope in a run is left unchanged by that run. | `req-anchore-states-3`. |
+| req-anchore-scope-11 | Not In Anchore Is Counted | Proposed | A selected digest Anchore does not hold is counted in `images_not_in_anchore` and recorded as not read; no finding or verdict is written for it. | |
+| req-anchore-scope-12 | The Observation Is Always Written | Proposed | Every selected inventory item yields an `anchore_runtime_image`, whatever the `create` settings. | |
+| req-anchore-scope-13 | Creation Follows Its Setting | Proposed | Kubernetes objects are written only when `create.kubernetes` is true (the default) and `aws_core` ECS nodes only when `create.ecs` is true (not the default); otherwise the records are counted and nothing of that kind is written. | |
+| req-anchore-scope-14 | The Run Records Its Settings | Proposed | The scan run holds the scope and create settings as configured and the five counts above. | |
+| req-anchore-scope-15 | Workarounds Are Marked | Proposed | The envelope read carries a `WORKAROUND` comment naming `unified-systems-com/tap#907`. | `unified-systems-com/tap#1169`. |
+
+#### Open questions
+
+1. With no `scope` object the collector reads everything, and with one it reads running images only. Should an instance with no settings at all also default to running only?
+2. Should findings of an image that has left the scope be marked in some way, so "current" does not also mean "no longer being read"?
+3. Is 24 hours the right default for `inventory_max_age_hours`? It depends on how often Anchore's agents report, which is unobserved.
+4. Does every ECS container in `/ecs-containers` have a matching `/inventories` item to take `last_seen` from? If not, those containers can never count as running.
+
 ### Findings And Vulnerabilities
 ----
 RID: `req-anchore-findings`
@@ -456,47 +547,48 @@ RID: `req-anchore-shared`
 
 Status: `Proposed`
 
-Anchore's runtime inventory describes things other plugins collect from the source of record: `aws_core` collects ECS clusters, services, tasks and containers and EKS clusters from AWS itself. Anchore sees a subset of what that collector sees, as its agents last reported it. Where the two describe the same thing they share one node, and **the provider collector wins**, because it reads the source of record (ruled 2026-11-09, maintainer). This is built in two stages. Stage one assumes the provider collector runs first; stage two, running Anchore alone or in either order, waits on tap capabilities that do not exist yet and is recorded here so stage one does not foreclose it.
+Anchore's runtime inventory describes things other plugins collect from the source of record: `aws_core` collects ECS clusters, services, tasks and containers and EKS clusters from AWS itself. Anchore sees a subset of what that collector sees, as its agents last reported it, and sometimes sees a thing first. Where the two describe the same thing they share one node, and **the provider collector wins**, because it reads the source of record (ruled 2026-11-09, maintainer). By default this plugin only links to a provider-owned node. An operator may also let it create the ones the grid does not have yet (`create.ecs`, `req-anchore-scope`), so that what Anchore has seen is on the grid before the provider's collector next runs, or where it does not run at all.
 
 #### Implementation
 
-**Stage one: the provider runs first (this build).**
+**Always: link, never write.** For a type a provider collector collects (the `aws_core` ECS and EKS types), this plugin never writes a field of a node that exists. Where Anchore reports the owner's natural key (the ARN of an ECS container), it looks the node up by that exact string and, when found, draws its own edge to it (`RUNS_IMAGE__computing_core` from the container to the image host) and nothing else. Where it does not (an EKS cluster, for which Anchore reports only a name), no lookup is made and nothing is linked (`req-anchore-inventory-kubernetes-6`). A record whose node is not found is counted on the run as unresolved; the observation is on the grid either way, in `anchore_runtime_image` (`req-anchore-scope-12`).
 
-- **Provider-owned nodes are not written.** For a type a provider collector collects (the `aws_core` ECS and EKS types), this plugin writes no node and no field. Where Anchore reports the owner's natural key (the ARN of an ECS container), it looks the node up by that exact string; where it does not (an EKS cluster, for which Anchore reports only a name), no lookup is made and nothing is linked (`req-anchore-inventory-kubernetes-6`). Found: it draws its own edge to the node (`RUNS_IMAGE__computing_core` from an ECS container to the image host) and nothing else. Not found: the record is counted on the run as unresolved, and the observation is still held in `anchore_runtime_image` (`req-anchore-inventory`).
-- **`aws_core` is an optional dependency.** `depends_on` names it with `optional = true`; this plugin imports nothing from it beyond the entity types it looks up. Where `aws_core` is not installed, the ECS join is recorded on the run as not read, with the reason, and the run does not fail.
-- **Responsible for what it creates.** A type no provider collects (the Kubernetes vocabulary `computing_core` gains, `req-anchore-inventory-kubernetes`) is created by this plugin, and this plugin keeps it current: each run writes the fields Anchore reported and omits every other field, so an omitted field stays untouched (`req-grid-node-observation`). A field Anchore read and found empty is written as the empty value or null, never omitted. The image host keeps its existing rule: written with its digest and kind only where the grid has none, and never rewritten (`req-anchore-findings`).
-- **Time.** The three-level time update is unfinished, so for now: `last_seen` from Anchore is stored as reported and is source evidence; the run's own start time is collection time and lives on the scan run; nothing is written to stand for grid time. The judgement is recorded here so it can be changed in one place.
+**`aws_core` is an optional dependency.** `depends_on` names it with `optional = true`; this plugin imports nothing from it beyond the entity types it looks up and, with `create.ecs`, writes. Where `aws_core` is not installed, the ECS join and any ECS creation are recorded on the run as not read, with the reason, and the run does not fail.
 
-**Stage two: Anchore alone, or in either order (not built).** The rules, ruled 2026-11-09, and what each waits on:
+**With `create.ecs`: create what is absent.** Off by default. When on, for each ECS record that counts as running (`req-anchore-scope-4`) and is in scope, a node the grid does not hold is created with the fields Anchore reported and no others. The rules, and what each rests on:
 
-1. **Create only when absent.** A provider-owned node is created only when the grid has none. A read then a write is not atomic: both collectors can see the node absent, and the identity lock only serialises them, so the later write replaces the earlier. Waits on an insert-only node form (`unified-systems-com/tap#1071`).
-2. **Update only what it is responsible for.** This plugin may rewrite a field whose FLIP entry is absent or names one of its own batches, and never a field another source has stamped. Waits on a yielding write (`unified-systems-com/tap#1172`), and on a write to an existing node that need not re-send required fields: an `aws_core` ECS container requires a `name`, which Anchore does not report (`unified-systems-com/tap#1173`).
-3. **Tags are one field.** `tags` has one FLIP entry for the whole object, so the provider's write replaces it whole and a tag only Anchore reports is discarded; nothing else holds it. Per-tag ownership waits on nested FLIP (`unified-systems-com/tap#1171`).
-4. **Current inventory only, and never over a newer tombstone.** A node is created only from a record in Anchore's current inventory. Before creating, the plugin checks for a tombstone on the same key and creates only if Anchore's `last_seen` is later than the tombstone; otherwise Anchore, which keeps a record for up to 120 days, would bring back what the provider retired. Waits on a tombstone lookup by natural key (`unified-systems-com/tap#1170`). Anchore's ECS container, task and service records carry no `last_seen`; the date would be borrowed from the `/inventories` item for the same context and digest, which is per image, not per container.
-5. **Containment edges.** For a node it creates, this plugin draws the owner's containment edges (`RUNS_SERVICE`, `RUNS_TASK`, `RUNS_CONTAINER`). The provider's edge-authority claim may then propose removing one AWS does not report, which is the provider winning.
-6. **Names.** An ECS cluster's and service's name is the last segment of its ARN. A task has no name. A container's AWS name is not in its ARN and not in Anchore's record, so a created container's name is provisional until the provider's run replaces it. An EKS cluster cannot be created or matched: Anchore reports a cluster name and no ARN.
-7. **Dimensions.** A created provider-owned node carries the owner's `DEFAULT_DIMENSIONS` and never `anchore.area`.
+1. **Only when absent.** The plugin reads, then writes. That is not atomic: both collectors can see a node absent, and the later write then replaces the earlier one's fields. The provider's next run restores its own. The read-then-write carries `# WORKAROUND(unified-systems-com/tap#1071)` until an insert-only node form exists.
+2. **Never updated.** A node this plugin created is not written again by this plugin, because it cannot yet tell its own fields from the provider's. Where no provider collector runs, such a node stays as first seen. `# WORKAROUND(unified-systems-com/tap#1172)`.
+3. **Only what it read.** A created node omits every field Anchore did not report, so those stay untouched (`req-grid-node-observation`), and never carries `configuration`. Tags Anchore reports (tasks and services) are written at creation and replaced whole by the provider's write; a tag only Anchore reports is discarded then (`unified-systems-com/tap#1171`).
+4. **Names.** A cluster's and a service's name is the last segment of its ARN. A task has no name. An `aws_core` ECS container requires a name and Anchore reports none, so a created container is named by the last segment of its ARN, a placeholder the provider's run replaces. `# WORKAROUND(unified-systems-com/tap#1173)`.
+5. **Not over a retirement, as far as can be told.** tap cannot yet look up a tombstone by natural key (`unified-systems-com/tap#1170`), so the plugin cannot see that the provider retired a node. The only guard is that a record must have been seen within `inventory_max_age_hours`; inside that window a container the provider has just retired can be created again as a new node. `# WORKAROUND(unified-systems-com/tap#1170)`.
+6. **Containment edges.** For a node it creates, the plugin draws the owner's edges (`RUNS_SERVICE`, `RUNS_TASK`, `RUNS_CONTAINER`) to the nodes it can name by ARN. The provider's edge-authority claim may then propose removing one AWS does not report, which is the provider winning.
+7. **Dimensions.** A created node carries the owner's `DEFAULT_DIMENSIONS` and never `anchore.area`. The `aws_account` dimension is set from the account in the ARN.
+8. **No EKS cluster.** Anchore reports a cluster name and no ARN, so an EKS cluster is never created.
 
-A workaround in code that stands in for one of these carries `# WORKAROUND(unified-systems-com/tap#<n>): ...` so it can be found when the capability lands (`unified-systems-com/tap#1169`).
+**Time.** The three-level time update is unfinished, so for now: `last_seen` from Anchore is stored as reported and is source evidence; the run's own start time is collection time and lives on the scan run; nothing is written to stand for grid time.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-shared-1 | Provider-Owned Nodes Are Not Written | Proposed | No node and no field of a type a provider collector collects is written by this plugin. | Stage one. |
+| req-anchore-shared-1 | Existing Nodes Are Not Written | Proposed | No field of an existing node of a provider-collected type is written by this plugin, whatever the settings. | |
 | req-anchore-shared-2 | Link When Found | Proposed | A record whose provider-owned node exists gets this plugin's edge to that node and changes nothing on it. | |
-| req-anchore-shared-3 | Unresolved Is Counted | Proposed | A record whose provider-owned node does not exist is counted on the run as unresolved and does not fail it. | |
-| req-anchore-shared-4 | Optional Dependency | Proposed | `depends_on` names `aws_core` as optional; without it the ECS join is recorded as not read, with the reason. | |
-| req-anchore-shared-5 | Responsible For What It Creates | Proposed | A node of a type no provider collects is written each run with the fields Anchore reported and no others. | |
-| req-anchore-shared-6 | Stage Two Is Gated | Proposed | No provider-owned node is created until the capabilities named in rules 1, 2 and 4 exist, or the maintainer rules otherwise. | `unified-systems-com/tap#1071`, `#1170`, `#1172`, `#1173`. |
-| req-anchore-shared-7 | Time Is Provisional | Proposed | Anchore's `last_seen` is stored as reported; no grid-time value is invented. | Revisit with the three-level time update. |
+| req-anchore-shared-3 | Unresolved Is Counted | Proposed | With `create.ecs` false, a record whose provider-owned node does not exist is counted on the run as unresolved and does not fail it. | |
+| req-anchore-shared-4 | Optional Dependency | Proposed | `depends_on` names `aws_core` as optional; without it the ECS join and ECS creation are recorded as not read, with the reason. | |
+| req-anchore-shared-5 | Creation Is Opt-In And Absent-Only | Proposed | With `create.ecs` true, an in-scope running ECS record whose node is absent is created with only the fields Anchore reported; one whose node exists is linked and not written. | Supersedes the earlier gate on tap capabilities, by the maintainer's ruling. |
+| req-anchore-shared-6 | Created Nodes Are Not Updated | Proposed | A node this plugin created in an earlier run is treated as existing: linked, never rewritten. | `unified-systems-com/tap#1172`. |
+| req-anchore-shared-7 | Placeholder Name | Proposed | A created ECS container's name is the last segment of its ARN. | `unified-systems-com/tap#1173`. |
+| req-anchore-shared-8 | Owner's Dimensions | Proposed | A created node carries the owner's default dimensions and the account from its ARN, and no Anchore dimension. | |
+| req-anchore-shared-9 | Workarounds Are Marked | Proposed | Each of rules 1, 2, 4 and 5 has a `WORKAROUND` comment naming its issue at the code that implements it. | `unified-systems-com/tap#1169`. |
+| req-anchore-shared-10 | Time Is Provisional | Proposed | Anchore's `last_seen` is stored as reported; no grid-time value is invented. | Revisit with the three-level time update. |
 
 #### Open questions
 
-1. How a collector reads a field's FLIP entry and maps the batch to its source, and whether the spine `name` carries a FLIP stamp at all.
-2. When both plugins draw the same relationship (`RUNS_CONTAINER` from task to container), is the edge one edge or a rejected duplicate? Edge identity decides it.
-3. What `optional = true` gives at run time when `aws_core` is absent: whether the type lookup fails cleanly or the plugin must guard it.
-4. What identifies an EKS cluster from Anchore's side: an operator setting that maps an Anchore context to a cluster ARN, a node label that carries the account and region, or something a recorded response shows.
+1. When both plugins draw the same relationship (`RUNS_CONTAINER` from task to container), is the edge one edge or a rejected duplicate? Edge identity decides it.
+2. What `optional = true` gives at run time when `aws_core` is absent: whether the type lookup fails cleanly or the plugin must guard it.
+3. What identifies an EKS cluster from Anchore's side: an operator setting that maps an Anchore context to a cluster ARN, a node label that carries the account and region, or something a recorded response shows.
+4. Once `aws_core` retires stopped containers (`unified-systems-com/aws-core-tap#211`), how often does rule 5's window bring one back, and is that tolerable until `unified-systems-com/tap#1170` exists?
 
 ### Runtime Inventory: Kubernetes
 ----
@@ -504,18 +596,21 @@ RID: `req-anchore-inventory-kubernetes`
 
 Status: `Proposed`
 
-The Kubernetes side of the runtime inventory: the namespaces, nodes, pods and containers the Anchore Kubernetes agent reported, joined to the image each container runs. This is the first time TAP meets Kubernetes, so the vocabulary is built in `computing_core` next to its other container-level nodes and edges, guided by what Anchore needs. No other collector reads Kubernetes, so this plugin creates these nodes and keeps them current (`req-anchore-shared-5`). Anything specific to EKS is `aws_core`'s.
+The Kubernetes side of the runtime inventory: the namespaces, nodes, pods and containers the Anchore Kubernetes agent reported, joined to the image each container runs. This is the first time TAP meets Kubernetes, so the vocabulary is built in `computing_core` next to its other container-level nodes and edges, guided by what Anchore needs (`req-computing-core-kubernetes`). No other collector reads Kubernetes, so this plugin creates these nodes and keeps them current: each run writes the fields Anchore reported and omits every other. It does so when `create.kubernetes` is true, the default, and only for records that are in scope and count as running (`req-anchore-scope`). Anything specific to EKS is `aws_core`'s.
 
 #### Implementation
 
-Reads `GET /kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods` and `/kubernetes-containers` (documented; each takes a required `page` and an optional `page_size`, default 1000). They carry: namespace (uid, name, labels, annotations, last seen); node (uid, name, labels, annotations, kernel, Kubernetes, kubelet, kube-proxy and container-runtime versions, architecture, operating system, last seen); pod (id, name, labels, annotations, node id, namespace id, last seen); container (id, name, pod id, context, image tag, image digest). The `computing_core` types, keys and edges (a pod in a namespace, scheduled on a node, containing containers, a container running an image through the existing `RUNS_IMAGE`) are specified and released there first; this plugin's reads wait for that release and declare no Kubernetes type of their own. Identity is the uid or id Anchore reports within a cluster, never the name. The cluster's own identity is open: Anchore reports the name its agent was configured with, and a later collector reading Kubernetes directly must arrive at the same key, so the choice is made in the `computing_core` spec, not here. A cluster that is an EKS cluster belongs on the `aws_core` EKS cluster, but Anchore reports only a cluster name, and an EKS name is unique only within one AWS account and region, so a name match does not establish which cluster it is. No link is drawn on a name alone: the cluster is counted on the run as unlinked, and no EKS cluster is created by this plugin. What shared identifier would establish the link is open (`req-anchore-shared`, open question 4). Kubernetes annotations are not stored by default: they are free-form maps that routinely hold tool configuration (a last-applied manifest, for example) and can carry secrets. An operator setting names the annotation keys to keep, an empty list by default (`req-anchore-inventory-kubernetes-5`); labels are stored. The vendor's schema declares the nodes and pods list responses under a wrapper key named `namespaces`, which looks like a copy of the namespaces response; the real key is unobserved, and the contract tests are where the correction lands.
+Reads `GET /kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods` and `/kubernetes-containers` (documented; each takes a required `page` and an optional `page_size`, default 1000). They carry: namespace (uid, name, labels, annotations, last seen); node (uid, name, labels, annotations, kernel, Kubernetes, kubelet, kube-proxy and container-runtime versions, architecture, operating system, last seen); pod (id, name, labels, annotations, node id, namespace id, last seen); container (id, name, pod id, context, image tag, image digest). The types, keys and edges are `computing_core`'s: a cluster keyed `(realm, stable_id)`, a namespace, a pod and a node keyed by the uid Kubernetes assigned, and a container keyed by its pod's uid and its name, with the runtime's container id and the image reference as fields. This plugin declares no Kubernetes type of its own, and its reads wait for the `computing_core` release that carries them. The cluster is written under the realm `kube-system-uid` when the report includes the namespace named `kube-system`, whose uid is the cluster's identifier, and under `assert` with the agent's configured cluster name otherwise. A container's `RUNS_CONTAINER` edge is drawn from the pod whose uid the container carries; `computing_core` does not check that, so the collector must. A node's operating system is written to its `host` row (realm `kubernetes-node-uid`), and its version fields to the node. A cluster that is an EKS cluster belongs on the `aws_core` EKS cluster, but Anchore reports only a cluster name, and an EKS name is unique only within one AWS account and region, so a name match does not establish which cluster it is. No link is drawn on a name alone: the cluster is counted on the run as unlinked, and no EKS cluster is created by this plugin. What shared identifier would establish the link is open (`req-anchore-shared`, open question 4). Kubernetes annotations are not stored by default: they are free-form maps that routinely hold tool configuration (a last-applied manifest, for example) and can carry secrets. An operator setting names the annotation keys to keep, an empty list by default (`req-anchore-inventory-kubernetes-5`); labels are stored. The vendor's schema declares the nodes and pods list responses under a wrapper key named `namespaces`, which looks like a copy of the namespaces response; the real key is unobserved, and the contract tests are where the correction lands.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
 | req-anchore-inventory-kubernetes-1 | The Chain | Proposed | A container reaches its pod, its namespace, its node and its image host by `computing_core` edges. | |
-| req-anchore-inventory-kubernetes-2 | Identity Is The Reported Uid Within A Cluster | Proposed | Each node is keyed by its cluster's identity and the uid or id Anchore reports, never by name. | Names are mutable. The cluster's identity is decided in `computing_core`. |
+| req-anchore-inventory-kubernetes-2 | Identity Is The Reported Uid | Proposed | A namespace, pod and node are keyed by the uid Anchore reports and a container by its pod's uid and its name, never by a display name or the runtime's container id. | `req-computing-core-kubernetes`. |
+| req-anchore-inventory-kubernetes-7 | Cluster Realm From The Report | Proposed | The cluster is written under `kube-system-uid` when the report carries the `kube-system` namespace and under `assert` with the configured name otherwise. | |
+| req-anchore-inventory-kubernetes-8 | Container Drawn From Its Own Pod | Proposed | Every `RUNS_CONTAINER` edge the collector draws comes from the pod whose uid equals the container's `pod_uid`. | `unified-systems-com/tap#1174`. |
+| req-anchore-inventory-kubernetes-9 | Only When Enabled And Running | Proposed | Kubernetes objects are written only when `create.kubernetes` is true and only for in-scope records seen within `inventory_max_age_hours`. | `req-anchore-scope-4`, `-13`. |
 | req-anchore-inventory-kubernetes-3 | Wrapper Key Observed | Proposed | The parser's wrapper keys for the nodes and pods responses are set from a recorded response, not from the vendor schema. | |
 | req-anchore-inventory-kubernetes-4 | Vocabulary Lives In computing_core | Proposed | No Kubernetes node or edge type is declared by this plugin; they are released in `computing_core` first. | Replaces the provisional `anchore_k8s_*` types. |
 | req-anchore-inventory-kubernetes-5 | Annotations Only By Allowlist | Proposed | No Kubernetes annotation is stored unless its key is on the operator's allowlist, which is empty by default; labels are stored. | The same setting governs application annotations. |
@@ -527,18 +622,21 @@ RID: `req-anchore-inventory-ecs`
 
 Status: `Proposed`
 
-The ECS side: the containers the Anchore ECS agent reported, linked to the `aws_core` containers the AWS collector wrote, by ARN, under `req-anchore-shared`.
+The ECS side: the containers the Anchore ECS agent reported, linked to the `aws_core` containers the AWS collector wrote, by ARN, and created where the grid has none when the operator has enabled it, under `req-anchore-shared`.
 
 #### Implementation
 
-Reads `GET /ecs-containers` (documented; required `page`, optional `page_size`). There is no cluster list: the cluster is the `cluster_arn` or `context` on those records. For each ECS container Anchore reports (ARN, task ARN, context, image tag, image digest), the plugin looks up the `aws_core` ECS container by ARN and, when found, writes `RUNS_IMAGE__computing_core` from it to the image host. It writes nothing on the container. An ARN with no matching node is counted on the run as unresolved, and the observation is kept in `anchore_runtime_image`. The image host is written with its digest and kind when the grid has none, for an image Anchore has never analyzed as well as for one it has; such an image carries no findings and is recorded as having no verdict (`req-anchore-states-4`). `/ecs-tasks` and `/ecs-services` are not read in stage one: they add tags and structure that belong on `aws_core` nodes this plugin does not yet write. They are read in stage two (`req-anchore-shared`, rules 3 and 5).
+Reads `GET /ecs-containers` (documented; required `page`, optional `page_size`). There is no cluster list: the cluster is the `cluster_arn` or `context` on those records. For each in-scope ECS container Anchore reports (ARN, task ARN, context, image tag, image digest), the plugin looks up the `aws_core` ECS container by ARN and, when found, writes `RUNS_IMAGE__computing_core` from it to the image host. It writes nothing on the container. An ARN with no matching node is counted on the run as unresolved, unless `create.ecs` is true. The image host is written with its digest and kind when the grid has none, for an image Anchore has never analyzed as well as for one it has; such an image carries no findings and is recorded as having no verdict (`req-anchore-states-4`).
+
+With `create.ecs` true the plugin also reads `GET /ecs-tasks` and `/ecs-services` (documented; same paging), and creates the container, task, service and cluster nodes the grid does not hold, under the rules of `req-anchore-shared`. A task carries its ARN, cluster, service, task definition and tags; a service its ARN, cluster and tags. With `create.ecs` false those two reads are not made.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-inventory-ecs-1 | Join By ARN | Proposed | An Anchore ECS container is joined to the `aws_core` container with the same ARN, and no `aws_core` node is created or changed by this plugin. | Stage one (`req-anchore-shared-1`). |
-| req-anchore-inventory-ecs-2 | Unresolved Is Counted | Proposed | An ARN with no matching node is counted as unresolved on the run and does not fail it. | |
+| req-anchore-inventory-ecs-1 | Join By ARN | Proposed | An Anchore ECS container is joined to the `aws_core` container with the same ARN, and no existing `aws_core` node is changed by this plugin. | `req-anchore-shared-1`. |
+| req-anchore-inventory-ecs-2 | Unresolved Is Counted | Proposed | With `create.ecs` false, an ARN with no matching node is counted as unresolved on the run and does not fail it. | |
+| req-anchore-inventory-ecs-5 | Tasks And Services Only When Creating | Proposed | `/ecs-tasks` and `/ecs-services` are read only when `create.ecs` is true. | |
 | req-anchore-inventory-ecs-3 | Image Edge From The Container | Proposed | A resolved container gets `RUNS_IMAGE__computing_core` to the image host. | |
 | req-anchore-inventory-ecs-4 | Unanalysed Image Still Known | Proposed | A running image Anchore never analyzed gets an image host with only what Anchore knows and no findings. | |
 
