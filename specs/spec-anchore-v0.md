@@ -59,7 +59,7 @@ Six consequences shape v0:
 | req-anchore-drift-ci | [Scheduled Drift Check](#scheduled-drift-check) | Proposed | A scheduled workflow compares the vendor's public file with the extract and fails on drift in what we consume |
 | req-anchore-states | [Three States And Resolution](#three-states-and-resolution) | Proposed | Not read is never clean; null is unobserved; a run resolves only what it read |
 | req-anchore-scope-walk | [The Scope Walk](#the-scope-walk) | Proposed | Images, sources and application versions walked with GET calls; what is read at each |
-| req-anchore-scope | [Collection Scope](#collection-scope) | Proposed | Settings that narrow the image walk to what Anchore's inventory reports as running, by AWS account, context prefix and repository prefix, and say which runtime records become nodes; no scope reads everything; out of scope is never clean |
+| req-anchore-scope | [Collection Scope](#collection-scope) | Proposed | Settings that narrow the image walk to what Anchore's inventory reports as running, by AWS account, context prefix and repository prefix, and say which runtime records become nodes; with no settings it reads running images only; out of scope is never clean |
 | req-anchore-findings | [Findings And Vulnerabilities](#findings-and-vulnerabilities) | In Development | Anchore-owned scanner, scan-run and finding nodes holding Anchore's fields as returned, keyed by what they assert and linked to the shared vulnerability |
 | req-anchore-sbom | [SBOMs](#sboms) | In Development | Three formats stored as documents; CycloneDX parsed into packages under the source-authenticated outcome |
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
@@ -89,7 +89,7 @@ The secret is a plugin secret, not a core one: its consumer is the Anchore colle
 - `account`: the Anchore account the credential reads, part of every key; sent as `x-anchore-account` where the instance needs it. Required.
 - `ca_bundle`: the absolute path of a PEM file on the host, never its contents. Optional.
 - `annotation_allowlist`: annotation keys that may be stored; empty by default. Optional.
-- `scope`, `inventory_max_age_hours`, `create`: which images the collector reads and which runtime records it writes as nodes (`req-anchore-scope`); with no `scope` it reads every image. Optional.
+- `scope`, `inventory_max_age_hours`, `create`: which images the collector reads and which runtime records it writes as nodes (`req-anchore-scope`); with none set it reads the images Anchore reports as running. Optional.
 - `scheme`: `basic`, `api_key` or `bearer`, which selects the credential fields and admits no others. `basic` has `username` and `password`; `api_key` has `key`, sent as the user `_api_key` that Anchore documents; `bearer` has `token`, a token already minted and held in the envelope. The client never calls a token endpoint, because obtaining a token is a POST and the client sends only GET; minting and renewing the token is the operator's, out of band, and a change to any value takes effect on restart.
 
 The envelope's description states the least-privilege shape: a read-only Anchore role for the named account. Which of the three schemes the hosted service accepts, and what a read-only credential can read, is unknown until the trial (see the differences ledger).
@@ -317,7 +317,7 @@ Which images the collector reads, and which of Anchore's runtime records it turn
 
 | setting | value | default | meaning |
 | --- | --- | --- | --- |
-| `scope.running_only` | boolean | `true` | Read only images Anchore's inventory reports as running, or every image that passes the repository filter. |
+| `scope.running_only` | boolean | `true` | Read only images Anchore's inventory reports as running; `false` reads every image that passes the repository filter. |
 | `scope.aws_account_ids` | 12-digit AWS account ids | unset | Running in ECS in one of these accounts. |
 | `scope.context_prefixes` | strings | unset | Running in an inventory context that begins with one of these. |
 | `scope.repository_prefixes` | strings | unset | The image's registry and repository begin with one of these. |
@@ -325,7 +325,7 @@ Which images the collector reads, and which of Anchore's runtime records it turn
 | `create.kubernetes` | boolean | `true` | Write the Kubernetes objects Anchore reports (`req-anchore-inventory-kubernetes`). |
 | `create.ecs` | boolean | `false` | Write `aws_core` ECS nodes the grid does not have yet (`req-anchore-shared`). |
 
-A list setting that is absent is not used. An empty list is refused by the schema, so "select nothing" cannot be configured by accident, and so is an unknown key. With no `scope` object at all the collector reads every image, as it did before this requirement; `running_only` defaults to `true` once a `scope` object is present (open question 1).
+A list setting that is absent is not used. An empty list is refused by the schema, so "select nothing" cannot be configured by accident, and so is an unknown key. The defaults apply with no settings at all: an envelope that says nothing about scope reads running images only (ruled 2026-11-09, maintainer). That changes what an unconfigured collector does: before this requirement it read every image. To read everything, set `scope.running_only` to `false`.
 
 **What counts as running.** Anchore keeps an inventory record for up to 120 days after its agent last reported it, so presence in the inventory is not evidence of running. A record counts as running when its `last_seen` is within `inventory_max_age_hours` of the run's start. A record with no `last_seen`, or an older one, is not running: it selects nothing, creates nothing, and is counted on the run. Anchore's ECS container records carry no `last_seen` of their own, so an ECS container takes the `last_seen` of the `/inventories` item with the same context and image digest.
 
@@ -363,15 +363,15 @@ With `running_only` false the account and context settings do not narrow the ima
 | `images_not_in_anchore` | selected digests Anchore does not hold |
 | `inventory_stale` | inventory records older than `inventory_max_age_hours`, or with no `last_seen` |
 
-**A consequence to know.** A finding is resolved only when its image is read again and no longer reports it. An image that stops running leaves the scope, is no longer read, and keeps its findings as `current`. The scan run's recorded settings are what tell a reader those findings are no longer being refreshed (open question 2).
+**A consequence to know.** A finding is resolved only when its image is read again and no longer reports it. An image that stops running leaves the scope, is no longer read, and keeps its findings as `current`. The scan run's recorded settings are what tell a reader those findings are no longer being refreshed (open question 1).
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-scope-1 | No Scope Reads Everything | Proposed | With no `scope` object the collector reads every image as before. | Open question 1. |
+| req-anchore-scope-1 | Running Only With No Settings | Proposed | With no `scope` object the collector behaves as with `running_only` true and no selectors: it reads the images of every running record; every image is read only when `running_only` is set to false. | A change from the earlier behaviour, by the maintainer's ruling. |
 | req-anchore-scope-2 | Strict Settings | Proposed | The schema refuses an unknown key, an empty list, an account id that is not 12 digits, an empty string, and an `inventory_max_age_hours` below 1. | |
-| req-anchore-scope-3 | Running Only By Default | Proposed | With a `scope` object and `running_only` unset or true, only running records select images; with it false, every listed image that passes the repository filter is read. | |
+| req-anchore-scope-3 | The Switch | Proposed | With `running_only` unset or true, only running records select images; with it false, every listed image that passes the repository filter is read. | |
 | req-anchore-scope-4 | Running Means Seen Recently | Proposed | An inventory record selects and creates only when its `last_seen` is within `inventory_max_age_hours` of the run's start; an ECS container takes the `last_seen` of the inventory item with its context and digest; the rest are counted as `inventory_stale`. | Anchore keeps records for up to 120 days. |
 | req-anchore-scope-5 | Context Prefixes | Proposed | `context_prefixes` selects inventory items whose context begins with a listed prefix, compared as written. | The Kubernetes context format is read from Anchore's documentation and not yet observed. |
 | req-anchore-scope-6 | Accounts From The ARN | Proposed | `aws_account_ids` selects ECS containers whose `arn` names a listed account; no context format is assumed. | |
@@ -387,10 +387,9 @@ With `running_only` false the account and context settings do not narrow the ima
 
 #### Open questions
 
-1. With no `scope` object the collector reads everything, and with one it reads running images only. Should an instance with no settings at all also default to running only?
-2. Should findings of an image that has left the scope be marked in some way, so "current" does not also mean "no longer being read"?
-3. Is 24 hours the right default for `inventory_max_age_hours`? It depends on how often Anchore's agents report, which is unobserved.
-4. Does every ECS container in `/ecs-containers` have a matching `/inventories` item to take `last_seen` from? If not, those containers can never count as running.
+1. Should findings of an image that has left the scope be marked in some way, so "current" does not also mean "no longer being read"?
+2. Is 24 hours the right default for `inventory_max_age_hours`? It depends on how often Anchore's agents report, which is unobserved.
+3. Does every ECS container in `/ecs-containers` have a matching `/inventories` item to take `last_seen` from? If not, those containers can never count as running.
 
 ### Findings And Vulnerabilities
 ----
