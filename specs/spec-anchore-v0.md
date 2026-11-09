@@ -59,7 +59,7 @@ Six consequences shape v0:
 | req-anchore-drift-ci | [Scheduled Drift Check](#scheduled-drift-check) | Proposed | A scheduled workflow compares the vendor's public file with the extract and fails on drift in what we consume |
 | req-anchore-states | [Three States And Resolution](#three-states-and-resolution) | Proposed | Not read is never clean; null is unobserved; a run resolves only what it read |
 | req-anchore-scope-walk | [The Scope Walk](#the-scope-walk) | Proposed | Images, sources and application versions walked with GET calls; what is read at each |
-| req-anchore-scope | [Collection Scope](#collection-scope) | Proposed | Settings that narrow the image walk to what Anchore's inventory reports as running, by AWS account, context prefix and repository prefix, and say which runtime records become nodes; with no settings it reads running images only; out of scope is never clean |
+| req-anchore-scope | [Collection Scope](#collection-scope) | Proposed | Settings that narrow the image walk to what Anchore's inventory reports as running, by AWS account, context prefix and repository prefix, and say which runtime records become nodes; the operator must state running-only or everything; out of scope is never clean |
 | req-anchore-findings | [Findings And Vulnerabilities](#findings-and-vulnerabilities) | In Development | Anchore-owned scanner, scan-run and finding nodes holding Anchore's fields as returned, keyed by what they assert and linked to the shared vulnerability |
 | req-anchore-sbom | [SBOMs](#sboms) | In Development | Three formats stored as documents; CycloneDX parsed into packages under the source-authenticated outcome |
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
@@ -89,7 +89,8 @@ The secret is a plugin secret, not a core one: its consumer is the Anchore colle
 - `account`: the Anchore account the credential reads, part of every key; sent as `x-anchore-account` where the instance needs it. Required.
 - `ca_bundle`: the absolute path of a PEM file on the host, never its contents. Optional.
 - `annotation_allowlist`: annotation keys that may be stored; empty by default. Optional.
-- `scope`, `inventory_max_age_hours`, `create`: which images the collector reads and which runtime records it writes as nodes (`req-anchore-scope`); with none set it reads the images Anchore reports as running. Optional.
+- `scope`: which images the collector reads (`req-anchore-scope`). Required, and within it `running_only` is required: `true` for images Anchore reports as running, `false` for every image on the instance.
+- `inventory_max_age_hours`, `create`: how recent a running record must be, and which runtime records are written as nodes (`req-anchore-scope`). Optional.
 - `scheme`: `basic`, `api_key` or `bearer`, which selects the credential fields and admits no others. `basic` has `username` and `password`; `api_key` has `key`, sent as the user `_api_key` that Anchore documents; `bearer` has `token`, a token already minted and held in the envelope. The client never calls a token endpoint, because obtaining a token is a POST and the client sends only GET; minting and renewing the token is the operator's, out of band, and a change to any value takes effect on restart.
 
 The envelope's description states the least-privilege shape: a read-only Anchore role for the named account. Which of the three schemes the hosted service accepts, and what a read-only credential can read, is unknown until the trial (see the differences ledger).
@@ -313,11 +314,11 @@ Which images the collector reads, and which of Anchore's runtime records it turn
 
 #### Implementation
 
-**Where it is set.** Optional settings in the credential envelope's `data`, beside `annotation_allowlist`, validated by the same schema. They hold no secret. They live in the envelope because tap has no per-run collector configuration yet (`unified-systems-com/tap#907`); the code that reads them carries `# WORKAROUND(unified-systems-com/tap#907)`, and they move when that lands.
+**Where it is set.** Settings in the credential envelope's `data`, beside `annotation_allowlist`, validated by the same schema. They hold no secret. They live in the envelope because tap has no per-run collector configuration yet (`unified-systems-com/tap#907`); the code that reads them carries `# WORKAROUND(unified-systems-com/tap#907)`, and they move when that lands.
 
 | setting | value | default | meaning |
 | --- | --- | --- | --- |
-| `scope.running_only` | boolean | `true` | Read only images Anchore's inventory reports as running; `false` reads every image that passes the repository filter. |
+| `scope.running_only` | boolean | none: required | `true` reads only images Anchore's inventory reports as running; `false` reads every image on the instance that passes the repository filter. |
 | `scope.aws_account_ids` | 12-digit AWS account ids | unset | Running in ECS in one of these accounts. |
 | `scope.context_prefixes` | strings | unset | Running in an inventory context that begins with one of these. |
 | `scope.repository_prefixes` | strings | unset | The image's registry and repository begin with one of these. |
@@ -325,7 +326,9 @@ Which images the collector reads, and which of Anchore's runtime records it turn
 | `create.kubernetes` | boolean | `true` | Write the Kubernetes objects Anchore reports (`req-anchore-inventory-kubernetes`). |
 | `create.ecs` | boolean | `false` | Write `aws_core` ECS nodes the grid does not have yet (`req-anchore-shared`). |
 
-A list setting that is absent is not used. An empty list is refused by the schema, so "select nothing" cannot be configured by accident, and so is an unknown key. The defaults apply with no settings at all: an envelope that says nothing about scope reads running images only (ruled 2026-11-09, maintainer). That changes what an unconfigured collector does: before this requirement it read every image. To read everything, set `scope.running_only` to `false`.
+**`scope.running_only` must be stated.** It has no default: an envelope must carry `scope.running_only`, set to `true` or to `false`, and one that does not fails validation and that instance is not read (ruled 2026-11-09, maintainer). The two choices behave very differently, in volume and in what happens to the findings of an image that stops running, so the operator makes the choice in writing. With `true` and nothing else set, the collector reads everything Anchore reports as running. With `false` it reads every image on the instance. Before this requirement a collector with no settings read every image; an envelope written for that version must add the setting before it is read again.
+
+Every other setting is optional. A list setting that is absent is not used. An empty list is refused by the schema, so "select nothing" cannot be configured by accident, and so is an unknown key.
 
 **What counts as running.** Anchore keeps an inventory record for up to 120 days after its agent last reported it, so presence in the inventory is not evidence of running. A record counts as running when its `last_seen` is within `inventory_max_age_hours` of the run's start. A record with no `last_seen`, or an older one, is not running: it selects nothing, creates nothing, and is counted on the run. Anchore's ECS container records carry no `last_seen` of their own, so an ECS container takes the `last_seen` of the `/inventories` item with the same context and image digest.
 
@@ -369,9 +372,9 @@ With `running_only` false the account and context settings do not narrow the ima
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-scope-1 | Running Only With No Settings | Proposed | With no `scope` object the collector behaves as with `running_only` true and no selectors: it reads the images of every running record; every image is read only when `running_only` is set to false. | A change from the earlier behaviour, by the maintainer's ruling. |
+| req-anchore-scope-1 | Running Only Must Be Stated | Proposed | An envelope without `scope.running_only` fails validation and its instance is not read; with it `true` and no selector the collector reads the images of every running record; with it `false` it reads every image on the instance that passes the repository filter. | No default, by the maintainer's ruling. An envelope from before this requirement needs the setting added. |
 | req-anchore-scope-2 | Strict Settings | Proposed | The schema refuses an unknown key, an empty list, an account id that is not 12 digits, an empty string, and an `inventory_max_age_hours` below 1. | |
-| req-anchore-scope-3 | The Switch | Proposed | With `running_only` unset or true, only running records select images; with it false, every listed image that passes the repository filter is read, and if an account or context selector is also set the run records that those selectors did not narrow the images read. | |
+| req-anchore-scope-3 | The Switch | Proposed | With `running_only` true, only running records select images; with it false, every listed image that passes the repository filter is read, and if an account or context selector is also set the run records that those selectors did not narrow the images read. | |
 | req-anchore-scope-4 | Running Means Seen Recently | Proposed | An inventory record selects and creates only when its `last_seen` is within `inventory_max_age_hours` of the run's start; an ECS container takes the `last_seen` of the inventory item with its context and digest; the rest are counted as `inventory_stale`. | Anchore keeps records for up to 120 days. |
 | req-anchore-scope-5 | Context Prefixes | Proposed | `context_prefixes` selects inventory items whose context begins with a listed prefix, compared as written. | The Kubernetes context format is read from Anchore's documentation and not yet observed. |
 | req-anchore-scope-6 | Accounts From The ARN | Proposed | `aws_account_ids` selects ECS containers whose `arn` names a listed account; no context format is assumed. | |
@@ -566,6 +569,18 @@ Anchore's runtime inventory describes things other plugins collect from the sour
 8. **Dimensions.** A created node carries the dimensions the provider's own collector stamps, so it does not look foreign: the model's `DEFAULT_DIMENSIONS` (`tap.cloud: aws`) and `cloud: aws`, `aws_region` and `aws_account`, read from the node's ARN (`arn:partition:service:region:account:resource`): the region is its fourth colon-separated field and the account its fifth. It never carries `anchore.area`.
 9. **Only well-formed ECS ARNs, and only consistent ones.** Anchore is a second-hand source, and a node created here will look like one AWS reported. So before anything is created: each ARN must be an ECS ARN of the kind its node needs (`arn:<partition>:ecs:<region>:<12-digit account>:container/...`, `task/...`, `service/...` or `cluster/...`); a container's task, and that task's service and cluster, must carry the same partition, region and account as the container; and where `aws_account_ids` is set, that account must be a listed one. A record that fails any of these creates nothing, neither it nor its ancestors, and is counted on the run.
 10. **No EKS cluster.** Anchore reports a cluster name and no ARN, so an EKS cluster is never created.
+
+**Concerns to recognise in the field.** `create.ecs` accepts hazards the missing tap capabilities would have closed (confirmed 2026-11-09, maintainer, with the review's objections on record in `anchore-tap` pull request 28). They are listed here by what an operator would see, so one met in the field can be traced to its cause:
+
+| what you would see | cause | rule | tracked in |
+| --- | --- | --- | --- |
+| An `aws_core` ECS container whose name is the last segment of its ARN, or whose fields are fewer than its neighbours'. | Anchore created it and the AWS collector has not written it since; or both saw it absent and Anchore's write landed second. | 1, 4 | `unified-systems-com/tap#1071`, `#1173` |
+| An ECS node whose values match what Anchore reported long ago and no longer match AWS. | Anchore created it, never updates it, and no AWS collector runs for that account. | 2 | `unified-systems-com/tap#1172` |
+| A container the AWS collector retired is live again as a new node with a new id. | Anchore saw it within `inventory_max_age_hours` and could not see the tombstone. | 5 | `unified-systems-com/tap#1170`, `unified-systems-com/aws-core-tap#211` |
+| Tags on a task or service that were there after Anchore's run are gone after the AWS collector's. | The AWS collector's write replaces the whole tag map; a tag only Anchore reported is discarded. | 3 | `unified-systems-com/tap#1171` |
+| An ECS node with a field history showing this plugin's batch after the AWS collector's. | The read-then-write race: Anchore replaced a node the provider created in between. | 1 | `unified-systems-com/tap#1071` |
+
+A node's field history and provenance say which collector wrote each value and when; that is where to look first. Turning `create.ecs` off stops new cases and repairs none.
 
 **Time.** The three-level time update is unfinished, so for now: `last_seen` from Anchore is stored as reported and is source evidence; the run's own start time is collection time and lives on the scan run; nothing is written to stand for grid time.
 
