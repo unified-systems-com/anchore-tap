@@ -89,7 +89,7 @@ class Instance:
         def answer(request):
             body = self.sboms.get((digest, fmt))
             if body is None:
-                body = {"bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79", "version": 1, "metadata": {"timestamp": "2026-11-03T10:00:00Z"}, "components": [{"name": "a"}, {"name": "b"}]} if fmt == "cyclonedx-json" else {"format": fmt, "digest": digest}
+                body = {"bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79", "version": 1, "metadata": {"timestamp": "2026-11-03T10:00:00Z"}, "components": [{"type": "library", "name": "libx", "version": "1.0", "purl": "pkg:deb/debian/libx@1.0"}, {"type": "library", "name": "liby", "version": "2.1", "purl": "pkg:deb/debian/liby@2.1"}]} if fmt == "cyclonedx-json" else {"format": fmt, "digest": digest}
             return response(200, body)
 
         return answer

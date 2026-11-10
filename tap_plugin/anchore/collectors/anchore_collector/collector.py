@@ -41,6 +41,7 @@ from tap import secrets_root
 
 from tap_cares.collectors import CeilingExceeded, CollectorBase, run_with_ceiling
 from tap_plugin.anchore import kubernetes
+from tap_plugin.computing_core.sbom import SbomParseError, Verification, parse_cyclonedx
 from tap_plugin.anchore import scope as scoping
 from tap_cares.collectors.readiness import CollectorReadinessStatus, CollectorSelfTestResult, check_fail, check_pass
 from tap_plugin.anchore.client import TOTAL_BUDGET_SECONDS, ClientError, ReadOnlyClient, fill
@@ -77,6 +78,7 @@ _SITE_KUBERNETES = "0070"
 _SITE_BASE_IMAGE = "57eb"
 _SITE_RUN_LIMIT = "49b9"
 _SITE_PARENT_DIGEST = "7591"
+_SITE_SBOM_PARSED = "dc6c"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -129,6 +131,14 @@ class _Scanner:
     runs_image: set[tuple[str, str]] = field(default_factory=set)
     #: (image digest, ancestor digest) of each BUILT_ON_IMAGE edge this scanner staged.
     built_on: set[tuple[str, str]] = field(default_factory=set)
+    #: Batch refs of the inventory rows (packages, libraries, operating systems, their edges) staged from parsed SBOMs.
+    inventory_refs: set[str] = field(default_factory=set)
+    #: Content digests of the documents whose parsed inventory this scanner staged (not merely recorded).
+    inventory_documents: set[str] = field(default_factory=set)
+    #: SBOMs parsed into inventory, documents whose inventory was staged, rows staged, and findings joined to a package.
+    sboms_parsed: int = 0
+    sboms_staged: int = 0
+    package_links: int = 0
     #: (index digest, platform image digest) of each INDEXES_PLATFORM_IMAGE edge this scanner staged.
     platform_of: set[tuple[str, str]] = field(default_factory=set)
     #: Images whose vulnerabilities response named a base image, and images read without the base parameter.
@@ -159,6 +169,8 @@ class _Shared:
     runs_image: set[tuple[str, str]] = field(default_factory=set)
     built_on: set[tuple[str, str]] = field(default_factory=set)
     platform_of: set[tuple[str, str]] = field(default_factory=set)
+    inventory_refs: set[str] = field(default_factory=set)
+    inventory_documents: set[str] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
@@ -171,6 +183,8 @@ class _Shared:
         self.runs_image |= scanner.runs_image
         self.built_on |= scanner.built_on
         self.platform_of |= scanner.platform_of
+        self.inventory_refs |= scanner.inventory_refs
+        self.inventory_documents |= scanner.inventory_documents
 
 
 #: The clock the run time limit is measured on; a test replaces it.
@@ -435,7 +449,8 @@ class AnchoreCollector(CollectorBase):
             self._ancestors(client, credential, extract, by_id["image_ancestors"], digest, f"{tag}:a{index}", out, shared, read, not_read)
             self._ensure_host(out, digest, f"{tag}:h{index}", shared)
             self._link_image(out, result.nodes, digest)
-            self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
+            packages = self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
+            self._link_packages(out, result.nodes, packages)
             dropped.extend(result.dropped_fields)
             skipped += result.skipped_entries
             duplicates += result.duplicate_entries
@@ -462,6 +477,8 @@ class AnchoreCollector(CollectorBase):
             not_read.append({"scope": f"image:{gone}", "reason": "no longer in the image list; its findings were left as they were"})
         if out.images_read:
             self.record_info(_SITE_BASE_IMAGE, "BASE_IMAGES", f"{credential.qualified}: Anchore named a base image for {out.images_with_base} of {out.images_read} image(s) read; {out.images_base_refused} were read without the base parameter; {len(out.built_on)} ancestor link(s) written, {out.ancestors_out_of_scope} ancestor(s) outside the repository prefixes not written.", message_data={"images_read": out.images_read, "with_base": out.images_with_base, "base_refused": out.images_base_refused, "ancestor_links": len(out.built_on), "ancestors_out_of_scope": out.ancestors_out_of_scope})
+        if out.sboms_parsed:
+            self.record_info(_SITE_SBOM_PARSED, "SBOMS_PARSED", f"{credential.qualified}: {out.sboms_parsed} CycloneDX SBOM(s) parsed as source-authenticated; the inventory of {out.sboms_staged} was written ({len(out.inventory_refs)} row(s)); {out.package_links} finding(s) joined to a package.", message_data={"parsed": out.sboms_parsed, "staged": out.sboms_staged, "rows": len(out.inventory_refs), "package_links": out.package_links})
         if out.hosts_created:
             self.record_info(_SITE_HOST_CREATED, "IMAGE_HOSTS_CREATED", f"{credential.qualified}: {out.hosts_created} image host(s) did not exist on the grid and were written with only their digest.")
         if out.unlinked_images:
@@ -811,12 +828,15 @@ class AnchoreCollector(CollectorBase):
                 out.edges.append(decompose.edge_to_key(f"{ref}:vuln", "ABOUT_VULNERABILITY__anchore", ref, "compliance_core__compliance_vulnerability", {"vuln_id": node["node"]["vulnerability_id"]}))
                 out.vulnerability_links += 1
 
-    def _sboms(self, client: ReadOnlyClient, credential: Credential, by_id: dict[str, Source], digest: str, ref: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], shared: _Shared) -> None:
+    def _sboms(self, client: ReadOnlyClient, credential: Credential, by_id: dict[str, Source], digest: str, ref: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], shared: _Shared) -> dict[str, tuple[str, str, str]]:
         """Record each SBOM format Anchore serves for an image as a document describing the image host.
 
-        The body is hashed as received and never stored; none is parsed into packages (req-anchore-sbom-4).
+        The body is hashed as received and never stored. The CycloneDX one is also parsed into the
+        image's package inventory where it qualifies as source-authenticated (req-anchore-sbom-2).
         The vendor file calls these bodies strings, which they are not, so they are checked only for being JSON.
+        Returns the image's packages by purl, for joining findings to them; empty when nothing was parsed.
         """
+        packages: dict[str, tuple[str, str, str]] = {}
         for source_id in decompose.SBOM_FORMATS:
             source = by_id[source_id]
             scope = f"sbom:{decompose.SBOM_FORMATS[source_id]}:{digest}"
@@ -843,6 +863,13 @@ class AnchoreCollector(CollectorBase):
                 continue
             node = decompose.sbom_node(f"{ref}:{source_id}", source_id, reply.body, parsed, digest, canonical_root(credential.base_url), credential.account)
             content = node["node"]["content_digest"]
+            if source_id == "sbom_cyclonedx":
+                staged, packages = self._inventory(credential, digest, reply.body, content, out, shared, not_read)
+                if staged:
+                    # The parser's own document row and its edge to the host stand in for this plugin's.
+                    read.append(scope)
+                    out.sboms += 1
+                    continue
             # A document is keyed by the digest of its bytes alone. Bytes already in this batch, or already on the
             # grid (possibly written by another collector, verified and signed), are linked to and never rewritten.
             if content in out.sbom_refs:
@@ -863,6 +890,109 @@ class AnchoreCollector(CollectorBase):
                     out.edges.append(decompose.edge_to_key(edge_ref, "DESCRIBES_HOST__computing_core", doc_ref, "computing_core__host", decompose.host_key(digest)))
                 else:
                     out.edges.append(decompose.edge_between_keys(edge_ref, "DESCRIBES_HOST__computing_core", "computing_core__sbom_document", {"content_digest": content}, "computing_core__host", decompose.host_key(digest)))
+        return packages
+
+    def _inventory(self, credential: Credential, digest: str, body: bytes, content: str, out: _Scanner, shared: _Shared, not_read: list[dict[str, str]]) -> tuple[bool, dict[str, tuple[str, str, str]]]:
+        """Parse a CycloneDX SBOM into the image's inventory with computing_core's parser (req-anchore-sbom-2).
+
+        Returns (whether the parser's rows, its document row included, were staged; the packages by purl).
+
+        The document is unsigned. It is parsed as source-authenticated only when that outcome's
+        three conditions hold (req-computing-core-sbom-source-auth): this client fetched it, with
+        the operator's credential, over verified TLS. Over plain http it is recorded and not parsed.
+        A document the grid holds as refused is not read. One a signer verified, or another collector
+        recorded, is parsed only to learn its packages for the finding joins: nothing of it is staged,
+        so a row another collector wrote is never rewritten. One this plugin already staged for this
+        host is not staged again.
+        """
+        none: tuple[bool, dict[str, tuple[str, str, str]]] = (False, {})
+        if not decompose.OCI_DIGEST.fullmatch(digest):
+            return none
+        if credential.plaintext:
+            not_read.append({"scope": f"sbom-inventory:{digest}", "reason": "the instance is read over plain http, so its SBOM is not source-authenticated; it was recorded and not parsed"})
+            return none
+        if len(credential.scanner_key) > 512:
+            not_read.append({"scope": f"sbom-inventory:{digest}", "reason": "the scanner key is too long to name as the document's source; the SBOM was recorded and not parsed"})
+            return none
+        state = store.sbom_document_state(content)
+        if state is not None and state["verified"] is False:
+            # Not read is never clean: the inventory was deliberately not taken, and the run says so.
+            not_read.append({"scope": f"sbom-inventory:{digest}", "reason": "the grid holds this document as refused by a verifier, so it was not parsed"})
+            return none
+        # The parser names the host by entity id; a host staged in this batch has none yet. A placeholder
+        # derived from the digest stands in, and each edge end that carries it is rewritten to the host's key.
+        placeholder = str(uuid.uuid5(uuid.NAMESPACE_URL, f"anchore-image-host:{digest}"))
+        try:
+            parsed = parse_cyclonedx(body, host_id=placeholder, verification=Verification("source-authenticated", source=credential.scanner_key))
+        except (SbomParseError, ValueError, RecursionError) as exc:
+            not_read.append({"scope": f"sbom-inventory:{digest}", "reason": f"the CycloneDX document was recorded and not parsed ({str(exc)[:200]})"})
+            return none
+        out.sboms_parsed += 1
+        packages = {
+            row.properties["purl"]: (row.properties["ecosystem"], row.properties["name"], row.properties["version"])
+            for row in parsed.nodes_of("computing_core__package")
+            if isinstance(row.properties.get("purl"), str) and row.properties["purl"]
+        }
+        # This scanner's own row: one it staged before (its key is the source), or one this plugin
+        # recorded before it could parse (its note). Another scanner's row, of this plugin or any other, is foreign.
+        ours = (
+            state is not None
+            and state["verified"] is None
+            and not state["signer"]
+            and (
+                state["authenticated_source"] == credential.scanner_key
+                or (not state["authenticated_source"] and state["verification_note"] == decompose.unsigned_note(canonical_root(credential.base_url), credential.account))
+            )
+        )
+        # The same bytes recorded earlier in this batch without being parsed (another scanner read them over
+        # plain http): the batch already holds that document row, so this scanner stages nothing over it.
+        recorded_in_batch = (content in out.sbom_refs or content in shared.documents) and content not in out.inventory_documents and content not in shared.inventory_documents
+        foreign = (state is not None and not ours) or recorded_in_batch
+        already = ours and bool(state["authenticated_source"]) and store.sbom_describes_host(content, digest)
+        if foreign or already:
+            if foreign:
+                # Only the packages the grid really holds, under the same purl, can be joined to.
+                packages = store.packages_on_grid(packages)
+                if state is None or state["verified"] is not True:
+                    not_read.append({"scope": f"sbom-inventory:{digest}", "reason": "another scanner or collector holds this document unverified, so its row was left as it is and no inventory was written from it"})
+            return False, packages
+        host_key = {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}
+        for row in parsed.nodes:
+            if row.ref in out.inventory_refs or row.ref in shared.inventory_refs:
+                continue
+            out.inventory_refs.add(row.ref)
+            staged_node = row.as_grift()
+            if row.entity_type == "computing_core__sbom_document":
+                out.sbom_refs[content] = row.ref
+                # The document may not name what it describes; this read does, by the image it was asked for.
+                staged_node["node"]["subject_digest"] = staged_node["node"].get("subject_digest") or digest
+            out.nodes.append(staged_node)
+        for edge in parsed.edges:
+            if edge.ref in out.inventory_refs or edge.ref in shared.inventory_refs:
+                continue
+            out.inventory_refs.add(edge.ref)
+            staged = edge.as_grift()
+            staged["entity"]["name"] = edge.edge_type
+            for end in ("from", "to"):
+                # Only the placeholder is this image's host; any other id the parser emitted is left as it is.
+                if staged["edge"].get(f"{end}_entity_id") == placeholder:
+                    del staged["edge"][f"{end}_entity_id"]
+                    staged["edge"][f"{end}_key"] = host_key
+            out.edges.append(staged)
+        out.describes.add((content, digest))
+        out.inventory_documents.add(content)
+        out.sboms_staged += 1
+        return True, packages
+
+    def _link_packages(self, out: _Scanner, findings: list[dict[str, Any]], packages: dict[str, tuple[str, str, str]]) -> None:
+        """Join each finding to the package its purl names, among the image's parsed packages (req-anchore-sbom-6)."""
+        for node in findings:
+            key = packages.get(node["node"].get("purl") or "")
+            if key is None:
+                continue
+            ref = node["entity"]["ref"]
+            out.edges.append(decompose.edge_to_key(f"{ref}:package", "FOUND_IN_PACKAGE__anchore", ref, "computing_core__package", {"ecosystem": key[0], "name": key[1], "version": key[2]}))
+            out.package_links += 1
 
     @staticmethod
     def _document(nodes: list[dict[str, Any]], edges: list[dict[str, Any]], written: list[str]) -> dict[str, Any]:
