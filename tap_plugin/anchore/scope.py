@@ -16,6 +16,9 @@ from typing import Any
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 DEFAULT_MAX_AGE_HOURS = 24
+MIB = 1024 * 1024
+#: The response cap when the envelope sets none; the client's own default is the same number.
+DEFAULT_MAX_RESPONSE_MIB = 64
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,10 @@ class Settings:
     inventory_max_age_hours: int = DEFAULT_MAX_AGE_HOURS
     create_kubernetes: bool = True
     create_ecs: bool = False
+    #: The largest response body read, in bytes (req-anchore-limits-1).
+    max_response_bytes: int = DEFAULT_MAX_RESPONSE_MIB * MIB
+    #: Minutes a run may keep starting reads; None is no limit (req-anchore-limits-3).
+    max_run_minutes: int | None = None
 
     @classmethod
     def from_data(cls, data: Mapping[str, Any]) -> Settings:
@@ -45,7 +52,10 @@ class Settings:
         # because tap has no per-run collector configuration yet.
         scope = data["scope"]
         create = data.get("create") or {}
+        limits = data.get("limits") or {}
         return cls(
+            max_response_bytes=limits.get("max_response_mib", DEFAULT_MAX_RESPONSE_MIB) * MIB,
+            max_run_minutes=limits.get("max_run_minutes"),
             running_only=scope["running_only"],
             aws_account_ids=tuple(scope.get("aws_account_ids", ())),
             context_prefixes=tuple(scope.get("context_prefixes", ())),
@@ -70,6 +80,7 @@ class Settings:
             },
             "inventory_max_age_hours": self.inventory_max_age_hours,
             "create": {"kubernetes": self.create_kubernetes, "ecs": self.create_ecs},
+            "limits": {"max_response_mib": self.max_response_bytes // MIB, "max_run_minutes": self.max_run_minutes},
         }
 
 

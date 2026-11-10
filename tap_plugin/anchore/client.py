@@ -202,14 +202,15 @@ class ReadOnlyClient:
         transport: BaseAdapter | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
-        max_bytes: int = MAX_RESPONSE_BYTES,
+        max_bytes: int | None = None,
         timeout: tuple[float, float] = (CONNECT_TIMEOUT, READ_TIMEOUT),
         max_attempts: int = MAX_ATTEMPTS,
     ) -> None:
         self._credential = credential
         self._sleep = sleep
         self._clock = clock
-        self._max_bytes = max_bytes
+        # The operator's cap for this instance (req-anchore-limits-1) unless the caller names one.
+        self._max_bytes = max_bytes if max_bytes is not None else credential.settings.max_response_bytes
         self._timeout = timeout
         self._max_attempts = max_attempts
         session = _Session(credential.base_url, credential.ca_bundle or True)

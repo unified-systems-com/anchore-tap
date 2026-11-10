@@ -30,6 +30,7 @@ Spec: specs/spec-anchore-v0.md (req-anchore-findings, -probe, -selftest, -states
 """
 
 import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -74,6 +75,7 @@ _SITE_ECS_LINK = "2f25"
 _SITE_ECS_CREATE = "b1f6"
 _SITE_KUBERNETES = "0070"
 _SITE_BASE_IMAGE = "57eb"
+_SITE_RUN_LIMIT = "49b9"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -128,6 +130,8 @@ class _Scanner:
     built_on: set[tuple[str, str]] = field(default_factory=set)
     #: Images whose vulnerabilities response named a base image, and images read without the base parameter.
     images_with_base: int = 0
+    #: Images not read because the run reached limits.max_run_minutes.
+    images_out_of_time: int = 0
     #: Ancestors left unwritten because none of their tags is inside repository_prefixes.
     ancestors_out_of_scope: int = 0
     images_base_refused: int = 0
@@ -162,6 +166,10 @@ class _Shared:
         self.describes |= scanner.describes
         self.runs_image |= scanner.runs_image
         self.built_on |= scanner.built_on
+
+
+#: The clock the run time limit is measured on; a test replaces it.
+_monotonic = time.monotonic
 
 
 def _bounded(call: Any, what: str) -> Any:
@@ -281,6 +289,9 @@ class AnchoreCollector(CollectorBase):
             # Allowed on purpose (the operator wrote the scheme), but never silent.
             self.record_warn(_SITE_PLAINTEXT, "PLAINTEXT_TRANSPORT", f"{credential.qualified}: this instance is read over plain http, so the credential and every response cross the network unencrypted.", message_data={"credential": credential.qualified})
 
+        # The run time limit counts from here, the first request (req-anchore-limits-3).
+        limit = credential.settings.max_run_minutes
+        deadline = _monotonic() + limit * 60 if limit is not None else None
         with ReadOnlyClient(credential) as client:
             try:
                 probe = _bounded(lambda: run_probe(client, credential.account, sources, qualified=credential.qualified), "probe")
@@ -301,7 +312,7 @@ class AnchoreCollector(CollectorBase):
             for stale in probe.stale_feeds(started, FEED_MAX_AGE):
                 self.record_warn(_SITE_STALE_FEEDS, "FEED_STALE", f"{credential.qualified}: feed {stale['feed']} group {stale['group']} last synced {stale['age_seconds']} seconds ago.", message_data=stale)
 
-            self._images(client, credential, extract, by_id, run_id, out, read, not_read, tag, shared, started)
+            self._images(client, credential, extract, by_id, run_id, out, read, not_read, tag, shared, started, deadline)
 
         finished = datetime.now(UTC)
         scanner_ref, run_ref = f"{tag}:scanner", f"{tag}:run"
@@ -317,7 +328,7 @@ class AnchoreCollector(CollectorBase):
         out.edges.append(decompose.edge(f"{tag}:run-of", "RUN_OF_SCANNER__anchore", run_ref, scanner_ref))
         return out
 
-    def _images(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], run_id: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], tag: str, shared: _Shared, started: datetime) -> None:
+    def _images(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], run_id: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], tag: str, shared: _Shared, started: datetime, deadline: float | None = None) -> None:
         # The image list is a required source (req-anchore-selftest-6): without it there is no walk, so the
         # scanner stops with nothing written rather than recording a run that read nothing.
         listed, failure = _get_json(client, extract, by_id["images"], by_id["images"].path)
@@ -365,6 +376,12 @@ class AnchoreCollector(CollectorBase):
         for index, digest in enumerate(plan.digests):
             image = chosen[digest]
             scope = f"image:{digest}"
+            if deadline is not None and _monotonic() >= deadline:
+                # Out of time: not read is never clean, so each image left is named and nothing of it is resolved.
+                not_read.append({"scope": scope, "reason": f"not read: the run reached its {settings.max_run_minutes}-minute limit (limits.max_run_minutes)"})
+                out.images_not_read += 1
+                out.images_out_of_time += 1
+                continue
             if image.get("analysis_status") != "analyzed":
                 not_read.append({"scope": scope, "reason": f"analysis_status is {image.get('analysis_status')!r}"})
                 out.images_not_read += 1
@@ -419,9 +436,21 @@ class AnchoreCollector(CollectorBase):
             duplicates += result.duplicate_entries
             uncarried |= result.uncarried_keys
         self._runtime_images(credential, running, out, tag, shared)
-        self._ecs_create(client, credential, extract, by_id, running, out, tag, shared, inventory_read, not_read)
+        # The two steps below make further reads; past the limit they are not started (req-anchore-limits-4).
+        out_of_time = deadline is not None and _monotonic() >= deadline
+        if out_of_time:
+            why = f"not read: the run reached its {settings.max_run_minutes}-minute limit (limits.max_run_minutes)"
+            if settings.create_ecs:
+                not_read.append({"scope": "create:ecs", "reason": why})
+            if settings.create_kubernetes:
+                not_read.append({"scope": "create:kubernetes", "reason": why})
+        else:
+            self._ecs_create(client, credential, extract, by_id, running, out, tag, shared, inventory_read, not_read)
         self._ecs_links(credential, running, out, tag, shared, inventory_read, not_read)
-        self._kubernetes(client, credential, extract, by_id, out, tag, shared, inventory_read, not_read, started)
+        if not out_of_time:
+            self._kubernetes(client, credential, extract, by_id, out, tag, shared, inventory_read, not_read, started)
+        if out_of_time or out.images_out_of_time:
+            self.record_warn(_SITE_RUN_LIMIT, "RUN_TIME_LIMIT_REACHED", f"{credential.qualified}: the run reached its {settings.max_run_minutes}-minute limit; {out.images_out_of_time} image(s) were not read and their findings were left as they were. What was read is written.", message_data={"max_run_minutes": settings.max_run_minutes, "images_not_read": out.images_out_of_time})
         read.extend(inventory_read)
         for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
             # An image that left the list is not a cleared image: its findings stay as they were, and say so.

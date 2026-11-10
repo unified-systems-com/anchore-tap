@@ -77,7 +77,7 @@ class TestRuntimeImage:
 @pytest.mark.django_db
 class TestRunScopeFields:
     def test_a_run_holds_its_settings_and_counts(self):
-        settings = {"scope": {"running_only": True, "context_prefixes": ["prod/"]}, "inventory_max_age_hours": 24, "create": {"kubernetes": True, "ecs": False}}
+        settings = {"scope": {"running_only": True, "context_prefixes": ["prod/"]}, "inventory_max_age_hours": 24, "create": {"kubernetes": True, "ecs": False}, "limits": {"max_response_mib": 64, "max_run_minutes": None}}
         run = _create(
             RUN,
             {
