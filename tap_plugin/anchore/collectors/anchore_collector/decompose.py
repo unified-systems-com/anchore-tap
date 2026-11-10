@@ -224,11 +224,17 @@ def sbom_header(source_id: str, document: Any) -> dict[str, Any]:
 UNSIGNED_NOTE_PREFIX = "unsigned; read from"
 
 
-def sbom_node(ref: str, source_id: str, body: bytes, document: Any, subject_digest: str, api_root: str, account: str) -> dict[str, Any]:
-    """The record that one SBOM existed: the digest of its exact bytes, never the body. Never marked verified."""
+def unsigned_note(api_root: str, account: str) -> str:
+    """The note on a document this plugin records without parsing, naming where it was read from."""
     note = f"{UNSIGNED_NOTE_PREFIX} {api_root} as {account}"
     if len(note) > 255 or re.search(r"[\x00-\x1f\x7f]", note):
         note = f"{UNSIGNED_NOTE_PREFIX} an Anchore instance"
+    return note
+
+
+def sbom_node(ref: str, source_id: str, body: bytes, document: Any, subject_digest: str, api_root: str, account: str) -> dict[str, Any]:
+    """The record that one SBOM existed: the digest of its exact bytes, never the body. Never marked verified."""
+    note = unsigned_note(api_root, account)
     digest = hashlib.sha256(body).hexdigest()
     fields: dict[str, Any] = {
         "content_digest": digest,

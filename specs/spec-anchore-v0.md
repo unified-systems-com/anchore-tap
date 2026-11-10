@@ -499,7 +499,8 @@ Reads `/sboms/native-json`, `/sboms/spdx-json` and `/sboms/cyclonedx-json` per i
 - A document the parser refuses (over its 8 MiB cap, not CycloneDX 1.4 to 1.7, no usable component) is recorded the same way, with the parser's reason.
 - A document the grid already holds as refused is not read at all.
 - A document another collector wrote, verified by a signer or recorded as not observable, is never rewritten and nothing is staged from it. It is parsed only to learn which packages it lists, so findings can be joined to the packages that collector put on the grid.
-- A document this plugin recorded under an earlier release, with the unsigned note, is parsed now and its row is updated.
+- A document this scanner recorded under an earlier release, with the unsigned note naming its own instance and account, is parsed now and its row is updated. A row whose note or source names any other instance, account or collector is another collector's.
+- The same bytes recorded earlier in the same run by a scanner that could not parse them (it reads over plain `http`) are not staged over by a later scanner: the batch holds that one document row, and findings are joined only to packages the grid already holds.
 - A document this plugin has already staged for this image is not staged again. Its inventory is on the grid.
 
 **What is written.** The parser's rows as it returns them: package, library, source-package and operating-system nodes, `INSTALLS_PACKAGE` from the image's host, and its own document row and `DESCRIBES_HOST` edge, which stand in for this plugin's. The parser names the host by entity id, which a host staged in the same batch does not have yet; a placeholder id derived from the digest is passed in and each edge end that carries it is rewritten to the host's natural key. A node shared by several images is staged once per batch. Signed and unsigned inventory share nodes and the last writer wins, as ruled in computing_core.

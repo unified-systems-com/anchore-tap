@@ -21,7 +21,7 @@ from tap_grid.services import create_node
 from tap_plugin.anchore.collectors.anchore_collector import collector as collector_module
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.tests.test_anchore_credential import data, write
-from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, Instance, findings, no_sockets, run_against, secrets, vuln  # noqa: F401 — fixtures
+from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, OTHER, Instance, findings, no_sockets, run_against, secrets, vuln  # noqa: F401 — fixtures
 
 LIBX = "pkg:deb/debian/libx@1.0"
 CDX = {
@@ -137,6 +137,7 @@ class TestAnotherCollectorsDocument:
         [
             {"authenticated_source": '["https://other.example/v2","acct"]'},
             {"verification_note": "unsigned; kept by another collector"},
+            {"verification_note": "unsigned; read from https://other.example/v2 as other-account"},
             {"verification_note": "no attestation was published"},
         ],
     )
@@ -148,6 +149,31 @@ class TestAnotherCollectorsDocument:
         assert {name: getattr(doc, name) for name in fields} == fields
         assert doc.authenticated_source == fields.get("authenticated_source", "")
         assert Package.objects.count() == 0
+
+
+@pytest.mark.django_db
+class TestSharedBytes:
+    def test_one_document_for_two_images_gives_each_host_its_own_edges(self, secrets, monkeypatch):
+        server = instance(images=[{"image_digest": DIGEST, "analysis_status": "analyzed"}, {"image_digest": OTHER, "analysis_status": "analyzed"}])
+        server.sboms[(OTHER, "cyclonedx-json")] = CDX
+        run_against(monkeypatch, server)
+        doc = document()
+        hosts = {h.stable_id: h.entity_id for h in Host.objects.filter(stable_id__in=[DIGEST, OTHER])}
+        assert {e.to_entity_id for e in Edge.objects.filter(edge_type="DESCRIBES_HOST__computing_core", from_entity_id=doc.entity_id)} == set(hosts.values())
+        installs = Edge.objects.filter(edge_type="INSTALLS_PACKAGE__computing_core")
+        assert installs.count() == 4 and {e.from_entity_id for e in installs} == set(hosts.values())
+        assert Package.objects.count() == 2 and SbomDocument.objects.filter(content_digest=CONTENT).count() == 1
+
+    def test_bytes_one_scanner_only_recorded_are_not_staged_over_by_another_in_the_same_run(self, tmp_path, monkeypatch):
+        """An http scanner records the document; an https scanner then sees the same bytes. One row, no
+        inventory staged over it, and no finding joined to a package that is not there."""
+        write(tmp_path, "plain", data("basic", base_url="http://one.example:8228/v2"))
+        write(tmp_path, "tls", data("basic", base_url="https://two.example:8228/v2"))
+        monkeypatch.setattr(collector_module, "secrets_root", types.SimpleNamespace(resolve=lambda: tmp_path))
+        run_against(monkeypatch, instance())
+        assert SbomDocument.objects.filter(content_digest=CONTENT).count() == 1
+        assert Package.objects.count() == 0 and edge_count("FOUND_IN_PACKAGE__anchore") == 0
+        assert len({key[1] for key in findings()}) == 1 and len(findings()) >= 2
 
 
 class TestOnlyThePlaceholderIsRewritten:

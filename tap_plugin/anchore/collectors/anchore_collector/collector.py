@@ -133,6 +133,8 @@ class _Scanner:
     built_on: set[tuple[str, str]] = field(default_factory=set)
     #: Batch refs of the inventory rows (packages, libraries, operating systems, their edges) staged from parsed SBOMs.
     inventory_refs: set[str] = field(default_factory=set)
+    #: Content digests of the documents whose parsed inventory this scanner staged (not merely recorded).
+    inventory_documents: set[str] = field(default_factory=set)
     #: SBOMs parsed into inventory, documents whose inventory was staged, rows staged, and findings joined to a package.
     sboms_parsed: int = 0
     sboms_staged: int = 0
@@ -168,6 +170,7 @@ class _Shared:
     built_on: set[tuple[str, str]] = field(default_factory=set)
     platform_of: set[tuple[str, str]] = field(default_factory=set)
     inventory_refs: set[str] = field(default_factory=set)
+    inventory_documents: set[str] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
@@ -181,6 +184,7 @@ class _Shared:
         self.built_on |= scanner.built_on
         self.platform_of |= scanner.platform_of
         self.inventory_refs |= scanner.inventory_refs
+        self.inventory_documents |= scanner.inventory_documents
 
 
 #: The clock the run time limit is measured on; a test replaces it.
@@ -933,11 +937,17 @@ class AnchoreCollector(CollectorBase):
             state is not None
             and state["verified"] is None
             and not state["signer"]
-            and (state["authenticated_source"] == credential.scanner_key or (not state["authenticated_source"] and state["verification_note"].startswith(decompose.UNSIGNED_NOTE_PREFIX)))
+            and (
+                state["authenticated_source"] == credential.scanner_key
+                or (not state["authenticated_source"] and state["verification_note"] == decompose.unsigned_note(canonical_root(credential.base_url), credential.account))
+            )
         )
-        foreign = state is not None and not ours
+        # The same bytes recorded earlier in this batch without being parsed (another scanner read them over
+        # plain http): the batch already holds that document row, so this scanner stages nothing over it.
+        recorded_in_batch = (content in out.sbom_refs or content in shared.documents) and content not in out.inventory_documents and content not in shared.inventory_documents
+        foreign = (state is not None and not ours) or recorded_in_batch
         already = ours and bool(state["authenticated_source"]) and store.sbom_describes_host(content, digest)
-        if foreign or already or content in shared.documents:
+        if foreign or already:
             if foreign:
                 # Only the packages the grid really holds can be joined to.
                 packages = {purl: key for purl, key in packages.items() if key in store.packages_on_grid(set(packages.values()))}
@@ -966,6 +976,7 @@ class AnchoreCollector(CollectorBase):
                     staged["edge"][f"{end}_key"] = host_key
             out.edges.append(staged)
         out.describes.add((content, digest))
+        out.inventory_documents.add(content)
         out.sboms_staged += 1
         return True, packages
 
