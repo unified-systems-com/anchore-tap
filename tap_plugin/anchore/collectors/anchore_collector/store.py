@@ -70,16 +70,35 @@ ECS_CONTAINER_TYPE = "aws_core__aws_ecs_container"
 ECS_CONTAINER_KEY = "container_arn"
 
 
-def ecs_containers_on_grid(arns: set[str]) -> set[str] | None:
-    """Which of these ARNs name a live aws_core ECS container on the grid; None when aws_core is not installed.
+#: The other aws_core ECS types a run may create (req-anchore-shared), each with its ARN field.
+ECS_TYPES = {
+    "container": (ECS_CONTAINER_TYPE, ECS_CONTAINER_KEY),
+    "task": ("aws_core__aws_ecs_task", "task_arn"),
+    "service": ("aws_core__aws_ecs_service", "service_arn"),
+    "cluster": ("aws_core__aws_ecs_cluster", "cluster_arn"),
+}
 
-    An existence check only: the plugin links to a container it finds and writes no field of it
+
+def aws_nodes_on_grid(entity_type: str, key: str, arns: set[str]) -> set[str] | None:
+    """Which of these ARNs name a live node of an aws_core type on the grid; None when the type is not installed.
+
+    An existence check only: the plugin links to a node it finds and writes no field of it
     (req-anchore-shared-1).
     """
     try:
-        model = get_model_class(ECS_CONTAINER_TYPE)
+        model = get_model_class(entity_type)
     except KeyError:
         return None
     if not arns:
         return set()
-    return set(model.objects.filter(**{f"{ECS_CONTAINER_KEY}__in": arns}).values_list(ECS_CONTAINER_KEY, flat=True))
+    return set(model.objects.filter(**{f"{key}__in": arns}).values_list(key, flat=True))
+
+
+def ecs_containers_on_grid(arns: set[str]) -> set[str] | None:
+    """Which of these ARNs name a live aws_core ECS container on the grid; None when aws_core is not installed."""
+    return aws_nodes_on_grid(ECS_CONTAINER_TYPE, ECS_CONTAINER_KEY, arns)
+
+
+def default_dimensions(entity_type: str) -> dict[str, str]:
+    """The registered model's default dimensions for a type this plugin does not import."""
+    return dict(get_model_class(entity_type).DEFAULT_DIMENSIONS)

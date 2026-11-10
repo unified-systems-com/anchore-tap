@@ -244,3 +244,124 @@ def images_to_read(
     out.images_selected = len(out.digests)
     out.images_out_of_scope = out.images_listed - out.images_selected
     return out
+
+
+#: An ECS ARN. The resource path is one or more names separated by single slashes; ECS names and
+#: ids are letters, digits, hyphens and underscores, so an empty segment or any other character
+#: is not an ECS ARN.
+_ECS_ARN = re.compile(r"^arn:(aws[a-z-]*):ecs:([a-z0-9-]+):([0-9]{12}):(container|task|service|cluster)/([A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)$")
+
+
+@dataclass(frozen=True)
+class EcsArn:
+    """An ECS ARN taken apart: ``arn:<partition>:ecs:<region>:<account>:<kind>/<path>``."""
+
+    partition: str
+    region: str
+    account: str
+    kind: str
+    path: str
+
+    @property
+    def last(self) -> str:
+        """The last path segment: a cluster's or service's name, a task's or container's id."""
+        return self.path.rsplit("/", 1)[-1]
+
+    def same_place(self, other: EcsArn) -> bool:
+        return (self.partition, self.region, self.account) == (other.partition, other.region, other.account)
+
+
+def parse_ecs_arn(arn: Any, kind: str) -> EcsArn | None:
+    """The parts of a well-formed ECS ARN of this resource kind, else None (req-anchore-shared-12)."""
+    match = _ECS_ARN.fullmatch(arn) if isinstance(arn, str) else None
+    if match is None or match.group(4) != kind:
+        return None
+    return EcsArn(match.group(1), match.group(2), match.group(3), kind, match.group(5))
+
+
+def _flat_tags(value: Any) -> dict[str, str] | None:
+    """A tag map as aws_core holds one, string keys to string values, or None when it is not one."""
+    if isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        return dict(value)
+    return None
+
+
+@dataclass
+class EcsPlan:
+    """The ECS nodes a run may create and the edges between them, by ARN (req-anchore-shared, rules 6 to 9).
+
+    Nothing here says a node is absent from the grid: the collector asks that and creates only
+    what is. Each node maps its ARN to the fields Anchore reported for it.
+    """
+
+    containers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    tasks: dict[str, dict[str, Any]] = field(default_factory=dict)
+    services: dict[str, dict[str, Any]] = field(default_factory=dict)
+    clusters: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: (edge kind, from ARN, to ARN): ``RUNS_CONTAINER``, ``RUNS_TASK`` or ``RUNS_SERVICE``.
+    edges: list[tuple[str, str, str]] = field(default_factory=list)
+    #: Selected containers whose own ARN, or an ancestor's, failed a check; nothing is created for them.
+    rejected: int = 0
+
+
+def plan_ecs_creation(
+    containers: Iterable[Mapping[str, Any]],
+    tasks: Iterable[Mapping[str, Any]],
+    services: Iterable[Mapping[str, Any]],
+    settings: Settings,
+) -> EcsPlan:
+    """What ``create.ecs`` may create: the selected containers and the ancestors each leads to by ARN.
+
+    A container is taken only when its ARN is a well-formed ECS container ARN, its account is a
+    listed one where ``aws_account_ids`` is set, and its task, and that task's service and
+    cluster, are well-formed ECS ARNs in the same partition, region and account. One that fails
+    creates nothing, neither it nor its ancestors. A task or service no selected container leads
+    to is never in the plan, whatever the lists hold.
+    """
+    plan = EcsPlan()
+    task_records = {t.get("arn"): t for t in tasks if isinstance(t.get("arn"), str)}
+    service_records = {s.get("arn"): s for s in services if isinstance(s.get("arn"), str)}
+    edges: set[tuple[str, str, str]] = set()
+    for container in containers:
+        arn = parse_ecs_arn(container.get("arn"), "container")
+        task = parse_ecs_arn(container.get("task_arn"), "task")
+        if arn is None or task is None or not arn.same_place(task):
+            plan.rejected += 1
+            continue
+        if settings.aws_account_ids and arn.account not in settings.aws_account_ids:
+            plan.rejected += 1
+            continue
+        task_arn = container["task_arn"]
+        record = task_records.get(task_arn, {})
+        # An empty service or cluster ARN is "none reported"; a present one must be well formed and consistent.
+        service_arn, cluster_arn = record.get("service_arn") or None, record.get("cluster_arn") or None
+        service = parse_ecs_arn(service_arn, "service") if service_arn else None
+        service_record = service_records.get(service_arn, {}) if service_arn else {}
+        service_cluster = service_record.get("cluster_arn") or None
+        if cluster_arn and service_cluster and cluster_arn != service_cluster:
+            # The task and its service name different clusters: Anchore's own records disagree
+            # about the ancestry, so there is no chain to create.
+            plan.rejected += 1
+            continue
+        cluster_arn = cluster_arn or service_cluster
+        cluster = parse_ecs_arn(cluster_arn, "cluster") if cluster_arn else None
+        if (service_arn and (service is None or not arn.same_place(service))) or (cluster_arn and (cluster is None or not arn.same_place(cluster))):
+            plan.rejected += 1
+            continue
+        plan.containers[container["arn"]] = {"image": container.get("image_tag"), "image_digest": container.get("image_digest")}
+        plan.tasks[task_arn] = {
+            "cluster_arn": cluster_arn,
+            "task_definition_arn": record.get("task_definition_arn") or None,
+            "tags": _flat_tags(record.get("tags")),
+        }
+        edges.add(("RUNS_CONTAINER", task_arn, container["arn"]))
+        if service_arn:
+            plan.services[service_arn] = {"tags": _flat_tags(service_record.get("tags"))}
+            edges.add(("RUNS_TASK", service_arn, task_arn))
+        if cluster_arn:
+            plan.clusters[cluster_arn] = {}
+            edges.add(("RUNS_TASK", cluster_arn, task_arn))
+            if service_arn:
+                edges.add(("RUNS_SERVICE", cluster_arn, service_arn))
+    plan.edges = sorted(edges)
+    return plan

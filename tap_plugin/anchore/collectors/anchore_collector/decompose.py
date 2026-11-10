@@ -112,6 +112,29 @@ def edge_between_keys(ref: str, slug: str, from_type: str, from_key: dict[str, s
     }
 
 
+def edge_ends(ref: str, slug: str, source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    """An edge whose ends are each a node of this batch (``{"ref": ...}``) or one named by type and natural key
+    (``{"entity_type": ..., "key": {...}}``), which must already be on the grid."""
+    body: dict[str, Any] = {"edge_type": slug, "properties": {}}
+    for side, end in (("from", source), ("to", target)):
+        if "ref" in end:
+            body[f"{side}_ref"] = end["ref"]
+        else:
+            body[f"{side}_key"] = {"entity_type": end["entity_type"], "key": end["key"]}
+    return {"entity": {"ref": ref, "entity_type": "edge", "name": slug, "dimensions": {}}, "edge": body}
+
+
+def provider_node(ref: str, entity_type: str, name: str, fields: dict[str, Any], default_dimensions: dict[str, str], arn: Any) -> dict[str, Any]:
+    """A node of a provider's type, created because the grid had none (req-anchore-shared, rule 8).
+
+    It carries the dimensions the provider's own collector stamps, so it does not look foreign:
+    the model's defaults, and ``cloud``, ``aws_region`` and ``aws_account`` read from the ARN.
+    It never carries an Anchore dimension.
+    """
+    dimensions = {**default_dimensions, "cloud": "aws", "aws_region": arn.region, "aws_account": arn.account}
+    return {"entity": {"ref": ref, "entity_type": entity_type, "name": name[:255], "dimensions": dimensions}, "node": fields}
+
+
 def host_node(ref: str, digest: str) -> dict[str, Any]:
     """The image host for a digest: the computing_core host with realm oci-digest. Written only where none exists."""
     return envelope(ref, Host, digest, {"realm": IMAGE_REALM, "stable_id": digest, "kind": "container"})
