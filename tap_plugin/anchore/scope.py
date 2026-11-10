@@ -249,7 +249,7 @@ class ImagesToRead:
     images_out_of_scope: int = 0
     #: Selected running digests Anchore's image list does not hold, as an image or as a parent (req-anchore-scope-11).
     not_in_anchore: list[str] = field(default_factory=list)
-    #: Running digest -> the listed image digests this run reads for it (req-anchore-scope-15): itself
+    #: Running digest -> the listed image digests this run reads for it (req-anchore-scope-16): itself
     #: when Anchore lists it as an image, else every image whose ``parent_digest`` it is, else none.
     analyzed_for: dict[str, list[str]] = field(default_factory=dict)
 
@@ -282,7 +282,7 @@ def images_to_read(
     everything.
 
     A running digest matches a listed image by ``image_digest`` or, failing that, by
-    ``parent_digest`` (req-anchore-scope-15). Where one running digest is the parent of several
+    ``parent_digest`` (req-anchore-scope-16). Where one running digest is the parent of several
     listed images (one per platform), all of them are read: none is picked over the others.
     """
     out = ImagesToRead()

@@ -1,4 +1,4 @@
-"""A running digest that is an index is matched to the image Anchore analyzed under it (req-anchore-scope-15).
+"""A running digest that is an index is matched to the image Anchore analyzed under it (req-anchore-scope-16).
 
 A runtime reports the digest a workload was started from; for a multi-platform image that is the
 index. Anchore analyzes one platform's image under its own ``image_digest`` and keeps the index

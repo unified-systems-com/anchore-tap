@@ -552,7 +552,7 @@ class AnchoreCollector(CollectorBase):
             out.edges.append(decompose.edge_to_key(f"{ref}:image", "OBSERVES_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
             out.runtime_images += 1
             # The running digest is an index and Anchore analyzed the platform image(s) under it: join the
-            # two hosts, so what runs the index reaches the findings on the image (req-anchore-scope-15).
+            # two hosts, so what runs the index reaches the findings on the image (req-anchore-scope-16).
             for position, image in enumerate(analyzed):
                 if image == digest or (digest, image) in out.platform_of or (digest, image) in shared.platform_of:
                     continue

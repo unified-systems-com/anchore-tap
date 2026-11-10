@@ -174,7 +174,7 @@ def runtime_image_node(ref: str, scanner_key: str, item: Any, analyzed: list[str
         "context": item["context"],
         "image_digest": item["image_digest"],
         "image_tag": tag if isinstance(tag, str) and len(tag) <= _MAX_IMAGE_TAG else None,
-        # The analyzed images read on this digest's behalf (req-anchore-scope-15); the digest above stays the running one.
+        # The analyzed images read on this digest's behalf (req-anchore-scope-16); the digest above stays the running one.
         "analyzed_digests": analyzed,
     }
     for name in ("created_at", "last_updated", "last_seen"):
