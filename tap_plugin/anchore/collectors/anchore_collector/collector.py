@@ -612,9 +612,12 @@ class AnchoreCollector(CollectorBase):
             entity_type, key = store.ECS_TYPES[kind]
             if arn in out.ecs_created:
                 return {"ref": out.ecs_created[arn]}
+            if arn in shared.ecs_created:
+                # Staged by an earlier scanner of this run: one batch, so its ref is good here too.
+                return {"ref": shared.ecs_created[arn]}
             if arn in existing[kind]:
                 return {"entity_type": entity_type, "key": {key: arn}}
-            return None  # staged by another scanner in this batch: that scanner draws its edges
+            return None
 
         ends = {"RUNS_CONTAINER": ("task", "container"), "RUNS_SERVICE": ("cluster", "service")}
         for number, (slug, source_arn, target_arn) in enumerate(plan.edges):
@@ -651,13 +654,15 @@ class AnchoreCollector(CollectorBase):
             return
         read.append("link:ecs-containers")
         for number, (arn, digest) in enumerate(sorted(by_arn.items())):
-            known = arn in found or arn in out.ecs_created
+            # A container an earlier scanner staged in this batch is as linkable as one this scanner staged.
+            staged = out.ecs_created.get(arn) or shared.ecs_created.get(arn)
+            known = arn in found or staged is not None
             if not known or (arn, digest) in out.runs_image or (arn, digest) in shared.runs_image:
                 continue
             # One relationship, one edge per batch: two scanners can report the same container.
             out.runs_image.add((arn, digest))
             self._ensure_host(out, digest, f"{tag}:eh{number}", shared)
-            source = {"ref": out.ecs_created[arn]} if arn in out.ecs_created else {"entity_type": store.ECS_CONTAINER_TYPE, "key": {store.ECS_CONTAINER_KEY: arn}}
+            source = {"ref": staged} if staged is not None else {"entity_type": store.ECS_CONTAINER_TYPE, "key": {store.ECS_CONTAINER_KEY: arn}}
             out.edges.append(decompose.edge_ends(f"{tag}:el{number}", "RUNS_IMAGE__computing_core", source, {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}))
             out.ecs_links += 1
         unresolved = len(set(by_arn) - found - set(out.ecs_created) - set(shared.ecs_created))

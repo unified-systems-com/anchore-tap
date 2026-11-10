@@ -4,6 +4,8 @@ Against the real aws_core types, which the CI stack installs. The payloads are s
 Anchore's OpenAPI file (2.20.0), not recorded from an instance.
 """
 
+import types
+
 import pytest
 import tap_plugin.anchore.models as anchore  # noqa: F401 — trigger model registration
 import tap_plugin.aws_core.models as aws  # noqa: F401 — trigger model registration
@@ -16,7 +18,9 @@ from tap_grid.registry import get_model_class
 from tap_grid.services import create_node
 from tap_plugin.anchore import scope
 from tap_plugin.anchore.collectors.anchore_collector import store
+from tap_plugin.anchore.collectors.anchore_collector import collector as collector_module
 from tap_plugin.anchore.tests.fakes import response
+from tap_plugin.anchore.tests.test_anchore_credential import data, write
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, OTHER, no_sockets, run_against  # noqa: F401 — no_sockets is autouse
 from tap_plugin.anchore.tests.test_collector_scope import configure, container, item, latest_run, not_read, two_images
 
@@ -163,6 +167,52 @@ class TestCreate:
         instance = standard()
         run_against(monkeypatch, instance)
         assert not [c for c in instance.transport.calls if "/ecs-tasks" in str(c.url) or "/ecs-services" in str(c.url)]
+
+
+@pytest.mark.django_db
+class TestTwoScanners:
+    def test_a_second_scanner_joins_its_task_to_a_cluster_the_first_staged(self, tmp_path, monkeypatch):
+        """Two Anchore instances report tasks under one cluster and service. The first scanner stages the
+        cluster and service; the second must still draw its own task's edges to them."""
+        write(tmp_path, "one", data("basic", base_url="https://one.example:8228/v2", scope={"running_only": True}, **CREATE))
+        write(tmp_path, "two", data("basic", base_url="https://two.example:8228/v2", scope={"running_only": True}, **CREATE))
+        monkeypatch.setattr(collector_module, "secrets_root", types.SimpleNamespace(resolve=lambda: tmp_path))
+        other_task, other_container = f"{BASE}:task/prod/t2", f"{BASE}:container/prod/t2/c2"
+        second = {**container(ACCOUNT, "ctx-a", OTHER), "arn": other_container, "task_arn": other_task}
+
+        def per_host(first, later):
+            return lambda r: response(200, (first if "one.example" in str(r.url) else later) if "page=1" in str(r.url) else {next(iter(first)): []})
+
+        instance = two_images()
+        instance.inventory = [item("ctx-a", DIGEST, kind="ecs"), item("ctx-a", OTHER, kind="ecs")]
+        instance.transport.routes["/ecs-containers"] = per_host({"containers": [container(ACCOUNT, "ctx-a", DIGEST)]}, {"containers": [second]})
+        instance.transport.routes["/ecs-tasks"] = per_host({"tasks": [task()]}, {"tasks": [task(arn=other_task)]})
+        instance.transport.routes["/ecs-services"] = per_host({"services": [service()]}, {"services": [service()]})
+        run_against(monkeypatch, instance)
+        assert [len(nodes(kind)) for kind in ("container", "task", "service", "cluster")] == [2, 2, 1, 1]
+        task_edges = {(e.from_entity.entity_type, e.to_entity.name) for e in Edge.objects.filter(edge_type="RUNS_TASK__aws_core")}
+        assert task_edges == {(TYPES["cluster"], "t1"), (TYPES["service"], "t1"), (TYPES["cluster"], "t2"), (TYPES["service"], "t2")}
+        assert Edge.objects.filter(edge_type="RUNS_SERVICE__aws_core").count() == 1
+
+    def test_a_second_scanner_links_its_image_to_a_container_the_first_staged(self, tmp_path, monkeypatch):
+        """Two Anchore instances report one container ARN with different digests. The first stages the
+        container; the second must still draw its own image edge from it, or say it did not."""
+        write(tmp_path, "one", data("basic", base_url="https://one.example:8228/v2", scope={"running_only": True}, **CREATE))
+        write(tmp_path, "two", data("basic", base_url="https://two.example:8228/v2", scope={"running_only": True}, **CREATE))
+        monkeypatch.setattr(collector_module, "secrets_root", types.SimpleNamespace(resolve=lambda: tmp_path))
+
+        def per_host(first, later):
+            return lambda r: response(200, (first if "one.example" in str(r.url) else later) if "page=1" in str(r.url) else {next(iter(first)): []})
+
+        instance = two_images()
+        instance.inventory = [item("ctx-a", DIGEST, kind="ecs"), item("ctx-a", OTHER, kind="ecs")]
+        instance.transport.routes["/ecs-containers"] = per_host({"containers": [container(ACCOUNT, "ctx-a", DIGEST)]}, {"containers": [container(ACCOUNT, "ctx-a", OTHER)]})
+        instance.transport.routes["/ecs-tasks"] = per_host({"tasks": [task()]}, {"tasks": [task()]})
+        instance.transport.routes["/ecs-services"] = per_host({"services": [service()]}, {"services": [service()]})
+        run_against(monkeypatch, instance)
+        (node,) = nodes("container")
+        runs = Edge.objects.filter(edge_type="RUNS_IMAGE__computing_core", from_entity_id=node.entity_id)
+        assert {Host.objects.get(entity_id=e.to_entity_id).stable_id for e in runs} == {DIGEST, OTHER}
 
 
 @pytest.mark.django_db
