@@ -81,13 +81,17 @@ def sbom_describes_host(content_digest: str, image_digest: str) -> bool:
     return Edge.objects.filter(edge_type="DESCRIBES_HOST__computing_core", from_entity_id=document.entity_id, to_entity_id=host.entity_id, entity__deleted_at__isnull=True).exists()
 
 
-def packages_on_grid(keys: set[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
-    """Which of these ``(ecosystem, name, version)`` package keys the grid holds."""
-    if not keys:
-        return set()
-    names = {name for _, name, _ in keys}
-    held = set(Package.objects.filter(name__in=names).values_list("ecosystem", "name", "version"))
-    return keys & held
+def packages_on_grid(by_purl: dict[str, tuple[str, str, str]]) -> dict[str, tuple[str, str, str]]:
+    """Of these packages by purl, those the grid holds under that key with that same purl.
+
+    The key is ``(ecosystem, name, version)``; two purls can share it and differ in namespace or
+    qualifiers, so the stored purl is compared too and a package that differs is left out.
+    """
+    if not by_purl:
+        return {}
+    names = {name for _, name, _ in by_purl.values()}
+    held = {(ecosystem, name, version): purl for ecosystem, name, version, purl in Package.objects.filter(name__in=names).values_list("ecosystem", "name", "version", "purl")}
+    return {purl: key for purl, key in by_purl.items() if held.get(key) == purl}
 
 
 def sbom_document_exists(content_digest: str) -> bool:

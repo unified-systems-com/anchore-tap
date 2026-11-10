@@ -118,10 +118,22 @@ class TestAnotherCollectorsDocument:
         # The signed parse is whose inventory it is; this plugin staged none, and joins only to what exists.
         assert Package.objects.count() == 0 and edge_count("FOUND_IN_PACKAGE__anchore") == 0
 
+    def test_a_finding_joins_a_signed_documents_package_only_under_the_same_purl(self, secrets, monkeypatch):
+        """The key is ecosystem, name and version; a package there under another purl is not the finding's."""
+        assert create_node("computing_core__sbom_document", {**ON_GRID, "verified": True, "signer": "ci@example.org"}).success
+        assert create_node("computing_core__package", {"ecosystem": "deb", "name": "libx", "version": "1.0", "purl": LIBX}).success
+        assert create_node("computing_core__package", {"ecosystem": "deb", "name": "liby", "version": "2.1", "purl": "pkg:deb/ubuntu/liby@2.1"}).success
+        server = instance()
+        server.vulns[DIGEST] = [vuln("CVE-2024-0001", purl=LIBX), vuln("CVE-2024-0003", package="liby-2.1", path="/usr/lib/liby.so", purl="pkg:deb/debian/liby@2.1")]
+        run_against(monkeypatch, server)
+        joined = [e.to_entity_id for e in Edge.objects.filter(edge_type="FOUND_IN_PACKAGE__anchore")]
+        assert joined == [Package.objects.get(name="libx").entity_id]
+
     def test_a_document_the_grid_holds_as_refused_is_not_parsed(self, secrets, monkeypatch):
         assert create_node("computing_core__sbom_document", {**ON_GRID, "verified": False, "verification_note": "signer-identity"}).success
         collector = run_against(monkeypatch, instance())
         assert document().verified is False and Package.objects.count() == 0
+        assert "refused" in not_read()[f"sbom-inventory:{DIGEST}"]
         assert not [m for m in collector.results["info"] if m["message_code"] == "SBOMS_PARSED"]
 
     def test_a_document_this_plugin_recorded_before_it_could_parse_is_parsed_now(self, secrets, monkeypatch):
@@ -149,6 +161,7 @@ class TestAnotherCollectorsDocument:
         assert {name: getattr(doc, name) for name in fields} == fields
         assert doc.authenticated_source == fields.get("authenticated_source", "")
         assert Package.objects.count() == 0
+        assert "no inventory was written" in not_read()[f"sbom-inventory:{DIGEST}"]
 
 
 @pytest.mark.django_db

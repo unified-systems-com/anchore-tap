@@ -916,6 +916,8 @@ class AnchoreCollector(CollectorBase):
             return none
         state = store.sbom_document_state(content)
         if state is not None and state["verified"] is False:
+            # Not read is never clean: the inventory was deliberately not taken, and the run says so.
+            not_read.append({"scope": f"sbom-inventory:{digest}", "reason": "the grid holds this document as refused by a verifier, so it was not parsed"})
             return none
         # The parser names the host by entity id; a host staged in this batch has none yet. A placeholder
         # derived from the digest stands in, and each edge end that carries it is rewritten to the host's key.
@@ -949,8 +951,10 @@ class AnchoreCollector(CollectorBase):
         already = ours and bool(state["authenticated_source"]) and store.sbom_describes_host(content, digest)
         if foreign or already:
             if foreign:
-                # Only the packages the grid really holds can be joined to.
-                packages = {purl: key for purl, key in packages.items() if key in store.packages_on_grid(set(packages.values()))}
+                # Only the packages the grid really holds, under the same purl, can be joined to.
+                packages = store.packages_on_grid(packages)
+                if state is None or state["verified"] is not True:
+                    not_read.append({"scope": f"sbom-inventory:{digest}", "reason": "another scanner or collector holds this document unverified, so its row was left as it is and no inventory was written from it"})
             return False, packages
         host_key = {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}
         for row in parsed.nodes:
