@@ -14,7 +14,11 @@ or every listed image when the envelope sets ``running_only`` false. Each select
 is written as a runtime image node. An image the scope leaves out is not read and its findings are
 left as they were.
 
-Not in this slice: the ECS link and creation, the Kubernetes objects, VEX and application reads.
+An ECS container Anchore reports is joined to the aws_core container with the same ARN, where the
+grid has one, by ``RUNS_IMAGE`` to its image host; nothing on that container is written
+(req-anchore-shared-1, -2). One the grid does not have is counted.
+
+Not in this slice: creating ECS nodes, the Kubernetes objects, VEX and application reads.
 
 Spec: specs/spec-anchore-v0.md (req-anchore-findings, -probe, -selftest, -states, -scope, -inventory).
 """
@@ -59,6 +63,7 @@ _SITE_PLAINTEXT = "684a"
 _SITE_INVENTORY_NOT_READ = "8828"
 _SITE_SCOPE = "8f55"
 _SITE_INVENTORY_UNUSABLE = "a83a"
+_SITE_ECS_LINK = "2f25"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -96,6 +101,8 @@ class _Scanner:
     sbom_refs: dict[str, str] = field(default_factory=dict)
     describes: set[tuple[str, str]] = field(default_factory=set)
     runtime_images: int = 0
+    ecs_links: int = 0
+    runs_image: set[tuple[str, str]] = field(default_factory=set)
     #: The scope fields the scan run records (req-anchore-scope-14).
     run_fields: dict[str, Any] = field(default_factory=dict)
 
@@ -110,11 +117,13 @@ class _Shared:
     hosts: set[str] = field(default_factory=set)
     documents: set[str] = field(default_factory=set)
     describes: set[tuple[str, str]] = field(default_factory=set)
+    runs_image: set[tuple[str, str]] = field(default_factory=set)
 
     def absorb(self, scanner: _Scanner) -> None:
         self.hosts |= scanner.hosts
         self.documents |= set(scanner.sbom_refs)
         self.describes |= scanner.describes
+        self.runs_image |= scanner.runs_image
 
 
 def _bounded(call: Any, what: str) -> Any:
@@ -198,7 +207,7 @@ class AnchoreCollector(CollectorBase):
             shared.absorb(scanner)
             nodes.extend(scanner.nodes)
             edges.extend(scanner.edges)
-            written.append(f"{credential.qualified}: {scanner.findings} finding(s), {scanner.resolved} resolved, {scanner.images_read} image(s) read, {scanner.images_not_read} not read, {scanner.sboms} SBOM(s) recorded, {scanner.runtime_images} running image record(s)")
+            written.append(f"{credential.qualified}: {scanner.findings} finding(s), {scanner.resolved} resolved, {scanner.images_read} image(s) read, {scanner.images_not_read} not read, {scanner.sboms} SBOM(s) recorded, {scanner.runtime_images} running image record(s), {scanner.ecs_links} ECS container(s) linked")
         if not written:
             self.summary = "No scanner could be read; nothing was written."
             self.record_error(_SITE_NOTHING_WRITTEN, "NOTHING_WRITTEN", self.summary)
@@ -348,6 +357,7 @@ class AnchoreCollector(CollectorBase):
             duplicates += result.duplicate_entries
             uncarried |= result.uncarried_keys
         self._runtime_images(credential, running, out, tag, shared)
+        self._ecs_links(credential, running, out, tag, shared, inventory_read, not_read)
         read.extend(inventory_read)
         for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
             # An image that left the list is not a cleared image: its findings stay as they were, and say so.
@@ -435,6 +445,40 @@ class AnchoreCollector(CollectorBase):
             out.runtime_images += 1
         if unusable or running.no_digest or running.ecs_without_inventory:
             self.record_warn(_SITE_INVENTORY_UNUSABLE, "INVENTORY_RECORDS_NOT_USED", f"{credential.qualified}: {running.no_digest} inventory record(s) named no usable digest, {unusable} named no usable type or context, and {running.ecs_without_inventory} ECS container(s) had no recent inventory item to take a last-seen time from.", message_data={"no_digest": running.no_digest, "unusable": unusable, "ecs_without_inventory": running.ecs_without_inventory})
+
+    def _ecs_links(self, credential: Credential, running: scoping.Running | None, out: _Scanner, tag: str, shared: _Shared, read: list[str], not_read: list[dict[str, str]]) -> None:
+        """Join each selected ECS container to the aws_core container with its ARN, where the grid has one.
+
+        The join is ``RUNS_IMAGE`` from that container to the image host. No field of the container
+        is written and none is created here (req-anchore-shared-1, -2): a container the grid does
+        not hold is counted as unresolved (req-anchore-shared-3). Where aws_core is not installed
+        the join is recorded as not read and the run goes on (req-anchore-shared-4).
+        """
+        if running is None or not running.ecs_containers:
+            return
+        by_arn: dict[str, str] = {}
+        for container in running.ecs_containers:
+            arn = container.get("arn")
+            if isinstance(arn, str) and arn:
+                by_arn.setdefault(arn, container["image_digest"])
+        found = store.ecs_containers_on_grid(set(by_arn))
+        if found is None:
+            not_read.append({"scope": "link:ecs-containers", "reason": "aws_core is not installed, so no ECS container was linked"})
+            self.record_info(_SITE_ECS_LINK, "ECS_LINK_NOT_READ", f"{credential.qualified}: aws_core is not installed; {len(by_arn)} ECS container(s) were not linked.")
+            return
+        read.append("link:ecs-containers")
+        for number, (arn, digest) in enumerate(sorted(by_arn.items())):
+            if arn not in found or (arn, digest) in out.runs_image or (arn, digest) in shared.runs_image:
+                continue
+            # One relationship, one edge per batch: two scanners can report the same container.
+            out.runs_image.add((arn, digest))
+            self._ensure_host(out, digest, f"{tag}:eh{number}", shared)
+            out.edges.append(decompose.edge_between_keys(f"{tag}:el{number}", "RUNS_IMAGE__computing_core", store.ECS_CONTAINER_TYPE, {store.ECS_CONTAINER_KEY: arn}, "computing_core__host", decompose.host_key(digest)))
+            out.ecs_links += 1
+        unresolved = len(set(by_arn) - found)
+        if unresolved:
+            not_read.append({"scope": "link:ecs-containers:unresolved", "reason": f"{unresolved} ECS container(s) have no aws_core container on the grid and were not linked"})
+        self.record_info(_SITE_ECS_LINK, "ECS_LINKED", f"{credential.qualified}: {out.ecs_links} ECS container(s) linked to their image, {unresolved} with no aws_core container on the grid.", message_data={"linked": out.ecs_links, "unresolved": unresolved})
 
     def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared) -> None:
         """Stage the image host for a digest only where neither this batch nor the grid has one.

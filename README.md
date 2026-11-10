@@ -67,6 +67,8 @@ An envelope without it is refused, including one written for v0.1.3. The optiona
 | `inventory_max_age_hours` | How recently Anchore must have seen a record for it to count as running. Default 24. |
 | `create.kubernetes`, `create.ecs` | Read and recorded on the scan run; nothing is written for them yet. |
 
+Where `aws_core` is installed, each selected ECS container is joined to the `aws_core` container with the same ARN by `RUNS_IMAGE` to its image; nothing on that container is written, and one the grid does not have is counted on the scan run.
+
 Account and context settings are a union. An image the scope leaves out is not read, and its findings on
 the grid are left as they were: out of scope is not clean. The scan run records the settings it ran with
 and how many images were listed, selected and left out.
