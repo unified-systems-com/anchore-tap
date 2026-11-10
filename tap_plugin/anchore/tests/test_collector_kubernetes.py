@@ -44,8 +44,8 @@ def cluster(with_kube_system: bool = True):
     instance = two_images()
     namespaces, pods, containers = [namespace("ns-default", "default")], [pod("p1")], [container("p1")]
     if with_kube_system:
-        namespaces.append(namespace("ns-system", "kube-system"))
-        pods.append(pod("p-dns", namespace_uid="ns-system"))
+        namespaces.append(namespace("5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "kube-system"))
+        pods.append(pod("p-dns", namespace_uid="5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f"))
         containers.append(container("p-dns", "coredns", "prod/kube-system", digest=OTHER))
     instance.kubernetes = {"namespaces": ("namespaces", namespaces), "nodes": ("namespaces", [node()]), "pods": ("namespaces", pods), "containers": ("containers", containers)}
     return instance
@@ -65,8 +65,8 @@ class TestKubernetes:
         configure(tmp_path, monkeypatch, {"running_only": True})
         run_against(monkeypatch, cluster())
         (made_cluster,) = all_of("cluster")
-        assert (made_cluster.realm, made_cluster.stable_id, made_cluster.name) == ("kube-system-uid", "ns-system", "prod")
-        assert {(n.uid, n.name) for n in all_of("namespace")} == {("ns-default", "default"), ("ns-system", "kube-system")}
+        assert (made_cluster.realm, made_cluster.stable_id, made_cluster.name) == ("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "prod")
+        assert {(n.uid, n.name) for n in all_of("namespace")} == {("ns-default", "default"), ("5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "kube-system")}
         assert {(p.uid, p.name, json.dumps(p.labels)) for p in all_of("pod")} == {("p1", "p1-name", '{"app": "web"}'), ("p-dns", "p-dns-name", '{"app": "web"}')}
         (made_node,) = all_of("node")
         assert (made_node.uid, made_node.name, made_node.labels) == ("node-1", "ip-10-0-1-2", {"zone": "a"})
@@ -130,7 +130,7 @@ class TestKubernetes:
         run_against(monkeypatch, cluster())
         assert [c.name for c in all_of("container")] == ["web"]
         assert [n.name for n in all_of("namespace")] == ["default"]
-        assert [(c.realm, c.stable_id) for c in all_of("cluster")] == [("kube-system-uid", "ns-system")]
+        assert [(c.realm, c.stable_id) for c in all_of("cluster")] == [("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f")]
 
     def test_a_pod_not_seen_recently_is_not_written(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True}, inventory_max_age_hours=6)

@@ -400,13 +400,16 @@
                 ]
                },
                "enterprise_version": {
-                "type": "string"
+                "type": "string",
+                "nullable": true
                },
                "host_id": {
-                "type": "string"
+                "type": "string",
+                "nullable": true
                },
                "service_name": {
-                "type": "string"
+                "type": "string",
+                "nullable": true
                }
               }
              },
@@ -435,13 +438,16 @@
              "type": "object",
              "properties": {
               "arch": {
-               "type": "string"
+               "type": "string",
+               "nullable": true
               },
               "distro": {
-               "type": "string"
+               "type": "string",
+               "nullable": true
               },
               "distro_version": {
-               "type": "string"
+               "type": "string",
+               "nullable": true
               },
               "dockerfile_mode": {
                "type": "string",
@@ -451,14 +457,17 @@
                ]
               },
               "extended_support": {
-               "type": "boolean"
+               "type": "boolean",
+               "nullable": true
               },
               "image_size": {
                "type": "integer",
-               "format": "int64"
+               "format": "int64",
+               "nullable": true
               },
               "layer_count": {
-               "type": "integer"
+               "type": "integer",
+               "nullable": true
               }
              }
             }
@@ -539,7 +548,21 @@
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "nullable": [
+     "items[].analysis_status_detail[].source.enterprise_version",
+     "items[].analysis_status_detail[].source.host_id",
+     "items[].analysis_status_detail[].source.service_name",
+     "items[].image_content.metadata.arch",
+     "items[].image_content.metadata.distro",
+     "items[].image_content.metadata.distro_version",
+     "items[].image_content.metadata.extended_support",
+     "items[].image_content.metadata.image_size",
+     "items[].image_content.metadata.layer_count"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
@@ -618,13 +641,16 @@
              ]
             },
             "enterprise_version": {
-             "type": "string"
+             "type": "string",
+             "nullable": true
             },
             "host_id": {
-             "type": "string"
+             "type": "string",
+             "nullable": true
             },
             "service_name": {
-             "type": "string"
+             "type": "string",
+             "nullable": true
             }
            }
           },
@@ -653,13 +679,16 @@
           "type": "object",
           "properties": {
            "arch": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
            },
            "distro": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
            },
            "distro_version": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
            },
            "dockerfile_mode": {
             "type": "string",
@@ -669,14 +698,17 @@
             ]
            },
            "extended_support": {
-            "type": "boolean"
+            "type": "boolean",
+            "nullable": true
            },
            "image_size": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "nullable": true
            },
            "layer_count": {
-            "type": "integer"
+            "type": "integer",
+            "nullable": true
            }
           }
          }
@@ -754,7 +786,21 @@
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "nullable": [
+     "analysis_status_detail[].source.enterprise_version",
+     "analysis_status_detail[].source.host_id",
+     "analysis_status_detail[].source.service_name",
+     "image_content.metadata.arch",
+     "image_content.metadata.distro",
+     "image_content.metadata.distro_version",
+     "image_content.metadata.extended_support",
+     "image_content.metadata.image_size",
+     "image_content.metadata.layer_count"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
@@ -910,11 +956,13 @@
               "affected",
               "fixed",
               "under_investigation"
-             ]
+             ],
+             "nullable": true
             },
             "annotation_uuid": {
              "type": "string",
-             "format": "uuid"
+             "format": "uuid",
+             "nullable": true
             },
             "description": {
              "type": "string"
@@ -1060,7 +1108,8 @@
              "type": "string"
             },
             "suggested_fix_version": {
-             "type": "string"
+             "type": "string",
+             "nullable": true
             },
             "url": {
              "type": "string"
@@ -1179,7 +1228,15 @@
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "nullable": [
+     "vulnerabilities[].annotation_status",
+     "vulnerabilities[].annotation_uuid",
+     "vulnerabilities[].suggested_fix_version"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
@@ -4455,11 +4512,13 @@
             "affected",
             "fixed",
             "under_investigation"
-           ]
+           ],
+           "nullable": true
           },
           "annotation_uuid": {
            "type": "string",
-           "format": "uuid"
+           "format": "uuid",
+           "nullable": true
           },
           "description": {
            "type": "string"
@@ -4605,7 +4664,8 @@
            "type": "string"
           },
           "suggested_fix_version": {
-           "type": "string"
+           "type": "string",
+           "nullable": true
           },
           "url": {
            "type": "string"
@@ -4714,7 +4774,15 @@
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "nullable": [
+     "vulnerabilities[].annotation_status",
+     "vulnerabilities[].annotation_uuid",
+     "vulnerabilities[].suggested_fix_version"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
@@ -9598,8 +9666,7 @@
          "required": [
           "annotations",
           "labels",
-          "name",
-          "uid"
+          "name"
          ],
          "properties": {
           "annotations": {
@@ -9622,14 +9689,38 @@
           },
           "uid": {
            "type": "string"
+          },
+          "id": {
+           "type": "string"
           }
-         }
+         },
+         "anyOf": [
+          {
+           "required": [
+            "uid"
+           ]
+          },
+          {
+           "required": [
+            "id"
+           ]
+          }
+         ]
         }
        }
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "either": [
+     [
+      "namespaces[].uid",
+      "id"
+     ]
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: no uid is sent; the identifier is id, which the file does not declare"
+   }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
@@ -9672,8 +9763,7 @@
          "required": [
           "annotations",
           "labels",
-          "name",
-          "uid"
+          "name"
          ],
          "properties": {
           "annotations": {
@@ -9696,14 +9786,91 @@
           },
           "uid": {
            "type": "string"
+          },
+          "id": {
+           "type": "string"
           }
-         }
+         },
+         "anyOf": [
+          {
+           "required": [
+            "uid"
+           ]
+          },
+          {
+           "required": [
+            "id"
+           ]
+          }
+         ]
+        }
+       },
+       "nodes": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "annotations",
+          "labels",
+          "name"
+         ],
+         "properties": {
+          "annotations": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "labels": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "last_seen": {
+           "type": "string"
+          },
+          "name": {
+           "type": "string"
+          },
+          "uid": {
+           "type": "string"
+          },
+          "id": {
+           "type": "string"
+          }
+         },
+         "anyOf": [
+          {
+           "required": [
+            "uid"
+           ]
+          },
+          {
+           "required": [
+            "id"
+           ]
+          }
+         ]
         }
        }
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "either": [
+     [
+      "namespaces[].uid",
+      "id"
+     ],
+     [
+      "namespaces",
+      "nodes"
+     ]
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: no uid is sent, and the list comes under nodes, not namespaces"
+   }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
@@ -9783,11 +9950,65 @@
           }
          }
         }
+       },
+       "pods": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "account_name",
+          "annotations",
+          "id",
+          "labels",
+          "name"
+         ],
+         "properties": {
+          "account_name": {
+           "type": "string"
+          },
+          "annotations": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "id": {
+           "type": "string"
+          },
+          "labels": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "last_seen": {
+           "type": "string"
+          },
+          "name": {
+           "type": "string"
+          },
+          "namespace_id": {
+           "type": "string"
+          },
+          "node_id": {
+           "type": "string"
+          }
+         }
+        }
        }
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "either": [
+     [
+      "namespaces",
+      "pods"
+     ]
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: the list comes under pods, not namespaces; the fields match"
+   }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",

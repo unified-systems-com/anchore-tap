@@ -24,10 +24,10 @@ def pod(uid: str, namespace: str = "ns-default", node: str | None = "node-1", ho
     return record
 
 
-NAMESPACES = [{"uid": "ns-default", "name": "default", "labels": {}}, {"uid": "ns-system", "name": "kube-system", "labels": {"k": "v"}}]
+NAMESPACES = [{"uid": "ns-default", "name": "default", "labels": {}}, {"uid": "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "name": "kube-system", "labels": {"k": "v"}}]
 NODES = [{"uid": "node-1", "name": "ip-10-0-1-2", "labels": {"zone": "a"}}]
 SYSTEM = [container("p-dns", "coredns", "prod/kube-system")]
-SYSTEM_PODS = [pod("p-dns", namespace="ns-system")]
+SYSTEM_PODS = [pod("p-dns", namespace="5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f")]
 
 
 def settings(**over) -> scope.Settings:
@@ -41,8 +41,8 @@ def planned(containers, pods, **over):
 class TestChain:
     def test_a_container_leads_to_its_pod_namespace_node_and_cluster(self):
         got = planned([container("p1"), *SYSTEM], [pod("p1"), *SYSTEM_PODS])
-        cluster = ("kube-system-uid", "ns-system")
-        assert got.clusters == {cluster: {"realm": "kube-system-uid", "stable_id": "ns-system", "name": "prod"}}
+        cluster = ("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f")
+        assert got.clusters == {cluster: {"realm": "kube-system-uid", "stable_id": "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "name": "prod"}}
         assert got.containers[("p1", "web")] == {"pod_uid": "p1", "name": "web", "container_id": "containerd://p1-web", "image_reference": "registry.example/app:1"}
         assert got.pods["p1"] == {"uid": "p1", "name": "p1-name", "labels": {"app": "web"}}
         assert got.namespaces["ns-default"] == {"uid": "ns-default", "name": "default", "labels": {}}
@@ -88,7 +88,7 @@ class TestClusterIdentity:
         assert one != two and one[0] == two[0] == "anchore-inventory"
 
     def test_two_kube_system_uids_under_one_name_are_not_trusted(self):
-        pods = [pod("p1"), pod("p-a", namespace="ns-system"), pod("p-b", namespace="ns-other-system")]
+        pods = [pod("p1"), pod("p-a", namespace="5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f"), pod("p-b", namespace="ns-other-system")]
         got = planned([container("p1"), container("p-a", "dns", "prod/kube-system"), container("p-b", "dns", "prod/kube-system")], pods)
         assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
 
@@ -113,7 +113,7 @@ class TestClusterIdentity:
 
     def test_the_identity_does_not_depend_on_the_scope(self):
         got = planned([container("p1", context="prod/payments"), *SYSTEM], [pod("p1"), *SYSTEM_PODS], context_prefixes=("prod/payments",))
-        assert list(got.clusters) == [("kube-system-uid", "ns-system")]
+        assert list(got.clusters) == [("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f")]
         assert set(got.containers) == {("p1", "web")}
 
     def test_a_key_too_long_for_the_column_writes_no_cluster(self):
@@ -143,3 +143,36 @@ class TestScopeAndFreshness:
     def test_labels_that_are_not_a_string_map_are_unobserved(self):
         got = planned([container("p1")], [pod("p1", labels={"replicas": 3})])
         assert got.pods["p1"]["labels"] is None
+
+
+SYSTEM_UID = "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f"
+
+
+class TestIdentifierNames:
+    """A real instance returns a namespace's identifier as ``id`` where the vendor's file says ``uid``
+    (req-anchore-inventory-kubernetes-13). Every identifier is read under either name."""
+
+    def test_namespaces_and_nodes_keyed_by_id_are_found(self):
+        namespaces = [{"id": "ns-default", "name": "default", "labels": {}, "cluster_name": "prod", "account_name": "acct"}, {"id": SYSTEM_UID, "name": "kube-system", "labels": {}}]
+        nodes = [{"id": "node-1", "name": "ip-10-0-1-2", "labels": {}}]
+        got = kubernetes.plan([container("p1"), *SYSTEM], [pod("p1"), *SYSTEM_PODS], namespaces, nodes, settings(), NOW, KEY)
+        assert set(got.namespaces) == {"ns-default", SYSTEM_UID} and set(got.nodes) == {"node-1"}
+        assert list(got.clusters) == [("kube-system-uid", SYSTEM_UID)]
+
+    def test_the_vendors_name_wins_where_a_record_carries_both(self):
+        namespaces = [{"uid": "ns-default", "id": "17", "name": "default", "labels": {}}]
+        got = kubernetes.plan([container("p1")], [pod("p1")], namespaces, NODES, settings(), NOW, KEY)
+        assert set(got.namespaces) == {"ns-default"}
+
+    def test_pod_and_reference_identifiers_are_read_under_either_name(self):
+        pods = [{"uid": "p1", "name": "p1-name", "labels": {}, "namespace_uid": "ns-default", "node_uid": "node-1", "last_seen": ago(1)}]
+        containers = [{"id": "containerd://x", "name": "web", "pod_uid": "p1", "context": "prod/default", "image_tag": "registry.example/app:1", "image_digest": D1}]
+        got = planned(containers, pods)
+        assert set(got.containers) == {("p1", "web")} and set(got.namespaces) == {"ns-default"} and set(got.nodes) == {"node-1"}
+
+    def test_a_kube_system_identifier_that_is_not_a_kubernetes_uid_does_not_key_the_cluster(self):
+        """An instance could return its own row id under ``id``; only a UUID is a namespace UID."""
+        namespaces = [{"id": "ns-default", "name": "default", "labels": {}}, {"id": "42", "name": "kube-system", "labels": {}}]
+        got = kubernetes.plan([container("p1"), container("p-dns", "coredns", "prod/kube-system")], [pod("p1"), pod("p-dns", namespace="42")], namespaces, NODES, settings(), NOW, KEY)
+        assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
+        assert "42" in got.namespaces
