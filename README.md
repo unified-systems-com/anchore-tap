@@ -74,6 +74,17 @@ Account and context settings are a union. An image the scope leaves out is not r
 the grid are left as they were: out of scope is not clean. The scan run records the settings it ran with
 and how many images were listed, selected and left out.
 
+## Base image or application
+
+Each image's vulnerabilities are read with `base_digest=auto`, so Anchore works out the image's
+base image and marks each finding `inherited_from_base`: true when the vulnerable package came
+with the base, false when it was added on top. The finding also records `base_digest`, the base
+Anchore compared against. An image is joined to the images it was built on by
+`BUILT_ON_IMAGE__anchore`.
+
+Anchore can only name a base it has itself analyzed. Where it names none, the flag is empty,
+which means unobserved, not "no base". Add your base images to Anchore to fill it.
+
 ## Running the collector
 
 The collector reads every credential in scope `anchore` under the secrets root, so do the first session above

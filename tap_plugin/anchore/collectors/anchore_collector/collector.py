@@ -73,6 +73,7 @@ _SITE_INVENTORY_UNUSABLE = "a83a"
 _SITE_ECS_LINK = "2f25"
 _SITE_ECS_CREATE = "b1f6"
 _SITE_KUBERNETES = "0070"
+_SITE_BASE_IMAGE = "57eb"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -123,6 +124,11 @@ class _Scanner:
     runtime_images: int = 0
     ecs_links: int = 0
     runs_image: set[tuple[str, str]] = field(default_factory=set)
+    #: (image digest, ancestor digest) of each BUILT_ON_IMAGE edge this scanner staged.
+    built_on: set[tuple[str, str]] = field(default_factory=set)
+    #: Images whose vulnerabilities response named a base image, and images read without the base parameter.
+    images_with_base: int = 0
+    images_base_refused: int = 0
     #: ARN -> batch ref of each aws_core ECS node this scanner staged for creation.
     ecs_created: dict[str, str] = field(default_factory=dict)
     #: (kind, natural key) -> batch ref of each Kubernetes object, node host or edge this scanner staged.
@@ -142,6 +148,7 @@ class _Shared:
     documents: set[str] = field(default_factory=set)
     describes: set[tuple[str, str]] = field(default_factory=set)
     runs_image: set[tuple[str, str]] = field(default_factory=set)
+    built_on: set[tuple[str, str]] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
@@ -152,6 +159,7 @@ class _Shared:
         self.documents |= set(scanner.sbom_refs)
         self.describes |= scanner.describes
         self.runs_image |= scanner.runs_image
+        self.built_on |= scanner.built_on
 
 
 def _bounded(call: Any, what: str) -> Any:
@@ -164,6 +172,13 @@ class Failure:
 
     reason: str
     incompatible: bool = False
+    #: The HTTP status, when the instance answered with one that is not 200.
+    status: int | None = None
+
+    @property
+    def refused(self) -> bool:
+        """The instance turned the request itself down (a 4xx that is not about who is asking)."""
+        return self.status is not None and 400 <= self.status < 500 and self.status not in (401, 403)
 
 
 def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, path: str, params: dict[str, Any] | None = None) -> tuple[Any, Failure | None]:
@@ -175,7 +190,7 @@ def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, p
     except ClientError as exc:
         return None, Failure(f"not read ({type(exc).__name__})")
     if reply.status != 200:
-        return None, Failure(f"HTTP {reply.status}")
+        return None, Failure(f"HTTP {reply.status}", status=reply.status)
     try:
         body = json.loads(reply.body)
     except ValueError:
@@ -348,7 +363,16 @@ class AnchoreCollector(CollectorBase):
                 not_read.append({"scope": scope, "reason": f"analysis_status is {image.get('analysis_status')!r}"})
                 out.images_not_read += 1
                 continue
-            body, failure = _get_json(client, extract, by_id["image_vulnerabilities"], fill(by_id["image_vulnerabilities"].path, image_digest=digest, vuln_type="all"))
+            vuln_path = fill(by_id["image_vulnerabilities"].path, image_digest=digest, vuln_type="all")
+            # Ask Anchore to work out the base image, so each finding says whether the base held it
+            # (req-anchore-base-image-1). An instance that turns the parameter down is read without it.
+            body, failure = _get_json(client, extract, by_id["image_vulnerabilities"], vuln_path, params={"base_digest": "auto"})
+            if failure is not None and failure.refused:
+                refused = failure.reason
+                body, failure = _get_json(client, extract, by_id["image_vulnerabilities"], vuln_path)
+                if failure is None:
+                    out.images_base_refused += 1
+                    not_read.append({"scope": f"base:{digest}", "reason": f"the instance refused base_digest=auto ({refused}); the findings were read without base-image attribution"})
             if failure is not None and failure.incompatible:
                 # A response that does not have the committed shape is not a transient failure: the contract this
                 # collector parses no longer describes the instance, so no image of it is trusted this run.
@@ -363,7 +387,10 @@ class AnchoreCollector(CollectorBase):
                 self._ensure_host(out, digest, f"{tag}:h{index}", shared)
                 self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
                 continue
-            result = decompose.decompose_image(vulns, credential.scanner_key, digest, run_id, f"{tag}:f{index}")
+            base = body.get("base_digest")
+            base = base if isinstance(base, str) and decompose.OCI_DIGEST.fullmatch(base) and base != digest else None
+            out.images_with_base += base is not None
+            result = decompose.decompose_image(vulns, credential.scanner_key, digest, run_id, f"{tag}:f{index}", base)
             out.nodes.extend(result.nodes)
             out.findings += len(result.nodes)
             if result.skipped_entries:
@@ -377,6 +404,7 @@ class AnchoreCollector(CollectorBase):
                         out.resolved += 1
             out.images_read += 1
             read.append(scope)
+            self._ancestors(client, credential, extract, by_id["image_ancestors"], digest, f"{tag}:a{index}", out, shared, read, not_read)
             self._ensure_host(out, digest, f"{tag}:h{index}", shared)
             self._link_image(out, result.nodes, digest)
             self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
@@ -392,6 +420,8 @@ class AnchoreCollector(CollectorBase):
         for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
             # An image that left the list is not a cleared image: its findings stay as they were, and say so.
             not_read.append({"scope": f"image:{gone}", "reason": "no longer in the image list; its findings were left as they were"})
+        if out.images_read:
+            self.record_info(_SITE_BASE_IMAGE, "BASE_IMAGES", f"{credential.qualified}: Anchore named a base image for {out.images_with_base} of {out.images_read} image(s) read; {out.images_base_refused} were read without the base parameter; {len(out.built_on)} ancestor link(s) written.", message_data={"images_read": out.images_read, "with_base": out.images_with_base, "base_refused": out.images_base_refused, "ancestor_links": len(out.built_on)})
         if out.hosts_created:
             self.record_info(_SITE_HOST_CREATED, "IMAGE_HOSTS_CREATED", f"{credential.qualified}: {out.hosts_created} image host(s) did not exist on the grid and were written with only their digest.")
         if out.unlinked_images:
@@ -669,6 +699,32 @@ class AnchoreCollector(CollectorBase):
         if unresolved:
             not_read.append({"scope": "link:ecs-containers:unresolved", "reason": f"{unresolved} ECS container(s) have no aws_core container on the grid and were not linked"})
         self.record_info(_SITE_ECS_LINK, "ECS_LINKED", f"{credential.qualified}: {out.ecs_links} ECS container(s) linked to their image, {unresolved} with no aws_core container on the grid.", message_data={"linked": out.ecs_links, "unresolved": unresolved})
+
+    def _ancestors(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], source: Source, digest: str, ref: str, out: _Scanner, shared: _Shared, read: list[str], not_read: list[dict[str, str]]) -> None:
+        """Join an image to each image Anchore says forms its base layers (req-anchore-base-image-4, -5).
+
+        ``BUILT_ON_IMAGE`` from this image's host to the ancestor's. An ancestor is a fact about the
+        image's layers, so its host is written as a digest-only stub wherever the grid has none,
+        whether or not the ancestor is itself in scope. A read that fails writes nothing and is
+        recorded; it never fails the image.
+        """
+        if not decompose.OCI_DIGEST.fullmatch(digest):
+            return
+        body, failure = _get_json(client, extract, source, fill(source.path, image_digest=digest))
+        if failure is not None or not isinstance(body, list):
+            not_read.append({"scope": f"ancestors:{digest}", "reason": failure.reason if failure is not None else "the response held no ancestor list"})
+            return
+        read.append(f"ancestors:{digest}")
+        for number, entry in enumerate(body):
+            ancestor = entry.get("image_digest") if isinstance(entry, dict) else None
+            if not isinstance(ancestor, str) or not decompose.OCI_DIGEST.fullmatch(ancestor) or ancestor == digest:
+                continue
+            if (digest, ancestor) in out.built_on or (digest, ancestor) in shared.built_on:
+                continue
+            out.built_on.add((digest, ancestor))
+            self._ensure_host(out, digest, f"{ref}:{number}:image", shared)
+            self._ensure_host(out, ancestor, f"{ref}:{number}:host", shared)
+            out.edges.append(decompose.edge_between_keys(f"{ref}:{number}", "BUILT_ON_IMAGE__anchore", "computing_core__host", decompose.host_key(digest), "computing_core__host", decompose.host_key(ancestor)))
 
     def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared) -> None:
         """Stage the image host for a digest only where neither this batch nor the grid has one.

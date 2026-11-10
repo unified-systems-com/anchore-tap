@@ -87,7 +87,19 @@
         "vulnerabilities[].purl",
         "vulnerabilities[].feed",
         "vulnerabilities[].feed_group",
-        "vulnerabilities[].annotation_status"
+        "vulnerabilities[].annotation_status",
+        "base_digest",
+        "vulnerabilities[].inherited_from_base"
+      ]
+    },
+    {
+      "id": "image_ancestors",
+      "path": "/images/{image_digest}/ancestors",
+      "scope": "image",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "[].image_digest"
       ]
     },
     {

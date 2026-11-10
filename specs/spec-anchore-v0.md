@@ -65,6 +65,7 @@ Six consequences shape v0:
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
 | req-anchore-vex | [VEX Annotations](#vex-annotations) | Proposed | One annotation type for image and application-version scope, with edges to its scope and its subject |
 | req-anchore-policy-result | [Policy Results](#policy-results) | Proposed | Version-level policy status and counts stored on the application version |
+| req-anchore-base-image | [Base Image Attribution](#base-image-attribution) | In Development | Each finding says whether its package came with the base image and which base; an image is joined to the images it was built on |
 | req-anchore-inventory | [Runtime Inventory: Images In Use](#runtime-inventory-images-in-use) | In Development | The flat list of images in use, per context, with when each was last seen |
 | req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | In Development | Cluster, namespace, node, pod and container written into `computing_core`'s Kubernetes types when `create.kubernetes` is on, joined to the image host |
 | req-anchore-shared | [Shared Nodes With Provider Collectors](#shared-nodes-with-provider-collectors) | Proposed | The provider collector wins. Anchore never writes an existing provider-owned node; by default it only links, and with `create.ecs` it creates the ECS nodes the grid lacks |
@@ -523,6 +524,38 @@ From `GET /apps/{app_id}/versions/{version_id}/policy/status` and the policy-fin
 | --- | --- | --- | --- | --- |
 | req-anchore-policy-result-1 | Status On The Version | Proposed | `policy_status`, `policy_id`, `policy_evaluated_at` and finding counts are properties of `anchore_app_version`. | |
 | req-anchore-policy-result-2 | Unevaluated Is Null | Proposed | A version Anchore has not evaluated has `null` policy fields, not a passing status. | |
+
+### Base Image Attribution
+----
+RID: `req-anchore-base-image`
+
+Status: `In Development`
+
+A finding says whether the vulnerable package came with the image's base image or was added on top of it, and an image is joined to the images it was built on. Anchore works both out from the layers it holds; this plugin asks for them and records what it is told. Nothing here is derived from an SBOM: an SBOM lists what is in an image, not which layer each thing arrived in.
+
+#### Implementation
+
+Everything Anchore-shaped below is from the vendor's OpenAPI file (2.20.0) and not from a recorded response.
+
+- **The read.** The image vulnerabilities read (`GET /images/{image_digest}/vuln/{vuln_type}`) is sent with `base_digest=auto`. The vendor's file: "If specified the vulnerabilities will indicate inheritance from the base image. Can specify `auto` to have the base image automatically calculated."
+- **An instance that refuses the parameter.** If that read is answered with a 4xx other than 401 or 403, it is made once more without the parameter. When the second read succeeds the findings are written without attribution and the image is recorded as not read under `base:<digest>`. Any other failure is not retried this way.
+- **On the finding.** `inherited_from_base` as Anchore returned it, and `base_digest`, the base image the response names (its top-level `base_digest`), kept only when it is a `sha256` digest other than the image's own. With no base named, a `false` flag is stored as null: "not inherited" with nothing to compare against is not an observation. A `true` flag is kept, since it says some base held the package. The response's `base_image_problems` list is not stored.
+- **Ancestors.** `GET /images/{image_digest}/ancestors` lists "the images that form the base layers of the image". For each entry whose `image_digest` is a `sha256` digest other than the image's own, one edge `BUILT_ON_IMAGE__anchore` from the image's host to the ancestor's host (`computing_core__host`, realm `oci-digest`). The entry's tags, layers and its `chosen_base_image` and `user_marked_base` flags are not stored: which ancestor is the base in use is the finding's `base_digest`, which a later read replaces, and an edge that said so would outlive a change of base.
+- **The ancestor's host.** Where the grid has no host for an ancestor's digest, a stub is written: realm, digest and kind only. This is so whether or not the ancestor passes `repository_prefixes`. The ancestor is a fact about an image that is in scope; nothing else is written for it, no findings, no documents and no inventory.
+- **What Anchore can know.** Anchore names a base only among images it has itself analyzed. An image whose base Anchore never analyzed has no `base_digest`, no ancestors and null flags, which reads as unobserved and never as "has no base". The ancestors read failing is recorded under `ancestors:<digest>` and does not fail the image.
+
+Unobserved, to settle on a real instance: what `auto` chooses when several ancestors exist; whether the response echoes `base_digest` when it used `auto`; what the flag holds when no base was found; and what an older instance does with the parameter.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-base-image-1 | The Base Is Asked For | Implemented | Every image vulnerabilities read carries `base_digest=auto`. | `test_the_read_asks_for_the_base_and_each_finding_says_which_and_whether` |
+| req-anchore-base-image-2 | A Refused Parameter Does Not Cost The Findings | Implemented | A 4xx other than 401 or 403 on that read is followed by one read without the parameter; its findings are written and `base:<digest>` is recorded as not read. A failure that is not such a refusal is not retried without the parameter. | |
+| req-anchore-base-image-3 | Not Inherited Needs A Base | Implemented | With no usable `base_digest` in the response, a `false` `inherited_from_base` is stored as null and a `true` is kept; `base_digest` on the finding is null. | A base that is not a `sha256` digest, or is the image itself, is no base. |
+| req-anchore-base-image-4 | Ancestors Are Edges | Implemented | Each ancestor Anchore lists is one `BUILT_ON_IMAGE__anchore` edge between image hosts; a second run writes no second edge; an entry naming no other image digest writes nothing. | |
+| req-anchore-base-image-5 | An Unread List Is Not An Empty One | Implemented | An ancestors read that fails or is not a list is recorded as not read under `ancestors:<digest>`, writes no edge and leaves the image's findings as read; an empty list is recorded as read. | |
+| req-anchore-base-image-6 | An Ancestor Is Only A Host | Implemented | Nothing but a stub host and the edge is written for an ancestor, in or out of scope. | Stated, and a consequence of the code path; no test reads an out-of-scope ancestor with `repository_prefixes` set. |
 
 ### Runtime Inventory: Images In Use
 ----

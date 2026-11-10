@@ -35,6 +35,7 @@ FOUND_IN_PACKAGE__anchore = "edges/FOUND_IN_PACKAGE__anchore.edge.json"
 FOUND_IN_SBOM__anchore = "edges/FOUND_IN_SBOM__anchore.edge.json"
 ABOUT_VULNERABILITY__anchore = "edges/ABOUT_VULNERABILITY__anchore.edge.json"
 OBSERVES_IMAGE__anchore = "edges/OBSERVES_IMAGE__anchore.edge.json"
+BUILT_ON_IMAGE__anchore = "edges/BUILT_ON_IMAGE__anchore.edge.json"
 
 [[boot.records]]
 name = "ci"
