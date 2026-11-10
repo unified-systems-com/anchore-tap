@@ -195,6 +195,39 @@ class TestPlan:
         assert scope.parse_ecs_arn(f"arn:aws:ecs:{REGION}:12345:container/x", "container") is None
         assert scope.parse_ecs_arn(None, "container") is None
 
+    @pytest.mark.parametrize(
+        "arn",
+        [
+            f"{BASE}:cluster//",
+            f"{BASE}:cluster/",
+            f"{BASE}:task/prod//t1",
+            f"{BASE}:service/prod/web ",
+            f"{BASE}:cluster/pr od",
+            f"{BASE}:cluster/prod/",
+            f"{BASE}:cluster/prod\nx",
+        ],
+    )
+    def test_a_malformed_resource_path_is_not_an_ecs_arn(self, arn):
+        kind = arn.split(":")[5].split("/")[0]
+        assert scope.parse_ecs_arn(arn, kind) is None
+
+    def test_a_malformed_ancestor_rejects_the_container(self):
+        records = [{"arn": CONTAINER, "task_arn": TASK, "image_digest": DIGEST}]
+        plan = scope.plan_ecs_creation(records, [task(cluster=f"{BASE}:cluster//")], [service()], scope.Settings(running_only=True))
+        assert plan.rejected == 1 and not plan.containers and not plan.clusters
+
+    def test_a_task_and_service_that_name_different_clusters_are_rejected(self):
+        other = f"{BASE}:cluster/staging"
+        records = [{"arn": CONTAINER, "task_arn": TASK, "image_digest": DIGEST}]
+        plan = scope.plan_ecs_creation(records, [task(cluster=CLUSTER)], [service(cluster=other)], scope.Settings(running_only=True))
+        assert plan.rejected == 1
+        assert not plan.containers and not plan.tasks and not plan.services and not plan.clusters and plan.edges == []
+
+    def test_the_service_supplies_the_cluster_when_the_task_names_none(self):
+        records = [{"arn": CONTAINER, "task_arn": TASK, "image_digest": DIGEST}]
+        plan = scope.plan_ecs_creation(records, [task(cluster="")], [service()], scope.Settings(running_only=True))
+        assert plan.rejected == 0 and list(plan.clusters) == [CLUSTER]
+
     def test_tags_that_are_not_a_flat_string_map_are_left_out(self):
         plan = scope.plan_ecs_creation([{"arn": CONTAINER, "task_arn": TASK, "image_digest": DIGEST}], [task(tags={"n": 3})], [service()], scope.Settings(running_only=True))
         assert plan.tasks[TASK]["tags"] is None

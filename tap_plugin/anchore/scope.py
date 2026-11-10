@@ -246,7 +246,10 @@ def images_to_read(
     return out
 
 
-_ECS_ARN = re.compile(r"^arn:(aws[a-z-]*):ecs:([a-z0-9-]+):([0-9]{12}):(container|task|service|cluster)/(.+)$")
+#: An ECS ARN. The resource path is one or more names separated by single slashes; ECS names and
+#: ids are letters, digits, hyphens and underscores, so an empty segment or any other character
+#: is not an ECS ARN.
+_ECS_ARN = re.compile(r"^arn:(aws[a-z-]*):ecs:([a-z0-9-]+):([0-9]{12}):(container|task|service|cluster)/([A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)$")
 
 
 @dataclass(frozen=True)
@@ -334,7 +337,13 @@ def plan_ecs_creation(
         service_arn, cluster_arn = record.get("service_arn") or None, record.get("cluster_arn") or None
         service = parse_ecs_arn(service_arn, "service") if service_arn else None
         service_record = service_records.get(service_arn, {}) if service_arn else {}
-        cluster_arn = cluster_arn or service_record.get("cluster_arn") or None
+        service_cluster = service_record.get("cluster_arn") or None
+        if cluster_arn and service_cluster and cluster_arn != service_cluster:
+            # The task and its service name different clusters: Anchore's own records disagree
+            # about the ancestry, so there is no chain to create.
+            plan.rejected += 1
+            continue
+        cluster_arn = cluster_arn or service_cluster
         cluster = parse_ecs_arn(cluster_arn, "cluster") if cluster_arn else None
         if (service_arn and (service is None or not arn.same_place(service))) or (cluster_arn and (cluster is None or not arn.same_place(cluster))):
             plan.rejected += 1
