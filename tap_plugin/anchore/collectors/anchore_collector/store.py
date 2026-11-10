@@ -102,3 +102,18 @@ def ecs_containers_on_grid(arns: set[str]) -> set[str] | None:
 def default_dimensions(entity_type: str) -> dict[str, str]:
     """The registered model's default dimensions for a type this plugin does not import."""
     return dict(get_model_class(entity_type).DEFAULT_DIMENSIONS)
+
+
+def host_exists(realm: str, stable_id: str) -> bool:
+    """Whether the grid holds a live host under this realm and identifier."""
+    return Host.objects.filter(realm=realm, stable_id=stable_id).exists()
+
+
+def types_installed(entity_types: list[str]) -> bool:
+    """Whether every one of these types is registered: a computing_core older than its Kubernetes types has none."""
+    try:
+        for entity_type in entity_types:
+            get_model_class(entity_type)
+    except KeyError:
+        return False
+    return True

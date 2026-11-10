@@ -62,11 +62,22 @@ class Instance:
             "/inventories": lambda r: response(200, {"items": self.inventory}),
             "/ecs-containers": lambda r: response(200, {"containers": self.ecs if "page=1" in str(r.url) else []}),
         }
+        #: The four Kubernetes lists, empty unless a test fills them, each served on page 1 under its wrapper key.
+        self.kubernetes: dict[str, tuple[str, list]] = {"namespaces": ("namespaces", []), "nodes": ("namespaces", []), "pods": ("namespaces", []), "containers": ("containers", [])}
+        for name in self.kubernetes:
+            self.transport.routes[f"/kubernetes-{name}"] = self._kubernetes(name)
         self.sboms: dict[tuple[str, str], object] = {}
         for digest in (DIGEST, OTHER):
             self.transport.routes[f"/images/{digest}/vuln/all"] = self._vulns(digest)
             for fmt in ("native-json", "spdx-json", "cyclonedx-json"):
                 self.transport.routes[f"/images/{digest}/sboms/{fmt}"] = self._sbom(digest, fmt)
+
+    def _kubernetes(self, name):
+        def answer(request):
+            wrapper, rows = self.kubernetes[name]
+            return response(200, {wrapper: rows if "page=1" in str(request.url) else []})
+
+        return answer
 
     def _sbom(self, digest, fmt):
         def answer(request):
@@ -121,8 +132,8 @@ class TestFirstRun:
         assert scanner.scanner_key == KEY and scanner.reported_version == "5.1.0"
         run = AnchoreScanRun.objects.get()
         assert run.scanner_key == KEY and run.selftest_verdict == "pass"
-        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 7 and run.scopes_not_read == []
-        assert run.scopes_read[-2:] == ["source:inventories", "source:ecs-containers"]
+        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 8 and run.scopes_not_read == []
+        assert run.scopes_read[-3:] == ["source:inventories", "source:ecs-containers", "create:kubernetes"]
         assert run.status == {"version": "5.1.0", "up": True} and isinstance(run.feeds, list)
         found = findings()
         assert set(found) == {("CVE-2024-0001", DIGEST), ("CVE-2024-0002", DIGEST)}

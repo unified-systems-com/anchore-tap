@@ -20,7 +20,11 @@ grid has one, by ``RUNS_IMAGE`` to its image host; nothing on that container is 
 ``create.ecs``: then the container and the task, service and cluster it leads to are created where
 the grid has none, from what Anchore reported, with the hazards the spec lists.
 
-Not in this slice: the Kubernetes objects, VEX and application reads.
+With ``create.kubernetes``, on by default, the Kubernetes objects behind the running containers
+are written into computing_core's Kubernetes types: cluster, namespace, node (with its host row),
+pod and container, and the edges between them (req-anchore-inventory-kubernetes).
+
+Not in this slice: VEX and application reads.
 
 Spec: specs/spec-anchore-v0.md (req-anchore-findings, -probe, -selftest, -states, -scope, -inventory).
 """
@@ -35,6 +39,7 @@ from typing import Any, ClassVar
 from tap import secrets_root
 
 from tap_cares.collectors import CeilingExceeded, CollectorBase, run_with_ceiling
+from tap_plugin.anchore import kubernetes
 from tap_plugin.anchore import scope as scoping
 from tap_cares.collectors.readiness import CollectorReadinessStatus, CollectorSelfTestResult, check_fail, check_pass
 from tap_plugin.anchore.client import TOTAL_BUDGET_SECONDS, ClientError, ReadOnlyClient, fill
@@ -67,6 +72,7 @@ _SITE_SCOPE = "8f55"
 _SITE_INVENTORY_UNUSABLE = "a83a"
 _SITE_ECS_LINK = "2f25"
 _SITE_ECS_CREATE = "b1f6"
+_SITE_KUBERNETES = "0070"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -78,6 +84,17 @@ _LISTED = 50
 #: The most pages of ECS containers one run reads. The list has no documented end marker, so a page
 #: that adds nothing new ends it; this is the stop for an instance that never sends one.
 ECS_PAGE_LIMIT = 500
+#: computing_core's Kubernetes types (req-computing-core-kubernetes), by the plan's kind.
+KUBERNETES_TYPES = {kind: f"computing_core__kubernetes_{kind}" for kind in ("cluster", "namespace", "node", "pod", "container")}
+#: The four lists and the wrapper keys each may arrive under. The vendor's file puts the node and
+#: pod lists under ``namespaces``, which looks like a copy of the namespace response; the natural
+#: key is accepted too until a recorded response settles it (req-anchore-inventory-kubernetes-3).
+KUBERNETES_LISTS = (
+    ("kubernetes_namespaces", ("namespaces",)),
+    ("kubernetes_nodes", ("nodes", "namespaces")),
+    ("kubernetes_pods", ("pods", "namespaces")),
+    ("kubernetes_containers", ("containers",)),
+)
 
 
 class AnchoreCollectorError(Exception):
@@ -108,6 +125,8 @@ class _Scanner:
     runs_image: set[tuple[str, str]] = field(default_factory=set)
     #: ARN -> batch ref of each aws_core ECS node this scanner staged for creation.
     ecs_created: dict[str, str] = field(default_factory=dict)
+    #: (kind, natural key) -> batch ref of each Kubernetes object, node host or edge this scanner staged.
+    kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
     #: The scope fields the scan run records (req-anchore-scope-14).
     run_fields: dict[str, Any] = field(default_factory=dict)
 
@@ -124,9 +143,11 @@ class _Shared:
     describes: set[tuple[str, str]] = field(default_factory=set)
     runs_image: set[tuple[str, str]] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
+    kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
     def absorb(self, scanner: _Scanner) -> None:
         self.ecs_created.update(scanner.ecs_created)
+        self.kubernetes.update(scanner.kubernetes)
         self.hosts |= scanner.hosts
         self.documents |= set(scanner.sbom_refs)
         self.describes |= scanner.describes
@@ -366,6 +387,7 @@ class AnchoreCollector(CollectorBase):
         self._runtime_images(credential, running, out, tag, shared)
         self._ecs_create(client, credential, extract, by_id, running, out, tag, shared, inventory_read, not_read)
         self._ecs_links(credential, running, out, tag, shared, inventory_read, not_read)
+        self._kubernetes(client, credential, extract, by_id, out, tag, shared, inventory_read, not_read, started)
         read.extend(inventory_read)
         for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
             # An image that left the list is not a cleared image: its findings stay as they were, and say so.
@@ -415,7 +437,7 @@ class AnchoreCollector(CollectorBase):
         """(every ECS container record, None), or ([], why) when the list could not be read whole."""
         return self._paged(client, extract, source, "containers")
 
-    def _paged(self, client: ReadOnlyClient, extract: dict[str, Any], source: Source, wrapper: str) -> tuple[list[dict[str, Any]], str | None]:
+    def _paged(self, client: ReadOnlyClient, extract: dict[str, Any], source: Source, wrapper: str | tuple[str, ...]) -> tuple[list[dict[str, Any]], str | None]:
         """(every record of a paged ECS list, None), or ([], why) when it could not be read whole.
 
         These lists are paged by a required ``page`` and document no end marker, so reading stops at
@@ -426,8 +448,10 @@ class AnchoreCollector(CollectorBase):
         seen: dict[str, dict[str, Any]] = {}
         for page in range(1, ECS_PAGE_LIMIT + 1):
             body, failure = _get_json(client, extract, source, source.path, params={"page": page})
-            rows = body.get(wrapper) if isinstance(body, dict) else None
-            if failure is not None or not isinstance(rows, list):
+            # The first wrapper key the body carries a list under; a body with none of them is no list.
+            keys = (wrapper,) if isinstance(wrapper, str) else wrapper
+            rows = next((body[key] for key in keys if isinstance(body.get(key), list)), None) if isinstance(body, dict) else None
+            if failure is not None or rows is None:
                 return [], f"page {page}: {failure.reason if failure is not None else 'the response held no record list'}"
             before = len(seen)
             for row in rows:
@@ -458,6 +482,76 @@ class AnchoreCollector(CollectorBase):
             out.runtime_images += 1
         if unusable or running.no_digest or running.ecs_without_inventory:
             self.record_warn(_SITE_INVENTORY_UNUSABLE, "INVENTORY_RECORDS_NOT_USED", f"{credential.qualified}: {running.no_digest} inventory record(s) named no usable digest, {unusable} named no usable type or context, and {running.ecs_without_inventory} ECS container(s) had no recent inventory item to take a last-seen time from.", message_data={"no_digest": running.no_digest, "unusable": unusable, "ecs_without_inventory": running.ecs_without_inventory})
+
+    def _kubernetes(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], out: _Scanner, tag: str, shared: _Shared, read: list[str], not_read: list[dict[str, str]], started: datetime) -> None:
+        """With ``create.kubernetes``: write the Kubernetes objects behind the running containers (req-anchore-inventory-kubernetes).
+
+        No other collector writes these types, so this plugin creates them and keeps them current:
+        each run writes what Anchore reported for the objects in scope. All four lists must be read
+        whole, or nothing is written: a pod without its namespace list would lose its place.
+        """
+        if not credential.settings.create_kubernetes:
+            return
+        if not store.types_installed(list(KUBERNETES_TYPES.values())):
+            not_read.append({"scope": "create:kubernetes", "reason": "the installed computing_core has no Kubernetes types (v0.10.4 or later is needed), so no Kubernetes object was written"})
+            return
+        lists: dict[str, list[dict[str, Any]]] = {}
+        for source_id, wrappers in KUBERNETES_LISTS:
+            rows, why = self._paged(client, extract, by_id[source_id], wrappers)
+            if why is not None:
+                not_read.append({"scope": "create:kubernetes", "reason": f"{by_id[source_id].path}: {why}; no Kubernetes object was written"})
+                self.record_warn(_SITE_KUBERNETES, "KUBERNETES_NOT_READ", f"{credential.qualified}: {by_id[source_id].path} was not read ({why}); no Kubernetes object was written.")
+                return
+            lists[source_id] = rows
+        read.append("create:kubernetes")
+        plan = kubernetes.plan(lists["kubernetes_containers"], lists["kubernetes_pods"], lists["kubernetes_namespaces"], lists["kubernetes_nodes"], credential.settings, started, credential.scanner_key)
+
+        def ref_of(kind: str, key: Any) -> str | None:
+            return out.kubernetes.get((kind, key)) or shared.kubernetes.get((kind, key))
+
+        def stage(kind: str, key: Any, entity_type: str, name: str, fields: dict[str, Any]) -> None:
+            # One object, one node per batch: two scanners can report the same cluster.
+            if ref_of(kind, key) is not None:
+                return
+            ref = f"{tag}:k:{kind}:{len(out.kubernetes)}"
+            out.nodes.append(decompose.typed_node(ref, entity_type, name, fields, store.default_dimensions(entity_type)))
+            out.kubernetes[(kind, key)] = ref
+
+        for kind, objects in (("cluster", plan.clusters), ("namespace", plan.namespaces), ("node", plan.nodes), ("pod", plan.pods), ("container", plan.containers)):
+            for key, fields in objects.items():
+                # A label map the record did not carry is left out, so a stored one is kept; a container's
+                # runtime id and image reference are sent as reported, null included (a container not yet started has no id).
+                sent = {name: value for name, value in fields.items() if value is not None or name in ("container_id", "image_reference")}
+                stage(kind, key, KUBERNETES_TYPES[kind], fields.get("name") or str(key), sent)
+        for uid, fields in plan.nodes.items():
+            # The machine behind a node is a host under its own realm, written only where the grid has none.
+            if not store.host_exists(kubernetes.REALM_NODE_HOST, uid):
+                stage("host", uid, "computing_core__host", fields.get("name") or uid, {"realm": kubernetes.REALM_NODE_HOST, "stable_id": uid, "name": fields.get("name") or ""})
+            if ref_of("edge", ("BACKED_BY_HOST", uid)) is None:
+                host_ref = ref_of("host", uid)
+                target = {"ref": host_ref} if host_ref is not None else {"entity_type": "computing_core__host", "key": {"realm": kubernetes.REALM_NODE_HOST, "stable_id": uid}}
+                edge_ref = f"{tag}:k:edge:{len(out.kubernetes)}"
+                out.edges.append(decompose.edge_ends(edge_ref, "BACKED_BY_HOST__computing_core", {"ref": ref_of("node", uid)}, target))
+                out.kubernetes[("edge", ("BACKED_BY_HOST", uid))] = edge_ref
+        for slug, source_kind, source_key, target_kind, target_key in plan.edges:
+            identity = ("edge", (slug, source_key, target_key))
+            if ref_of(*identity) is not None:
+                continue
+            edge_ref = f"{tag}:k:edge:{len(out.kubernetes)}"
+            out.edges.append(decompose.edge(edge_ref, f"{slug}__computing_core", ref_of(source_kind, source_key), ref_of(target_kind, target_key)))
+            out.kubernetes[identity] = edge_ref
+        for key, digest in plan.images.items():
+            identity = ("edge", ("RUNS_IMAGE", key, digest))
+            if ref_of(*identity) is not None:
+                continue
+            edge_ref = f"{tag}:k:edge:{len(out.kubernetes)}"
+            self._ensure_host(out, digest, f"{edge_ref}:host", shared)
+            out.edges.append(decompose.edge_to_key(edge_ref, "RUNS_IMAGE__computing_core", ref_of("container", key), "computing_core__host", decompose.host_key(digest)))
+            out.kubernetes[identity] = edge_ref
+        counts = {"clusters": len(plan.clusters), "namespaces": len(plan.namespaces), "nodes": len(plan.nodes), "pods": len(plan.pods), "containers": len(plan.containers), "stale": plan.stale, "out_of_scope": plan.out_of_scope, "unusable": plan.unusable, "fallback_clusters": plan.fallback_clusters}
+        if plan.unusable:
+            not_read.append({"scope": "create:kubernetes:unusable", "reason": f"{plan.unusable} Kubernetes container record(s) named no usable name, context or listed pod and were not written"})
+        self.record_info(_SITE_KUBERNETES, "KUBERNETES_WRITTEN", f"{credential.qualified}: {counts['containers']} container(s) in {counts['pods']} pod(s), {counts['namespaces']} namespace(s), {counts['nodes']} node(s), {counts['clusters']} cluster(s); {counts['stale']} not seen recently, {counts['out_of_scope']} out of scope, {counts['unusable']} unusable, {counts['fallback_clusters']} cluster(s) keyed by name.", message_data=counts)
 
     def _ecs_create(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], running: scoping.Running | None, out: _Scanner, tag: str, shared: _Shared, read: list[str], not_read: list[dict[str, str]]) -> None:
         """With ``create.ecs``: stage the aws_core ECS nodes the grid does not hold (req-anchore-shared-5, -11, -12).
