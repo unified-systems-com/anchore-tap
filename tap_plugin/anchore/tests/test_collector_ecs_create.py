@@ -255,6 +255,11 @@ class TestPlan:
             f"{BASE}:cluster/pr od",
             f"{BASE}:cluster/prod/",
             f"{BASE}:cluster/prod\nx",
+            f"arn:aws-:ecs:{REGION}:{ACCOUNT}:cluster/x",
+            f"arn:aws:ecs:-:{ACCOUNT}:cluster/x",
+            f"arn:aws:ecs:west:{ACCOUNT}:cluster/x",
+            f"{BASE}:cluster/{'x' * 256}",
+            f"{BASE}:task/{'x' * 255}/{'y' * 255}",
         ],
     )
     def test_a_malformed_resource_path_is_not_an_ecs_arn(self, arn):

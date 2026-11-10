@@ -246,10 +246,15 @@ def images_to_read(
     return out
 
 
-#: An ECS ARN. The resource path is one or more names separated by single slashes; ECS names and
-#: ids are letters, digits, hyphens and underscores, so an empty segment or any other character
-#: is not an ECS ARN.
-_ECS_ARN = re.compile(r"^arn:(aws[a-z-]*):ecs:([a-z0-9-]+):([0-9]{12}):(container|task|service|cluster)/([A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*)$")
+#: An ECS ARN. The partition is ``aws`` or ``aws-<words>`` and the region is words then a number
+#: (``us-gov-west-1``). The resource path is one or more names separated by single slashes; ECS
+#: names and ids are letters, digits, hyphens and underscores, at most 255 of them, so an empty
+#: segment, a longer one or any other character is not an ECS ARN.
+_ECS_ARN = re.compile(
+    r"^arn:(aws(?:-[a-z]+)*):ecs:([a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}):([0-9]{12}):(container|task|service|cluster)/([A-Za-z0-9_-]{1,255}(?:/[A-Za-z0-9_-]{1,255})*)$"
+)
+#: The longest ARN the provider's types hold; a longer one is rejected here, not at import.
+ECS_ARN_MAX = 512
 
 
 @dataclass(frozen=True)
@@ -273,7 +278,7 @@ class EcsArn:
 
 def parse_ecs_arn(arn: Any, kind: str) -> EcsArn | None:
     """The parts of a well-formed ECS ARN of this resource kind, else None (req-anchore-shared-12)."""
-    match = _ECS_ARN.fullmatch(arn) if isinstance(arn, str) else None
+    match = _ECS_ARN.fullmatch(arn) if isinstance(arn, str) and len(arn) <= ECS_ARN_MAX else None
     if match is None or match.group(4) != kind:
         return None
     return EcsArn(match.group(1), match.group(2), match.group(3), kind, match.group(5))
