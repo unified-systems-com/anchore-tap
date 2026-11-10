@@ -100,7 +100,7 @@ edges from findings to the image host and, only where it already exists with exa
 shared vulnerability. A scope that was not read is never a clean result, and a read that failed leaves the
 findings it would have updated as they were.
 
-To try it, boot a profile that installs `computing_core` v0.10.3, `compliance_core` v0.8.11 and this plugin at
+To try it, boot a profile that installs `computing_core` v0.10.4, `compliance_core` v0.8.11 and this plugin at
 `v0.1.4` (the `ci` record in `tap_plugin/anchore/boot/ci.boot.json` is a working list), run `manage.py boot` so the
 collector node is reconciled, and fire the collector as the scheduler actor:
 
