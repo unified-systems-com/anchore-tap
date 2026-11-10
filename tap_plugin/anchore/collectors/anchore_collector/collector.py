@@ -16,9 +16,11 @@ left as they were.
 
 An ECS container Anchore reports is joined to the aws_core container with the same ARN, where the
 grid has one, by ``RUNS_IMAGE`` to its image host; nothing on that container is written
-(req-anchore-shared-1, -2). One the grid does not have is counted.
+(req-anchore-shared-1, -2). One the grid does not have is counted, unless the envelope sets
+``create.ecs``: then the container and the task, service and cluster it leads to are created where
+the grid has none, from what Anchore reported, with the hazards the spec lists.
 
-Not in this slice: creating ECS nodes, the Kubernetes objects, VEX and application reads.
+Not in this slice: the Kubernetes objects, VEX and application reads.
 
 Spec: specs/spec-anchore-v0.md (req-anchore-findings, -probe, -selftest, -states, -scope, -inventory).
 """
@@ -64,6 +66,7 @@ _SITE_INVENTORY_NOT_READ = "8828"
 _SITE_SCOPE = "8f55"
 _SITE_INVENTORY_UNUSABLE = "a83a"
 _SITE_ECS_LINK = "2f25"
+_SITE_ECS_CREATE = "b1f6"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -103,6 +106,8 @@ class _Scanner:
     runtime_images: int = 0
     ecs_links: int = 0
     runs_image: set[tuple[str, str]] = field(default_factory=set)
+    #: ARN -> batch ref of each aws_core ECS node this scanner staged for creation.
+    ecs_created: dict[str, str] = field(default_factory=dict)
     #: The scope fields the scan run records (req-anchore-scope-14).
     run_fields: dict[str, Any] = field(default_factory=dict)
 
@@ -118,8 +123,10 @@ class _Shared:
     documents: set[str] = field(default_factory=set)
     describes: set[tuple[str, str]] = field(default_factory=set)
     runs_image: set[tuple[str, str]] = field(default_factory=set)
+    ecs_created: dict[str, str] = field(default_factory=dict)
 
     def absorb(self, scanner: _Scanner) -> None:
+        self.ecs_created.update(scanner.ecs_created)
         self.hosts |= scanner.hosts
         self.documents |= set(scanner.sbom_refs)
         self.describes |= scanner.describes
@@ -357,6 +364,7 @@ class AnchoreCollector(CollectorBase):
             duplicates += result.duplicate_entries
             uncarried |= result.uncarried_keys
         self._runtime_images(credential, running, out, tag, shared)
+        self._ecs_create(client, credential, extract, by_id, running, out, tag, shared, inventory_read, not_read)
         self._ecs_links(credential, running, out, tag, shared, inventory_read, not_read)
         read.extend(inventory_read)
         for gone in sorted(store.current_target_keys(credential.scanner_key) - set(chosen)):
@@ -404,18 +412,23 @@ class AnchoreCollector(CollectorBase):
         return scoping.select_running([item for item in items if isinstance(item, dict)], containers, credential.settings, started)
 
     def _ecs_containers(self, client: ReadOnlyClient, extract: dict[str, Any], source: Source) -> tuple[list[dict[str, Any]], str | None]:
-        """(every ECS container record, None), or ([], why) when the list could not be read whole.
+        """(every ECS container record, None), or ([], why) when the list could not be read whole."""
+        return self._paged(client, extract, source, "containers")
 
-        The list is paged by a required ``page`` and documents no end marker, so reading stops at the
-        first page that adds no record not already seen: an empty page, or an instance that ignores
-        the parameter and repeats itself. A partial list is no list: a selector fails closed.
+    def _paged(self, client: ReadOnlyClient, extract: dict[str, Any], source: Source, wrapper: str) -> tuple[list[dict[str, Any]], str | None]:
+        """(every record of a paged ECS list, None), or ([], why) when it could not be read whole.
+
+        These lists are paged by a required ``page`` and document no end marker, so reading stops at
+        the first page that adds no record not already seen: an empty page, or an instance that
+        ignores the parameter and repeats itself. A partial list is no list: what depends on it
+        fails closed.
         """
         seen: dict[str, dict[str, Any]] = {}
         for page in range(1, ECS_PAGE_LIMIT + 1):
             body, failure = _get_json(client, extract, source, source.path, params={"page": page})
-            rows = body.get("containers") if isinstance(body, dict) else None
+            rows = body.get(wrapper) if isinstance(body, dict) else None
             if failure is not None or not isinstance(rows, list):
-                return [], f"page {page}: {failure.reason if failure is not None else 'the response held no container list'}"
+                return [], f"page {page}: {failure.reason if failure is not None else 'the response held no record list'}"
             before = len(seen)
             for row in rows:
                 if isinstance(row, dict):
@@ -446,6 +459,82 @@ class AnchoreCollector(CollectorBase):
         if unusable or running.no_digest or running.ecs_without_inventory:
             self.record_warn(_SITE_INVENTORY_UNUSABLE, "INVENTORY_RECORDS_NOT_USED", f"{credential.qualified}: {running.no_digest} inventory record(s) named no usable digest, {unusable} named no usable type or context, and {running.ecs_without_inventory} ECS container(s) had no recent inventory item to take a last-seen time from.", message_data={"no_digest": running.no_digest, "unusable": unusable, "ecs_without_inventory": running.ecs_without_inventory})
 
+    def _ecs_create(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], by_id: dict[str, Source], running: scoping.Running | None, out: _Scanner, tag: str, shared: _Shared, read: list[str], not_read: list[dict[str, str]]) -> None:
+        """With ``create.ecs``: stage the aws_core ECS nodes the grid does not hold (req-anchore-shared-5, -11, -12).
+
+        Off by default. Creation starts from the selected containers and reaches only the task,
+        service and cluster each leads to by ARN. A node the grid holds is never written here. The
+        hazards this accepts are listed in the spec by what an operator would see.
+        """
+        if not credential.settings.create_ecs or running is None or not running.ecs_containers:
+            return
+        tasks, why_tasks = self._paged(client, extract, by_id["ecs_tasks"], "tasks")
+        services, why_services = self._paged(client, extract, by_id["ecs_services"], "services")
+        if why_tasks is not None or why_services is not None:
+            why = f"ECS tasks: {why_tasks}" if why_tasks is not None else f"ECS services: {why_services}"
+            not_read.append({"scope": "create:ecs", "reason": f"{why}; no ECS node was created"})
+            self.record_warn(_SITE_ECS_CREATE, "ECS_CREATE_NOT_READ", f"{credential.qualified}: {why}; no ECS node was created.")
+            return
+        plan = scoping.plan_ecs_creation(running.ecs_containers, tasks, services, credential.settings)
+        wanted = {"container": plan.containers, "task": plan.tasks, "service": plan.services, "cluster": plan.clusters}
+        # WORKAROUND(unified-systems-com/tap#1071): read, then write. tap has no insert-only node form, so a
+        # node the provider creates between this read and the batch's import is replaced by ours.
+        # WORKAROUND(unified-systems-com/tap#1170): only live rows are visible here. A node the provider
+        # retired is absent, and is created again as a new one if Anchore saw it within the window.
+        # WORKAROUND(unified-systems-com/tap#1172): a node this plugin created earlier is found here like
+        # any other and never rewritten, because it cannot tell its own fields from the provider's.
+        existing: dict[str, set[str]] = {}
+        for kind, nodes in wanted.items():
+            entity_type, key = store.ECS_TYPES[kind]
+            found = store.aws_nodes_on_grid(entity_type, key, set(nodes))
+            if found is None:
+                not_read.append({"scope": "create:ecs", "reason": "aws_core is not installed, so no ECS node was created"})
+                self.record_info(_SITE_ECS_CREATE, "ECS_CREATE_NOT_READ", f"{credential.qualified}: aws_core is not installed; no ECS node was created.")
+                return
+            existing[kind] = found
+        read.append("create:ecs")
+        created = {kind: 0 for kind in wanted}
+        for kind, nodes in wanted.items():
+            entity_type, key = store.ECS_TYPES[kind]
+            defaults = store.default_dimensions(entity_type)
+            for arn, reported in sorted(nodes.items()):
+                if arn in existing[kind] or arn in out.ecs_created or arn in shared.ecs_created:
+                    continue
+                parts = scoping.parse_ecs_arn(arn, kind)
+                # WORKAROUND(unified-systems-com/tap#1173): aws_core requires a name on a container, a
+                # service and a cluster, and Anchore reports none for a container. The last ARN segment
+                # stands in (it is the real name of a cluster and a service) until the provider writes it.
+                fields: dict[str, Any] = {key: arn}
+                if kind != "task":
+                    fields["name"] = parts.last
+                # Only what Anchore reported: a field it did not carry is omitted, never sent empty.
+                fields.update({name: value for name, value in reported.items() if value is not None})
+                ref = f"{tag}:ec:{kind}:{len(out.ecs_created)}"
+                out.nodes.append(decompose.provider_node(ref, entity_type, parts.last, fields, defaults, parts))
+                out.ecs_created[arn] = ref
+                created[kind] += 1
+
+        def end(kind: str, arn: str) -> dict[str, Any] | None:
+            entity_type, key = store.ECS_TYPES[kind]
+            if arn in out.ecs_created:
+                return {"ref": out.ecs_created[arn]}
+            if arn in existing[kind]:
+                return {"entity_type": entity_type, "key": {key: arn}}
+            return None  # staged by another scanner in this batch: that scanner draws its edges
+
+        ends = {"RUNS_CONTAINER": ("task", "container"), "RUNS_SERVICE": ("cluster", "service")}
+        for number, (slug, source_arn, target_arn) in enumerate(plan.edges):
+            source_kind, target_kind = ends.get(slug, ("service" if ":service/" in source_arn else "cluster", "task"))
+            # The owner's edges are drawn for the nodes this run creates, not between two the grid already held.
+            if source_arn not in out.ecs_created and target_arn not in out.ecs_created:
+                continue
+            source, target = end(source_kind, source_arn), end(target_kind, target_arn)
+            if source is not None and target is not None:
+                out.edges.append(decompose.edge_ends(f"{tag}:ece{number}", f"{slug}__aws_core", source, target))
+        if plan.rejected:
+            not_read.append({"scope": "create:ecs:rejected", "reason": f"{plan.rejected} selected ECS container(s) had an ARN, or an ancestor's ARN, that is not a well-formed ECS ARN in one partition, region and listed account; nothing was created for them"})
+        self.record_info(_SITE_ECS_CREATE, "ECS_CREATED", f"{credential.qualified}: created {created['container']} ECS container(s), {created['task']} task(s), {created['service']} service(s) and {created['cluster']} cluster(s) the grid did not hold; {plan.rejected} container(s) rejected.", message_data={"created": created, "rejected": plan.rejected})
+
     def _ecs_links(self, credential: Credential, running: scoping.Running | None, out: _Scanner, tag: str, shared: _Shared, read: list[str], not_read: list[dict[str, str]]) -> None:
         """Join each selected ECS container to the aws_core container with its ARN, where the grid has one.
 
@@ -468,14 +557,16 @@ class AnchoreCollector(CollectorBase):
             return
         read.append("link:ecs-containers")
         for number, (arn, digest) in enumerate(sorted(by_arn.items())):
-            if arn not in found or (arn, digest) in out.runs_image or (arn, digest) in shared.runs_image:
+            known = arn in found or arn in out.ecs_created
+            if not known or (arn, digest) in out.runs_image or (arn, digest) in shared.runs_image:
                 continue
             # One relationship, one edge per batch: two scanners can report the same container.
             out.runs_image.add((arn, digest))
             self._ensure_host(out, digest, f"{tag}:eh{number}", shared)
-            out.edges.append(decompose.edge_between_keys(f"{tag}:el{number}", "RUNS_IMAGE__computing_core", store.ECS_CONTAINER_TYPE, {store.ECS_CONTAINER_KEY: arn}, "computing_core__host", decompose.host_key(digest)))
+            source = {"ref": out.ecs_created[arn]} if arn in out.ecs_created else {"entity_type": store.ECS_CONTAINER_TYPE, "key": {store.ECS_CONTAINER_KEY: arn}}
+            out.edges.append(decompose.edge_ends(f"{tag}:el{number}", "RUNS_IMAGE__computing_core", source, {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}))
             out.ecs_links += 1
-        unresolved = len(set(by_arn) - found)
+        unresolved = len(set(by_arn) - found - set(out.ecs_created) - set(shared.ecs_created))
         if unresolved:
             not_read.append({"scope": "link:ecs-containers:unresolved", "reason": f"{unresolved} ECS container(s) have no aws_core container on the grid and were not linked"})
         self.record_info(_SITE_ECS_LINK, "ECS_LINKED", f"{credential.qualified}: {out.ecs_links} ECS container(s) linked to their image, {unresolved} with no aws_core container on the grid.", message_data={"linked": out.ecs_links, "unresolved": unresolved})
