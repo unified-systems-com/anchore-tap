@@ -24,12 +24,40 @@
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
    "method": "get",
-   "path": "/images"
+   "path": "/images",
+   "observed": {
+    "nullable": [
+     "items[].analysis_status_detail[].source.enterprise_version",
+     "items[].analysis_status_detail[].source.host_id",
+     "items[].analysis_status_detail[].source.service_name",
+     "items[].image_content.metadata.arch",
+     "items[].image_content.metadata.distro",
+     "items[].image_content.metadata.distro_version",
+     "items[].image_content.metadata.extended_support",
+     "items[].image_content.metadata.image_size",
+     "items[].image_content.metadata.layer_count"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
    "method": "get",
-   "path": "/images/{image_digest}"
+   "path": "/images/{image_digest}",
+   "observed": {
+    "nullable": [
+     "analysis_status_detail[].source.enterprise_version",
+     "analysis_status_detail[].source.host_id",
+     "analysis_status_detail[].source.service_name",
+     "image_content.metadata.arch",
+     "image_content.metadata.distro",
+     "image_content.metadata.distro_version",
+     "image_content.metadata.extended_support",
+     "image_content.metadata.image_size",
+     "image_content.metadata.layer_count"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
@@ -39,7 +67,15 @@
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
    "method": "get",
-   "path": "/images/{image_digest}/vuln/{vuln_type}"
+   "path": "/images/{image_digest}/vuln/{vuln_type}",
+   "observed": {
+    "nullable": [
+     "vulnerabilities[].annotation_status",
+     "vulnerabilities[].annotation_uuid",
+     "vulnerabilities[].suggested_fix_version"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
@@ -185,7 +221,15 @@
   {
    "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
    "method": "get",
-   "path": "/sources/{source_id}/vuln/{vuln_type}"
+   "path": "/sources/{source_id}/vuln/{vuln_type}",
+   "observed": {
+    "nullable": [
+     "vulnerabilities[].annotation_status",
+     "vulnerabilities[].annotation_uuid",
+     "vulnerabilities[].suggested_fix_version"
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Source: Repository-source scope of the scope walk (req-anchore-scope-walk).",
@@ -345,12 +389,30 @@
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
    "method": "get",
-   "path": "/kubernetes-namespaces"
+   "path": "/kubernetes-namespaces",
+   "observed": {
+    "either": [
+     [
+      "namespaces[].uid",
+      "id"
+     ]
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
    "method": "get",
-   "path": "/kubernetes-nodes"
+   "path": "/kubernetes-nodes",
+   "observed": {
+    "either": [
+     [
+      "namespaces[].uid",
+      "id"
+     ]
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+   }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",

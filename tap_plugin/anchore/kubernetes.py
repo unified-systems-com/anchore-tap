@@ -17,6 +17,7 @@ What that file says, and what follows from it:
 """
 
 import json
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -43,6 +44,25 @@ _MAX_REFERENCE = 2048
 def _text(value: Any, limit: int) -> str | None:
     """A non-empty string that fits its column, else None."""
     return value if isinstance(value, str) and 0 < len(value) <= limit else None
+
+
+def _ident(record: Mapping[str, Any], *names: str) -> Any:
+    """A record's identifier under the first of ``names`` it carries as a non-empty string.
+
+    The vendor's file and a real instance do not agree on these names: the file calls a
+    namespace's identifier ``uid`` and a real instance returns it as ``id``
+    (req-anchore-inventory-kubernetes-13). Each identifier is therefore read under either name,
+    the vendor's first.
+    """
+    for name in names:
+        value = record.get(name)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+#: A Kubernetes object UID: a UUID. Only such a value may key a cluster as its kube-system UID.
+_KUBERNETES_UID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 def _labels(value: Any) -> dict[str, str] | None:
@@ -100,12 +120,14 @@ def kube_system_uids(containers: Iterable[Mapping[str, Any]], pods: Mapping[str,
         cluster = cluster_of(context)
         if cluster is None or context != f"{cluster}/{KUBE_SYSTEM}":
             continue
-        pod = pods.get(container.get("pod_id"))  # type: ignore[arg-type]
-        uid = _text(pod.get("namespace_id"), _MAX_UID) if pod is not None else None
+        pod = pods.get(_ident(container, "pod_id", "pod_uid"))
+        uid = _text(_ident(pod, "namespace_id", "namespace_uid"), _MAX_UID) if pod is not None else None
         if uid is None:
             continue
         record = namespaces.get(uid)
-        confirmed = record is not None and record.get("name") == KUBE_SYSTEM
+        # The identifier must be the namespace's Kubernetes UID to be the cluster's key. An instance
+        # that returns some other identifier under ``id`` gives no kube-system UID, and says so by the fallback.
+        confirmed = record is not None and record.get("name") == KUBE_SYSTEM and _KUBERNETES_UID.fullmatch(uid) is not None
         # An unconfirmed uid is evidence against the cluster's identity, not silence: it stands
         # as the empty marker, which is never a key.
         found.setdefault(cluster, set()).add(uid if confirmed else UNCONFIRMED)
@@ -143,9 +165,9 @@ def plan(
     """
     out = Plan()
     containers = [c for c in containers if isinstance(c, Mapping)]
-    pod_by_id = {p["id"]: p for p in pods if isinstance(p, Mapping) and isinstance(p.get("id"), str)}
-    namespace_by_uid = {n["uid"]: n for n in namespaces if isinstance(n, Mapping) and isinstance(n.get("uid"), str)}
-    node_by_uid = {n["uid"]: n for n in nodes if isinstance(n, Mapping) and isinstance(n.get("uid"), str)}
+    pod_by_id = {_ident(p, "id", "uid"): p for p in pods if isinstance(p, Mapping) and _ident(p, "id", "uid") is not None}
+    namespace_by_uid = {_ident(n, "uid", "id"): n for n in namespaces if isinstance(n, Mapping) and _ident(n, "uid", "id") is not None}
+    node_by_uid = {_ident(n, "uid", "id"): n for n in nodes if isinstance(n, Mapping) and _ident(n, "uid", "id") is not None}
     system = kube_system_uids(containers, pod_by_id, namespace_by_uid)
     edges: set[tuple[str, str, Any, str, Any]] = set()
     fallback: set[str] = set()
@@ -157,7 +179,7 @@ def plan(
         if not passes_reference(container.get("image_tag"), settings.repository_prefixes):
             out.out_of_scope += 1
             continue
-        name, pod_uid, cluster = _text(container.get("name"), _MAX_NAME), _text(container.get("pod_id"), _MAX_UID), cluster_of(context)
+        name, pod_uid, cluster = _text(container.get("name"), _MAX_NAME), _text(_ident(container, "pod_id", "pod_uid"), _MAX_UID), cluster_of(context)
         pod = pod_by_id.get(pod_uid) if pod_uid is not None else None
         if name is None or cluster is None or pod is None:
             out.unusable += 1
@@ -178,14 +200,14 @@ def plan(
             out.clusters[cluster_id] = {"realm": cluster_id[0], "stable_id": cluster_id[1], "name": cluster}
             if cluster_id[0] == REALM_FALLBACK:
                 fallback.add(cluster)
-        namespace_uid = _text(pod.get("namespace_id"), _MAX_UID)
+        namespace_uid = _text(_ident(pod, "namespace_id", "namespace_uid"), _MAX_UID)
         if namespace_uid is not None and namespace_uid in namespace_by_uid:
             record = namespace_by_uid[namespace_uid]
             out.namespaces[namespace_uid] = {"uid": namespace_uid, "name": _text(record.get("name"), _MAX_NAME) or "", "labels": _labels(record.get("labels"))}
             edges.add(("CONTAINS_POD", "namespace", namespace_uid, "pod", pod_uid))
             if cluster_id is not None:
                 edges.add(("CONTAINS_NAMESPACE", "cluster", cluster_id, "namespace", namespace_uid))
-        node_uid = _text(pod.get("node_id"), _MAX_UID)
+        node_uid = _text(_ident(pod, "node_id", "node_uid"), _MAX_UID)
         if node_uid is not None and node_uid in node_by_uid:
             record = node_by_uid[node_uid]
             out.nodes[node_uid] = {"uid": node_uid, "name": _text(record.get("name"), _MAX_NAME) or "", "labels": _labels(record.get("labels"))}

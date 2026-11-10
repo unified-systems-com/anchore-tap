@@ -153,6 +153,43 @@
                 }
               }
             }
+          },
+          "observed": {
+            "type": "object",
+            "description": "Differences a real instance was seen to have from the vendor's file, applied to this operation's 2xx response schemas by the reducer: fields that may be null, and fields returned under another name. Copied from consumed.json.",
+            "additionalProperties": false,
+            "properties": {
+              "nullable": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "either": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ],
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "seen": {
+                "type": "string",
+                "description": "Where and when it was observed."
+              }
+            }
           }
         }
       }
