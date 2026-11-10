@@ -161,7 +161,7 @@ def runtime_image_identified(item: Any) -> bool:
     return isinstance(kind, str) and 0 < len(kind) <= MAX_INVENTORY_TYPE and isinstance(context, str) and 0 < len(context) <= MAX_CONTEXT
 
 
-def runtime_image_node(ref: str, scanner_key: str, item: Any) -> dict[str, Any]:
+def runtime_image_node(ref: str, scanner_key: str, item: Any, analyzed: list[str] | None = None) -> dict[str, Any]:
     """Anchore's observation that an image was in use in a context (req-anchore-inventory, req-anchore-scope-12).
 
     The item must be identified (:func:`runtime_image_identified`) and carry a sha256 digest. A tag
@@ -174,6 +174,8 @@ def runtime_image_node(ref: str, scanner_key: str, item: Any) -> dict[str, Any]:
         "context": item["context"],
         "image_digest": item["image_digest"],
         "image_tag": tag if isinstance(tag, str) and len(tag) <= _MAX_IMAGE_TAG else None,
+        # The analyzed images read on this digest's behalf (req-anchore-scope-15); the digest above stays the running one.
+        "analyzed_digests": analyzed,
     }
     for name in ("created_at", "last_updated", "last_seen"):
         seen = scope.parse_time(item.get(name))

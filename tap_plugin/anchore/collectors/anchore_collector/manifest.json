@@ -60,7 +60,8 @@
       ],
       "optional_fields": [
         "items[].created_at",
-        "items[].image_status"
+        "items[].image_status",
+        "items[].parent_digest"
       ]
     },
     {

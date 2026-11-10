@@ -50,6 +50,7 @@ class AnchoreRuntimeImage(BaseModel):
         "created_at": {"type": ["string", "null"]},
         "last_updated": {"type": ["string", "null"]},
         "last_seen": {"type": ["string", "null"]},
+        "analyzed_digests": {"type": ["array", "null"], "items": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "uniqueItems": True},
     }
     FIELD_VALIDATION_SCHEMA: ClassVar[dict[str, Any]] = {
         name: {"validation": "jsonschema", "schema": schema}
@@ -70,6 +71,18 @@ class AnchoreRuntimeImage(BaseModel):
     last_updated = models.DateTimeField(null=True, blank=True, default=None, help_text="Anchore's last_updated for the record; null when not returned or unreadable.")
     last_seen = models.DateTimeField(
         null=True, blank=True, default=None, help_text="When Anchore's agent last reported this image in this context; null when not returned or unreadable."
+    )
+
+    analyzed_digests = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "The digests of the images Anchore analyzed that this run read on behalf of image_digest. The digest itself when Anchore lists it as an image; "
+            "otherwise each image whose parent_digest it is (a runtime reports a multi-platform image by its index digest, and Anchore analyzes one "
+            "platform's image under its own). Empty when Anchore holds none in scope; null on a row written before this was recorded. "
+            "Source: the image list's image_digest and parent_digest."
+        ),
     )
 
     class Meta(BaseModel.Meta):
