@@ -927,9 +927,16 @@ class AnchoreCollector(CollectorBase):
             for row in parsed.nodes_of("computing_core__package")
             if isinstance(row.properties.get("purl"), str) and row.properties["purl"]
         }
-        ours = state is not None and state["verified"] is None and not state["signer"] and (bool(state["authenticated_source"]) or state["verification_note"].startswith(decompose.UNSIGNED_NOTE_PREFIX))
+        # This scanner's own row: one it staged before (its key is the source), or one this plugin
+        # recorded before it could parse (its note). Another scanner's row, of this plugin or any other, is foreign.
+        ours = (
+            state is not None
+            and state["verified"] is None
+            and not state["signer"]
+            and (state["authenticated_source"] == credential.scanner_key or (not state["authenticated_source"] and state["verification_note"].startswith(decompose.UNSIGNED_NOTE_PREFIX)))
+        )
         foreign = state is not None and not ours
-        already = state is not None and bool(state["authenticated_source"]) and store.sbom_describes_host(content, digest)
+        already = ours and bool(state["authenticated_source"]) and store.sbom_describes_host(content, digest)
         if foreign or already or content in shared.documents:
             if foreign:
                 # Only the packages the grid really holds can be joined to.
@@ -953,7 +960,9 @@ class AnchoreCollector(CollectorBase):
             staged = edge.as_grift()
             staged["entity"]["name"] = edge.edge_type
             for end in ("from", "to"):
-                if staged["edge"].pop(f"{end}_entity_id", None) is not None:
+                # Only the placeholder is this image's host; any other id the parser emitted is left as it is.
+                if staged["edge"].get(f"{end}_entity_id") == placeholder:
+                    del staged["edge"][f"{end}_entity_id"]
                     staged["edge"][f"{end}_key"] = host_key
             out.edges.append(staged)
         out.describes.add((content, digest))

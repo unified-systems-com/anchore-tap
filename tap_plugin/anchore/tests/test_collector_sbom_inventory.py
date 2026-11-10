@@ -131,3 +131,37 @@ class TestAnotherCollectorsDocument:
         doc = document()
         assert (doc.verification_note, doc.authenticated_source) == ("", KEY)
         assert Package.objects.count() == 2 and SbomDocument.objects.filter(content_digest=CONTENT).count() == 1
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"authenticated_source": '["https://other.example/v2","acct"]'},
+            {"verification_note": "unsigned; kept by another collector"},
+            {"verification_note": "no attestation was published"},
+        ],
+    )
+    def test_an_unverified_document_from_another_scanner_or_collector_keeps_its_fields(self, secrets, monkeypatch, fields):
+        """Its source or its note is not this scanner's, so the row is not this scanner's to restage."""
+        assert create_node("computing_core__sbom_document", {**ON_GRID, "verified": None, **fields}).success
+        run_against(monkeypatch, instance())
+        doc = document()
+        assert {name: getattr(doc, name) for name in fields} == fields
+        assert doc.authenticated_source == fields.get("authenticated_source", "")
+        assert Package.objects.count() == 0
+
+
+class TestOnlyThePlaceholderIsRewritten:
+    def test_the_parser_names_no_entity_id_but_the_host_it_was_given(self):
+        """What the collector's rewrite rests on, checked against the real parser and its corpus document."""
+        import uuid
+        from pathlib import Path
+
+        import tap_plugin.computing_core.sbom as sbom
+
+        corpus = Path(sbom.__file__).resolve().parents[1] / "tests" / "corpus" / "tap-web-latest-arm64.cdx.json"
+        if not corpus.exists():
+            pytest.skip("computing_core is installed without its test corpus")
+        placeholder = str(uuid.uuid4())
+        batch = sbom.parse_cyclonedx(corpus.read_bytes(), host_id=placeholder, verification=sbom.Verification("source-authenticated", source=KEY))
+        ids = {value for edge in batch.edges for value in (edge.from_entity_id, edge.to_entity_id) if value is not None}
+        assert ids == {placeholder}
