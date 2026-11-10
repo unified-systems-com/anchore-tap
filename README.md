@@ -76,6 +76,12 @@ Account and context settings are a union. An image the scope leaves out is not r
 the grid are left as they were: out of scope is not clean. The scan run records the settings it ran with
 and how many images were listed, selected and left out.
 
+A runtime reports a multi-platform image by its index digest, while Anchore analyzes one platform's
+image under its own digest. A running digest is therefore matched on an image's `parent_digest` as
+well as its `image_digest`: the findings are read under the analyzed image, the runtime image node
+keeps the running digest and lists the analyzed ones in `analyzed_digests`, and several platform
+images under one index are all read.
+
 ## Base image or application
 
 Each image's vulnerabilities are read with `base_digest=auto`, so Anchore works out the image's

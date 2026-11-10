@@ -76,6 +76,7 @@ _SITE_ECS_CREATE = "b1f6"
 _SITE_KUBERNETES = "0070"
 _SITE_BASE_IMAGE = "57eb"
 _SITE_RUN_LIMIT = "49b9"
+_SITE_PARENT_DIGEST = "7591"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -128,6 +129,8 @@ class _Scanner:
     runs_image: set[tuple[str, str]] = field(default_factory=set)
     #: (image digest, ancestor digest) of each BUILT_ON_IMAGE edge this scanner staged.
     built_on: set[tuple[str, str]] = field(default_factory=set)
+    #: (index digest, platform image digest) of each INDEXES_PLATFORM_IMAGE edge this scanner staged.
+    platform_of: set[tuple[str, str]] = field(default_factory=set)
     #: Images whose vulnerabilities response named a base image, and images read without the base parameter.
     images_with_base: int = 0
     #: Images not read because the run reached limits.max_run_minutes.
@@ -155,6 +158,7 @@ class _Shared:
     describes: set[tuple[str, str]] = field(default_factory=set)
     runs_image: set[tuple[str, str]] = field(default_factory=set)
     built_on: set[tuple[str, str]] = field(default_factory=set)
+    platform_of: set[tuple[str, str]] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
@@ -166,6 +170,7 @@ class _Shared:
         self.describes |= scanner.describes
         self.runs_image |= scanner.runs_image
         self.built_on |= scanner.built_on
+        self.platform_of |= scanner.platform_of
 
 
 #: The clock the run time limit is measured on; a test replaces it.
@@ -435,7 +440,7 @@ class AnchoreCollector(CollectorBase):
             skipped += result.skipped_entries
             duplicates += result.duplicate_entries
             uncarried |= result.uncarried_keys
-        self._runtime_images(credential, running, out, tag, shared)
+        self._runtime_images(credential, running, out, tag, shared, plan.analyzed_for)
         # The two steps below make further reads; past the limit they are not started (req-anchore-limits-4).
         out_of_time = deadline is not None and _monotonic() >= deadline
         if out_of_time:
@@ -526,7 +531,7 @@ class AnchoreCollector(CollectorBase):
                 return list(seen.values()), None
         return [], f"the list did not end within {ECS_PAGE_LIMIT} pages"
 
-    def _runtime_images(self, credential: Credential, running: scoping.Running | None, out: _Scanner, tag: str, shared: _Shared) -> None:
+    def _runtime_images(self, credential: Credential, running: scoping.Running | None, out: _Scanner, tag: str, shared: _Shared, analyzed_for: dict[str, list[str]]) -> None:
         """One runtime image node per selected inventory item, joined to its image host (req-anchore-scope-12).
 
         Written whatever else the run creates. The host is staged with only its digest where neither the
@@ -534,7 +539,7 @@ class AnchoreCollector(CollectorBase):
         """
         if running is None:
             return
-        unusable = 0
+        unusable = several = 0
         for number, item in enumerate(running.items):
             if not decompose.runtime_image_identified(item):
                 unusable += 1
@@ -542,9 +547,21 @@ class AnchoreCollector(CollectorBase):
             digest = item["image_digest"]
             self._ensure_host(out, digest, f"{tag}:rh{number}", shared)
             ref = f"{tag}:ri{number}"
-            out.nodes.append(decompose.runtime_image_node(ref, credential.scanner_key, item))
+            analyzed = sorted(analyzed_for.get(digest, ()))
+            out.nodes.append(decompose.runtime_image_node(ref, credential.scanner_key, item, analyzed))
             out.edges.append(decompose.edge_to_key(f"{ref}:image", "OBSERVES_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
             out.runtime_images += 1
+            # The running digest is an index and Anchore analyzed the platform image(s) under it: join the
+            # two hosts, so what runs the index reaches the findings on the image (req-anchore-scope-16).
+            for position, image in enumerate(analyzed):
+                if image == digest or (digest, image) in out.platform_of or (digest, image) in shared.platform_of:
+                    continue
+                out.platform_of.add((digest, image))
+                self._ensure_host(out, image, f"{ref}:p{position}:host", shared)
+                out.edges.append(decompose.edge_between_keys(f"{ref}:p{position}", "INDEXES_PLATFORM_IMAGE__anchore", "computing_core__host", decompose.host_key(digest), "computing_core__host", decompose.host_key(image)))
+            several += len([image for image in analyzed if image != digest]) > 1
+        if out.platform_of:
+            self.record_info(_SITE_PARENT_DIGEST, "RUNNING_DIGESTS_MATCHED_BY_PARENT", f"{credential.qualified}: {len({index for index, _ in out.platform_of})} running digest(s) were matched to analyzed image(s) by parent_digest; {several} runtime record(s) had more than one analyzed image under their digest and all were read.", message_data={"indexes": len({index for index, _ in out.platform_of}), "links": len(out.platform_of), "records_with_several": several})
         if unusable or running.no_digest or running.ecs_without_inventory:
             self.record_warn(_SITE_INVENTORY_UNUSABLE, "INVENTORY_RECORDS_NOT_USED", f"{credential.qualified}: {running.no_digest} inventory record(s) named no usable digest, {unusable} named no usable type or context, and {running.ecs_without_inventory} ECS container(s) had no recent inventory item to take a last-seen time from.", message_data={"no_digest": running.no_digest, "unusable": unusable, "ecs_without_inventory": running.ecs_without_inventory})
 

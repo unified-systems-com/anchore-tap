@@ -247,8 +247,26 @@ class ImagesToRead:
     images_listed: int = 0
     images_selected: int = 0
     images_out_of_scope: int = 0
-    #: Selected running digests Anchore's image list does not hold (req-anchore-scope-11).
+    #: Selected running digests Anchore's image list does not hold, as an image or as a parent (req-anchore-scope-11).
     not_in_anchore: list[str] = field(default_factory=list)
+    #: Running digest -> the listed image digests this run reads for it (req-anchore-scope-16): itself
+    #: when Anchore lists it as an image, else every image whose ``parent_digest`` it is, else none.
+    analyzed_for: dict[str, list[str]] = field(default_factory=dict)
+
+
+def images_by_parent(listed: Mapping[str, Mapping[str, Any]]) -> dict[str, list[str]]:
+    """Parent digest -> the listed images that name it as ``parent_digest``, in list order.
+
+    A runtime reports the digest a workload was started from, which for a multi-platform image is
+    the index (manifest list). Anchore analyzes one platform's image under its own digest and
+    keeps the index digest as ``parent_digest``. An image that is its own parent is not a child.
+    """
+    out: dict[str, list[str]] = {}
+    for digest, image in listed.items():
+        parent = _digest(image.get("parent_digest"))
+        if parent is not None and parent != digest:
+            out.setdefault(parent, []).append(digest)
+    return out
 
 
 def images_to_read(
@@ -262,17 +280,26 @@ def images_to_read(
     digests are returned in that order. ``running_digests`` is None when the running selection
     could not be read: with ``running_only`` that selects nothing (req-anchore-scope-9), never
     everything.
+
+    A running digest matches a listed image by ``image_digest`` or, failing that, by
+    ``parent_digest`` (req-anchore-scope-16). Where one running digest is the parent of several
+    listed images (one per platform), all of them are read: none is picked over the others.
     """
     out = ImagesToRead()
     by_digest = listed
     out.images_listed = len(by_digest)
+    by_parent = images_by_parent(by_digest)
+    wanted = set(running_digests or ())
+    stand_ins = {digest: [digest] if digest in by_digest else list(by_parent.get(digest, ())) for digest in wanted}
     if settings.running_only:
-        wanted = set(running_digests or ())
-        out.not_in_anchore = sorted(digest for digest in wanted if digest not in by_digest)
-        candidates = [digest for digest in by_digest if digest in wanted]
+        out.not_in_anchore = sorted(digest for digest, found in stand_ins.items() if not found)
+        reading = {image for found in stand_ins.values() for image in found}
+        candidates = [digest for digest in by_digest if digest in reading]
     else:
         candidates = list(by_digest)
     out.digests = [digest for digest in candidates if passes_repository(by_digest[digest], settings.repository_prefixes)]
+    selected = set(out.digests)
+    out.analyzed_for = {digest: [image for image in found if image in selected] for digest, found in stand_ins.items()}
     out.images_selected = len(out.digests)
     out.images_out_of_scope = out.images_listed - out.images_selected
     return out

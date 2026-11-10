@@ -1,0 +1,17 @@
+{
+  "slug": "INDEXES_PLATFORM_IMAGE__anchore",
+  "name": "Indexes Platform Image",
+  "description": "An image index (a multi-platform manifest list) names a single-platform image, by Anchore's parent_digest on the image it analyzed. Both ends are image hosts keyed by digest. A runtime reports the index digest and Anchore's findings sit on the platform image, so this edge is how what runs the index reaches them. Written only for a running digest Anchore matched this way.",
+  "sources": [
+    "computing_core__host"
+  ],
+  "targets": [
+    "computing_core__host"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "runtime"
+  }
+}

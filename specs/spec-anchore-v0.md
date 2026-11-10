@@ -394,7 +394,18 @@ With `running_only` false the account and context settings do not narrow the ima
 
 **A selector that cannot be read selects nothing.** If an inventory read fails after its retries, the selector that needed it is recorded on the run as not read, with the reason, and selects no image. The run never widens to every image because a selector failed.
 
-**What happens to each selected digest.** It is looked up in Anchore's image list. An analyzed image is read as today. An image Anchore has not finished analyzing is recorded as today (`req-anchore-states-4`). A digest Anchore does not hold is recorded on the run as not read, `scope:not-in-anchore`, and counted: a running image Anchore never analyzed has no findings, which is not the same as none found. The digest a runtime reports can be a multi-platform index digest where Anchore analyzed one platform's manifest; such an image is counted here too, and how often that happens is unobserved.
+**What happens to each selected digest.** It is looked up in Anchore's image list. An analyzed image is read as today. An image Anchore has not finished analyzing is recorded as today (`req-anchore-states-4`). A digest Anchore does not hold is recorded on the run as not read, `scope:not-in-anchore`, and counted: a running image Anchore never analyzed has no findings, which is not the same as none found. The digest a runtime reports can be a multi-platform index digest where Anchore analyzed one platform's manifest; such a digest is matched through `parent_digest` as described next and is not counted here, unless Anchore holds no image under it either.
+
+**An index digest is matched through `parent_digest`.** A runtime reports the digest a workload was started from. For a multi-platform image that is the index (the manifest list), while Anchore analyzes one platform's image under that image's own `image_digest` and keeps the index digest on it as `parent_digest`. Matched on `image_digest` alone, such a running image would be reported as not in Anchore when Anchore has in fact analyzed it. So a running digest is looked up first as an `image_digest` and, failing that, as a `parent_digest`:
+
+- The findings and documents are read under the analyzed image's own `image_digest`, and that is the digest their host carries.
+- The runtime image node keeps the running (index) digest as its identity, and its `analyzed_digests` lists the analyzed images read on its behalf: the digest itself for a direct match, the images under it for a parent match, and an empty list when Anchore holds none in scope.
+- `INDEXES_PLATFORM_IMAGE__anchore` joins the index's host to each analyzed image's host, so a container that runs the index reaches the findings on the image.
+- Where one index is the parent of several analyzed images (one per platform), all of them are read and all are recorded. None is chosen over the others: the inventory record does not say which platform ran, and a wrong pick would attach another architecture's findings silently. Choosing by the node's platform is possible for Kubernetes (the node's architecture label) and is not built.
+- A running digest listed as an image in its own right is read as itself, and the images that name it as parent are not read on its account.
+- The repository filter applies to the analyzed image. One that fails it is out of scope, which is not "not in Anchore".
+
+From the vendor's file the image record carries `parent_digest` as a string with no description; that it holds the index digest is from the maintainer's observation of a real instance, not from that file.
 
 **What is written for the running selection.** Always, whatever the `create` settings: one `anchore_runtime_image` per selected inventory item (`req-anchore-inventory`), so what Anchore saw running is on the grid on a node this plugin owns. Then, where `create.kubernetes` is true, the Kubernetes objects behind the selected Kubernetes records; and where `create.ecs` is true, the `aws_core` ECS nodes behind the selected ECS records that the grid does not already hold. With a `create` setting false, nothing of that kind is written and the records are counted.
 
@@ -431,6 +442,7 @@ With `running_only` false the account and context settings do not narrow the ima
 | req-anchore-scope-13 | Creation Follows Its Setting | Proposed | Kubernetes objects are written only when `create.kubernetes` is true (the default) and `aws_core` ECS nodes only when `create.ecs` is true (not the default); otherwise the records are counted and nothing of that kind is written. | |
 | req-anchore-scope-14 | The Run Records Its Settings | Proposed | The scan run holds the scope and create settings as configured and the five counts above. | |
 | req-anchore-scope-15 | Workarounds Are Marked | Proposed | The envelope read carries a `WORKAROUND` comment naming `unified-systems-com/tap#907`. | `unified-systems-com/tap#1169`. |
+| req-anchore-scope-16 | A Running Index Digest Matches By Parent | Implemented | An inventory record whose digest equals a listed image's `parent_digest` is selected and read under that image's `image_digest`, and is not reported as not in Anchore. The runtime image keeps the running digest and records the analyzed digests in `analyzed_digests`; several images under one index are all read and all recorded; a direct `image_digest` match takes precedence. | `test_collector_parent_digest.py` |
 
 #### Open questions
 
