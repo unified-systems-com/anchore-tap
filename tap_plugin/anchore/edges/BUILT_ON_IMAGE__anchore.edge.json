@@ -1,0 +1,17 @@
+{
+  "slug": "BUILT_ON_IMAGE__anchore",
+  "name": "Built On Image",
+  "description": "A container image's layers begin with the layers of another image, by Anchore's ancestors list: the source image was built on the target. Both ends are image hosts keyed by manifest digest. Anchore reports only ancestors it has itself analyzed, so the absence of this edge does not mean an image has no base.",
+  "sources": [
+    "computing_core__host"
+  ],
+  "targets": [
+    "computing_core__host"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "inventory"
+  }
+}

@@ -235,8 +235,13 @@ def sbom_node(ref: str, source_id: str, body: bytes, document: Any, subject_dige
     return envelope(ref, SbomDocument, f"{SBOM_FORMATS[source_id]} {digest[:12]}", fields)
 
 
-def finding_fields(entry: dict[str, Any], scanner_key: str, target_key: str, run_id: str, dropped: list[dict[str, str]]) -> dict[str, Any] | None:
-    """The AnchoreFinding fields for one vulnerability entry, or None when its identity cannot be held exactly."""
+def finding_fields(entry: dict[str, Any], scanner_key: str, target_key: str, run_id: str, dropped: list[dict[str, str]], base_digest: str | None = None) -> dict[str, Any] | None:
+    """The AnchoreFinding fields for one vulnerability entry, or None when its identity cannot be held exactly.
+
+    ``base_digest`` is the base image the response says it compared against. Without one a false
+    ``inherited_from_base`` is stored as null (req-anchore-base-image-3): "not inherited" with no
+    base named is not an observation. A true flag is kept: it says a base held the package.
+    """
     vuln = entry.get("vuln")
     if not isinstance(vuln, str) or not vuln or len(vuln) > 255:
         return None
@@ -261,10 +266,13 @@ def finding_fields(entry: dict[str, Any], scanner_key: str, target_key: str, run
     if unidentifiable:
         return None
     fields["package_key"] = package_key_for(fields["package"], fields["package_path"])
+    fields["base_digest"] = base_digest
+    if base_digest is None and fields["inherited_from_base"] is False:
+        fields["inherited_from_base"] = None
     return fields
 
 
-def decompose_image(entries: list[Any], scanner_key: str, target_key: str, run_id: str, ref_prefix: str) -> Decomposition:
+def decompose_image(entries: list[Any], scanner_key: str, target_key: str, run_id: str, ref_prefix: str, base_digest: str | None = None) -> Decomposition:
     """Finding nodes for one image's vulnerability entries; an assertion seen twice becomes one node."""
     out = Decomposition()
     for entry in entries:
@@ -272,7 +280,7 @@ def decompose_image(entries: list[Any], scanner_key: str, target_key: str, run_i
             out.skipped_entries += 1
             continue
         out.uncarried_keys.update(set(entry) - set(_CARRIED) - set(_RENAMED))
-        fields = finding_fields(entry, scanner_key, target_key, run_id, out.dropped_fields)
+        fields = finding_fields(entry, scanner_key, target_key, run_id, out.dropped_fields, base_digest)
         if fields is None:
             out.skipped_entries += 1
             continue

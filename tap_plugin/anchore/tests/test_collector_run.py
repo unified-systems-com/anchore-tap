@@ -67,7 +67,13 @@ class Instance:
         for name in self.kubernetes:
             self.transport.routes[f"/kubernetes-{name}"] = self._kubernetes(name)
         self.sboms: dict[tuple[str, str], object] = {}
+        #: Per image: the base digest the vulnerabilities response names, and the ancestors list.
+        self.base: dict[str, str] = {}
+        self.ancestors: dict[str, object] = {}
+        #: Set to an HTTP status to make the instance turn down the base_digest parameter.
+        self.refuse_base: int | None = None
         for digest in (DIGEST, OTHER):
+            self.transport.routes[f"/images/{digest}/ancestors"] = self._ancestors(digest)
             self.transport.routes[f"/images/{digest}/vuln/all"] = self._vulns(digest)
             for fmt in ("native-json", "spdx-json", "cyclonedx-json"):
                 self.transport.routes[f"/images/{digest}/sboms/{fmt}"] = self._sbom(digest, fmt)
@@ -92,7 +98,19 @@ class Instance:
         def answer(request):
             if digest in self.failing:
                 return response(500, {"detail": "boom"})
-            return response(200, {"image_digest": digest, "vulnerabilities": self.vulns.get(digest, [])})
+            if self.refuse_base is not None and "base_digest" in str(request.url):
+                return response(self.refuse_base, {"detail": "unknown parameter"})
+            body = {"image_digest": digest, "vulnerabilities": self.vulns.get(digest, [])}
+            if digest in self.base and "base_digest=auto" in str(request.url):
+                body["base_digest"] = self.base[digest]
+            return response(200, body)
+
+        return answer
+
+    def _ancestors(self, digest):
+        def answer(request):
+            body = self.ancestors.get(digest, [])
+            return response(body, {"detail": "boom"}) if isinstance(body, int) else response(200, body)
 
         return answer
 
@@ -132,7 +150,7 @@ class TestFirstRun:
         assert scanner.scanner_key == KEY and scanner.reported_version == "5.1.0"
         run = AnchoreScanRun.objects.get()
         assert run.scanner_key == KEY and run.selftest_verdict == "pass"
-        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 8 and run.scopes_not_read == []
+        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 9 and run.scopes_not_read == []
         assert run.scopes_read[-3:] == ["source:inventories", "source:ecs-containers", "create:kubernetes"]
         assert run.status == {"version": "5.1.0", "up": True} and isinstance(run.feeds, list)
         found = findings()
@@ -158,7 +176,7 @@ class TestFirstRun:
         run_against(monkeypatch, instance)
         run = AnchoreScanRun.objects.get()
         assert [n["scope"] for n in run.scopes_not_read] == [f"image:{OTHER}"]
-        assert not any(c.url.endswith(f"{OTHER}/vuln/all") for c in instance.transport.calls)
+        assert not any(f"{OTHER}/vuln/all" in c.url for c in instance.transport.calls)
 
 
 @pytest.mark.django_db
@@ -300,7 +318,7 @@ class TestIdentityIsNeverGuessed:
         instance = Instance(images=[{"image_digest": DIGEST, "analysis_status": "analyzed"}, {"image_digest": DIGEST, "analysis_status": "analyzed"}])
         collector = run_against(monkeypatch, instance)
         assert AnchoreFinding.objects.count() == 2
-        assert sum(c.url.endswith(f"{DIGEST}/vuln/all") for c in instance.transport.calls) == 1
+        assert sum(c.url.endswith(f"{DIGEST}/vuln/all?base_digest=auto") for c in instance.transport.calls) == 1
         assert any(w["message_code"] == "IMAGES_REPEATED" for w in collector.results["warn"])
 
     def test_a_later_analyzed_entry_for_a_digest_listed_as_analyzing_is_still_read(self, secrets, monkeypatch):
@@ -316,9 +334,10 @@ class TestIdentityIsNeverGuessed:
         except AnchoreCollectorError:
             pass
         paths = [c.url.split("/v2", 1)[-1] for c in instance.transport.calls]
-        # Everything after the probe and the image list stays under /images/<one quoted segment>/{vuln/all,sboms/<format>}.
-        walked = [p for p in paths if p.startswith("/images/") and p != "/images"]
-        assert all(p.count("/") == 4 and (p.endswith("/vuln/all") or "/sboms/" in p) for p in walked)
+        # Everything after the probe and the image list stays under /images/<one quoted segment>/{vuln/all,sboms/<format>};
+        # the one query the client adds itself is the base-image parameter, and a digest that is not one reads no ancestors.
+        walked = [p.removesuffix("?base_digest=auto") for p in paths if p.startswith("/images/") and p != "/images"]
+        assert all("?" not in p and p.count("/") == 4 and (p.endswith("/vuln/all") or "/sboms/" in p) for p in walked)
         assert paths.count("/account") == 1 and not any("evil" in c.url.split("/v2", 1)[0] for c in instance.transport.calls)
 
     def test_image_list_entries_without_a_usable_digest_are_listed_not_skipped_silently(self, secrets, monkeypatch):

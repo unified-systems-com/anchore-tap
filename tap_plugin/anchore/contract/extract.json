@@ -1184,6 +1184,71 @@
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
    "method": "get",
+   "path": "/images/{image_digest}/ancestors",
+   "present": true,
+   "operation_id": "get_image_ancestors",
+   "parameters": [
+    {
+     "name": "x-anchore-account",
+     "in": "header",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "image_digest",
+     "in": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "format": "path",
+      "pattern": "^sha256:[a-fA-F0-9]{64}$"
+     }
+    }
+   ],
+   "responses": [
+    {
+     "status": "200",
+     "content_type": "application/json",
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "chosen_base_image": {
+         "type": "boolean"
+        },
+        "image_digest": {
+         "type": "string"
+        },
+        "layers": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "parent_digest": {
+         "type": "string"
+        },
+        "tags": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "user_marked_base": {
+         "type": "boolean"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
    "path": "/images/{image_digest}/vuln-annotations",
    "present": true,
    "operation_id": "list_image_vuln_annotations",

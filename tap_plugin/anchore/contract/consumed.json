@@ -44,6 +44,11 @@
   {
    "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
    "method": "get",
+   "path": "/images/{image_digest}/ancestors"
+  },
+  {
+   "description": "Image: Image scope of the scope walk (req-anchore-scope-walk). The client never requests the files content type, the per-file listing being a non-goal.",
+   "method": "get",
    "path": "/images/{image_digest}/vuln-annotations"
   },
   {

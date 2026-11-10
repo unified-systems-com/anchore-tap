@@ -4,7 +4,7 @@ TAP plugin that reads vulnerability findings, SBOMs, VEX statements, policy resu
 from Anchore Enterprise, hosted or on-prem, and holds them on the grid as Anchore returns them, to support
 FedRAMP vulnerability detection and response (VDR).
 
-**Status: v0.1.3 plus the collection scope on main, spec-derived and not yet run against a real Anchore.** The observation command, the
+**Status: v0.1.4, with base-image attribution on main, spec-derived and not yet run against a real Anchore.** The observation command, the
 read-only client, the nodes and edges, the per-run self-test and probe, and a collector (`anchore:anchore`)
 exist and are tested against a canned instance. Every field is taken from Anchore's published OpenAPI file
 (2.20.0), not from a recorded response, so expect the first real run to find differences. The spec says no
@@ -74,6 +74,17 @@ Account and context settings are a union. An image the scope leaves out is not r
 the grid are left as they were: out of scope is not clean. The scan run records the settings it ran with
 and how many images were listed, selected and left out.
 
+## Base image or application
+
+Each image's vulnerabilities are read with `base_digest=auto`, so Anchore works out the image's
+base image and marks each finding `inherited_from_base`: true when the vulnerable package came
+with the base, false when it was added on top. The finding also records `base_digest`, the base
+Anchore compared against. An image is joined to the images it was built on by
+`BUILT_ON_IMAGE__anchore`.
+
+Anchore can only name a base it has itself analyzed. Where it names none, the flag is empty,
+which means unobserved, not "no base". Add your base images to Anchore to fill it.
+
 ## Running the collector
 
 The collector reads every credential in scope `anchore` under the secrets root, so do the first session above
@@ -89,8 +100,8 @@ edges from findings to the image host and, only where it already exists with exa
 shared vulnerability. A scope that was not read is never a clean result, and a read that failed leaves the
 findings it would have updated as they were.
 
-To try it, boot a profile that installs `computing_core` v0.10.3, `compliance_core` v0.8.11 and this plugin at
-`v0.1.3` (the `ci` record in `tap_plugin/anchore/boot/ci.boot.json` is a working list), run `manage.py boot` so the
+To try it, boot a profile that installs `computing_core` v0.10.4, `compliance_core` v0.8.11 and this plugin at
+`v0.1.4` (the `ci` record in `tap_plugin/anchore/boot/ci.boot.json` is a working list), run `manage.py boot` so the
 collector node is reconciled, and fire the collector as the scheduler actor:
 
     with acting_as(get_builtin_actor(SCHEDULER)):
