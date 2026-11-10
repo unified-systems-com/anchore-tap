@@ -67,7 +67,7 @@ class TestReducer:
         assert build.build() == build.EXTRACT.read_text(encoding="utf-8")
         observed = {op["path"]: op["observed"] for op in EXTRACT["operations"] if "observed" in op}
         assert set(observed) == {"/images", "/images/{image_digest}", "/images/{image_digest}/vuln/{vuln_type}", "/sources/{source_id}/vuln/{vuln_type}", "/kubernetes-namespaces", "/kubernetes-nodes", "/kubernetes-pods"}
-        assert sum(len(o.get("nullable", [])) for o in observed.values()) == 24
+        assert sum(len(o.get("nullable", [])) for o in observed.values()) == 25
 
 
 class TestTheCommittedShape:
@@ -109,6 +109,12 @@ class TestTheCommittedShape:
         assert valid("kubernetes_pods", {"pods": [record]})
         assert not valid("kubernetes_pods", {"pods": [{**record, "labels": "not-a-map"}]})
         assert not valid("kubernetes_pods", {"pods": [{key: value for key, value in record.items() if key != "id"}]})
+
+    @pytest.mark.parametrize("wrapper", ["pods", "namespaces"])
+    def test_a_pod_not_yet_scheduled_has_a_null_node_id(self, wrapper):
+        record = {"id": "p1", "name": "p1", "account_name": "acct", "labels": {}, "annotations": {}, "namespace_id": "ns", "node_id": None}
+        assert valid("kubernetes_pods", {wrapper: [record]})
+        assert not valid("kubernetes_pods", {wrapper: [{**record, "namespace_id": None}]})
 
     def test_a_container_record_with_an_undeclared_last_seen_is_valid(self):
         record = {"id": "containerd://x", "name": "web", "pod_id": "p1", "account_name": "acct", "context": "prod/default", "image_tag": "registry.example/app:1", "image_digest": DIGEST, "last_seen": "2026-11-10T00:00:00Z"}
