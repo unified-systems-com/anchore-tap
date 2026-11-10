@@ -52,6 +52,7 @@ Six consequences shape v0:
 | --- | --- | --- | --- |
 | req-anchore-connection | [Connection And Credential](#connection-and-credential) | Proposed | One operator-owned secret envelope per Anchore instance and account holds the credential and its connection settings; never fields on a node |
 | req-anchore-client | [The Read-Only Client](#the-read-only-client) | Proposed | A thin `requests` client, GET only, cursor paging, timeouts, backoff, TLS verification on |
+| req-anchore-limits | [Operator Limits](#operator-limits) | In Development | The response size cap and a run time limit, set per instance in the envelope |
 | req-anchore-observe | [The Trial Observation Command](#the-trial-observation-command) | Proposed | A read-only command that records what an instance returns, in a fixed order, locally, so shapes are observed before they are parsed |
 | req-anchore-probe | [Probe And Provenance](#probe-and-provenance) | In Development | Version, status and feed freshness read first and recorded on the scan run |
 | req-anchore-selftest | [Per-Run Schema Self-Test](#per-run-schema-self-test) | In Development | The instance's own spec is checked against the committed extract before any data is read; error, warn or pass |
@@ -92,6 +93,7 @@ The secret is a plugin secret, not a core one: its consumer is the Anchore colle
 - `annotation_allowlist`: annotation keys that may be stored; empty by default. Optional.
 - `scope`: which images the collector reads (`req-anchore-scope`). Required, and within it `running_only` is required: `true` for images Anchore reports as running, `false` for every image on the instance.
 - `inventory_max_age_hours`, `create`: how recent a running record must be, and which runtime records are written as nodes (`req-anchore-scope`). Optional.
+- `limits`: the response size cap and the run time limit (`req-anchore-limits`). Optional.
 - `scheme`: `basic`, `api_key` or `bearer`, which selects the credential fields and admits no others. `basic` has `username` and `password`; `api_key` has `key`, sent as the user `_api_key` that Anchore documents; `bearer` has `token`, a token already minted and held in the envelope. The client never calls a token endpoint, because obtaining a token is a POST and the client sends only GET; minting and renewing the token is the operator's, out of band, and a change to any value takes effect on restart.
 
 The envelope's description states the least-privilege shape: a read-only Anchore role for the named account. Which of the three schemes the hosted service accepts, and what a read-only credential can read, is unknown until the trial (see the differences ledger).
@@ -137,6 +139,45 @@ A small client over `requests` (a direct dependency of core already; no Anchore-
 | req-anchore-client-2 | Verified TLS | Proposed | Certificate verification is on; it is turned off by no setting. | A private CA is the `ca_bundle` setting. |
 | req-anchore-client-3 | Bounded Retries | Proposed | Retries are limited in count and total time, and honour `Retry-After`; exhaustion is a recorded failure, not a silent empty result. | Ties to `req-anchore-states`. |
 | req-anchore-client-4 | Bound To The API Root | Proposed | The adapter refuses any request whose URL is not under the configured API root, so the session that holds the credential cannot be used against another host, port or path root; tests drive the public session at each. | A direct session call must not exfiltrate the credential. |
+
+### Operator Limits
+----
+RID: `req-anchore-limits`
+
+Status: `In Development`
+
+Two resource limits the operator sets per Anchore instance, in the envelope's optional `limits` object. They live in the envelope for the same reason the scope settings do (`unified-systems-com/tap#907`).
+
+#### Implementation
+
+| setting | type | default | meaning |
+| --- | --- | --- | --- |
+| `limits.max_response_mib` | integer, 1 to 1024 | `64` | The largest response body the client reads, in mebibytes. |
+| `limits.max_run_minutes` | integer, 1 to 10080 | unset: no limit | How long a run against this instance may keep starting new reads, counted from its first request. |
+
+**The response cap.** It was a constant of 64 MiB; the default is the same number. A body the instance declares larger than the cap, or that grows past it while streaming, is not read: the read fails as it did before and its scope is recorded as not read. Nothing is truncated. The largest bodies are SBOMs, so raising the cap is how an operator reads a very large one, and lowering it bounds memory on a small host.
+
+**The run time limit.** Checked before each image is started, and once more before the inventory steps that make further reads (ECS creation and the Kubernetes lists). Once the limit has passed:
+
+- the read in flight finishes; it is bounded by the client's own per-request budget, so a run can overshoot the limit by one image's reads;
+- every image not yet started is recorded as not read under `image:<digest>`, naming the limit, and nothing of it is resolved: its findings stay as they were (`req-anchore-states`);
+- ECS creation and the Kubernetes writes, where enabled, are recorded as not read under `create:ecs` and `create:kubernetes`;
+- what was read is written, the run is recorded with its settings, and a warning says how many images were left.
+
+The limit does not cover the probe and self-test, which have their own ceilings, and it is per instance: a second envelope's run has its own clock. Images are read in the order the scope selects them, so a run that keeps hitting the limit keeps reading the same first images; there is no rotation in v0, and the not-read list is where that shows.
+
+Both settings are on the scan run's recorded settings.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-limits-1 | The Cap Is The Operator's | Implemented | The client reads a body up to `limits.max_response_mib` and refuses a larger one; with the setting absent the cap is 64 MiB. | |
+| req-anchore-limits-2 | Strict Limits | Implemented | The schema refuses a value out of range, a non-integer, a null, and an unknown key under `limits`. | |
+| req-anchore-limits-3 | No New Image Past The Limit | Implemented | Once `limits.max_run_minutes` has passed since the run's first request, no further image is requested; each is recorded as not read naming the limit, and what was read is written. | |
+| req-anchore-limits-4 | Out Of Time Resolves Nothing | Implemented | A finding of an image the limit left unread stays in its prior state, and the inventory steps that read further are recorded as not read, not skipped silently. | |
+| req-anchore-limits-5 | No Limit By Default | Implemented | With `limits.max_run_minutes` absent, elapsed time is never a reason an image is not read. | |
+| req-anchore-limits-6 | Limits Are Recorded | Implemented | The scan run's settings carry both limits as they applied. | |
 
 ### The Trial Observation Command
 ----
@@ -440,7 +481,7 @@ Anchore offers each image's and source's SBOM in three formats. All three are st
 
 Reads `/sboms/native-json`, `/sboms/spdx-json` and `/sboms/cyclonedx-json` per image (and the source equivalents). Each is recorded as a `computing_core__sbom_document` (content digest over the exact bytes, never the body). The CycloneDX document, and only that one, is parsed with `computing_core`'s CycloneDX parser into `package`, `library` and edges, for CycloneDX 1.4 to 1.7. The parser accepts only a verified document today and Anchore's are unsigned, so the plugin depends on a `computing_core` change that adds a fourth verification outcome, `source-authenticated`: the parser reads the document, and it is recorded with `verified` null and a note naming the Anchore instance and account, never marked verified. That change is not yet made (it is a separate `computing_core` pull request, with a trust-level column and a rule for what counts as current still to be settled). Until it lands, the plugin records every SBOM as a document and parses none, which is the safe state, not a failure. The SPDX and native JSON documents are stored but not parsed in v0.
 
-**Build state.** The collector records, per analyzed image and per format Anchore serves (`sboms/native-json`, `sboms/spdx-json`, `sboms/cyclonedx-json`), one `computing_core__sbom_document` whose key is the SHA-256 of the response body exactly as received, with `verified` null, no signer, and a note that it is unsigned and from which instance and account; the body is never stored. The formats are recorded as `anchore-native`, `spdx` and `cyclonedx`. For CycloneDX only, the document's own header (`specVersion`, `serialNumber`, `version`, `metadata.timestamp`, the number of components) fills the record where the record can hold it; nothing is parsed into packages (`-2`, `-4`). A document describes its image host (`DESCRIBES_HOST__computing_core`); bytes shared by two images, two formats or two scanners are one document, and a document the grid already holds (possibly written by another collector, verified and signed) is linked to and never rewritten. The documents are separate reads from the vulnerabilities, so a failed vulnerability read does not stop them. A body is read within the client's 64 MiB response cap, which is an accepted resource budget and not a tighter limit; it is parsed as JSON as the standard defines it (NaN and Infinity are refused), and one nested too deeply to read is listed as not read. An image host written for a digest is a stub (realm, digest and kind only) that any later collector's fuller record replaces. The vendor file describes these bodies as a string, which is not what an instance returns, so they are checked only for being JSON, not against that schema. A format the instance does not serve, or a body that is not JSON, is listed in the scan run's `scopes_not_read`. Not yet built: the source equivalents, the source-authenticated outcome and the CycloneDX parse. One known gap in the record: computing_core's `component_count` has no null, so a document whose count is not read (SPDX, native) holds 0, which means unobserved, not empty.
+**Build state.** The collector records, per analyzed image and per format Anchore serves (`sboms/native-json`, `sboms/spdx-json`, `sboms/cyclonedx-json`), one `computing_core__sbom_document` whose key is the SHA-256 of the response body exactly as received, with `verified` null, no signer, and a note that it is unsigned and from which instance and account; the body is never stored. The formats are recorded as `anchore-native`, `spdx` and `cyclonedx`. For CycloneDX only, the document's own header (`specVersion`, `serialNumber`, `version`, `metadata.timestamp`, the number of components) fills the record where the record can hold it; nothing is parsed into packages (`-2`, `-4`). A document describes its image host (`DESCRIBES_HOST__computing_core`); bytes shared by two images, two formats or two scanners are one document, and a document the grid already holds (possibly written by another collector, verified and signed) is linked to and never rewritten. The documents are separate reads from the vulnerabilities, so a failed vulnerability read does not stop them. A body is read within the client's response cap (`limits.max_response_mib`, 64 MiB unless the operator sets it; `req-anchore-limits`), which is an accepted resource budget and not a tighter limit; it is parsed as JSON as the standard defines it (NaN and Infinity are refused), and one nested too deeply to read is listed as not read. An image host written for a digest is a stub (realm, digest and kind only) that any later collector's fuller record replaces. The vendor file describes these bodies as a string, which is not what an instance returns, so they are checked only for being JSON, not against that schema. A format the instance does not serve, or a body that is not JSON, is listed in the scan run's `scopes_not_read`. Not yet built: the source equivalents, the source-authenticated outcome and the CycloneDX parse. One known gap in the record: computing_core's `component_count` has no null, so a document whose count is not read (SPDX, native) holds 0, which means unobserved, not empty.
 
 #### Acceptance Criteria
 
