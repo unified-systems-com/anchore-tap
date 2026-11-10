@@ -92,6 +92,20 @@ class TestClusterIdentity:
         got = planned([container("p1"), container("p-a", "dns", "prod/kube-system"), container("p-b", "dns", "prod/kube-system")], pods)
         assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
 
+    def test_a_kube_system_context_over_another_namespace_does_not_key_the_cluster(self):
+        """The context says kube-system; the pod's namespace is the one named default."""
+        got = planned([container("p1", "dns", "prod/kube-system")], [pod("p1", namespace="ns-default")])
+        assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
+
+    def test_a_kube_system_namespace_anchore_does_not_list_does_not_key_the_cluster(self):
+        got = planned([container("p1", "dns", "prod/kube-system")], [pod("p1", namespace="ns-unlisted")])
+        assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
+
+    def test_repository_prefixes_do_not_narrow_placement(self):
+        """They narrow which images' findings are read (req-anchore-scope-8), not what is placed."""
+        got = planned([container("p1", image_tag="other.example/app:1")], [pod("p1")], repository_prefixes=("registry.example/",))
+        assert set(got.containers) == {("p1", "web")}
+
     def test_the_identity_does_not_depend_on_the_scope(self):
         got = planned([container("p1", context="prod/payments"), *SYSTEM], [pod("p1"), *SYSTEM_PODS], context_prefixes=("prod/payments",))
         assert list(got.clusters) == [("kube-system-uid", "ns-system")]

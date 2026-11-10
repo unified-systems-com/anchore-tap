@@ -30,6 +30,8 @@ REALM_FALLBACK = "anchore-inventory"
 #: The realm of the host row behind a node.
 REALM_NODE_HOST = "kubernetes-node-uid"
 KUBE_SYSTEM = "kube-system"
+#: Stands in a cluster's uid set for a kube-system claim the namespace list does not bear out.
+UNCONFIRMED = ""
 
 #: Column limits of the computing_core types; a value that does not fit cannot be written.
 _MAX_UID = 64
@@ -83,11 +85,14 @@ class Plan:
     fallback_clusters: int = 0
 
 
-def kube_system_uids(containers: Iterable[Mapping[str, Any]], pods: Mapping[str, Mapping[str, Any]]) -> dict[str, set[str]]:
+def kube_system_uids(containers: Iterable[Mapping[str, Any]], pods: Mapping[str, Mapping[str, Any]], namespaces: Mapping[str, Mapping[str, Any]]) -> dict[str, set[str]]:
     """For each cluster name, the uids of the namespace its ``<cluster>/kube-system`` containers' pods are in.
 
     One uid is the cluster's identifier. None means the namespace was not inventoried; more than
     one means two clusters share a configured name, and neither uid can be trusted to name this one.
+    A uid counts only when the namespace list holds it under the name ``kube-system``: a context
+    that says kube-system over a pod in some other namespace, or in one Anchore does not list,
+    must not key the cluster, and its presence leaves the cluster's other uids untrusted too.
     """
     found: dict[str, set[str]] = {}
     for container in containers:
@@ -97,8 +102,13 @@ def kube_system_uids(containers: Iterable[Mapping[str, Any]], pods: Mapping[str,
             continue
         pod = pods.get(container.get("pod_id"))  # type: ignore[arg-type]
         uid = _text(pod.get("namespace_id"), _MAX_UID) if pod is not None else None
-        if uid is not None:
-            found.setdefault(cluster, set()).add(uid)
+        if uid is None:
+            continue
+        record = namespaces.get(uid)
+        confirmed = record is not None and record.get("name") == KUBE_SYSTEM
+        # An unconfirmed uid is evidence against the cluster's identity, not silence: it stands
+        # as the empty marker, which is never a key.
+        found.setdefault(cluster, set()).add(uid if confirmed else UNCONFIRMED)
     return found
 
 
@@ -109,7 +119,7 @@ def cluster_key(cluster: str, system_uids: set[str] | None, scanner_key: str) ->
     configured name together, as a compact JSON array, under this plugin's own realm: a bare
     name under a shared realm would merge two instances' clusters called ``prod``.
     """
-    if system_uids is not None and len(system_uids) == 1:
+    if system_uids is not None and len(system_uids) == 1 and UNCONFIRMED not in system_uids:
         return REALM_KUBE_SYSTEM, next(iter(system_uids))
     stable_id = json.dumps([scanner_key, cluster], separators=(",", ":"), ensure_ascii=False)
     return (REALM_FALLBACK, stable_id) if len(stable_id) <= _MAX_KEY else None
@@ -128,14 +138,15 @@ def plan(
 
     In scope: every container when no running selector is set, else those whose context begins
     with a listed prefix (an AWS account selector selects no Kubernetes container). Running: the
-    container's pod was seen within the window.
+    container's pod was seen within the window. ``repository_prefixes`` narrows which images'
+    findings are read and plays no part here, as it plays none in the ECS placement.
     """
     out = Plan()
     containers = [c for c in containers if isinstance(c, Mapping)]
     pod_by_id = {p["id"]: p for p in pods if isinstance(p, Mapping) and isinstance(p.get("id"), str)}
     namespace_by_uid = {n["uid"]: n for n in namespaces if isinstance(n, Mapping) and isinstance(n.get("uid"), str)}
     node_by_uid = {n["uid"]: n for n in nodes if isinstance(n, Mapping) and isinstance(n.get("uid"), str)}
-    system = kube_system_uids(containers, pod_by_id)
+    system = kube_system_uids(containers, pod_by_id, namespace_by_uid)
     edges: set[tuple[str, str, Any, str, Any]] = set()
     fallback: set[str] = set()
     for container in containers:
