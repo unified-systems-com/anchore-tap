@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.1.4](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.3...v0.1.4) (2026-11-10)
+
+
+### Features
+
+* **ecs:** join an Anchore ECS container to the aws_core container with its ARN ([6a0dafc](https://github.com/unified-systems-com/anchore-tap/commit/6a0dafc4d920ece53f520eb5ad794537fd9359ac))
+* **ecs:** join an Anchore ECS container to the aws_core container with its ARN ([455355a](https://github.com/unified-systems-com/anchore-tap/commit/455355aa0223338ab2d8f6d5e3762ee1e9e92ab0))
+* **ecs:** with create.ecs, create the aws_core ECS nodes the grid does not hold ([106fe97](https://github.com/unified-systems-com/anchore-tap/commit/106fe9767d3d53de5e87a7bd5bc9a038c0e2e34b))
+* **ecs:** with create.ecs, create the aws_core ECS nodes the grid does not hold ([b229037](https://github.com/unified-systems-com/anchore-tap/commit/b229037a03f71077314ab26ae05e3693f016506e))
+* **inventory:** the runtime image node, its edge, and scope fields on the scan run ([bc3aa9d](https://github.com/unified-systems-com/anchore-tap/commit/bc3aa9d262ebff502e2cfa2604116ca11faf6875))
+* **kubernetes:** the placement plan, pure ([5c33bb3](https://github.com/unified-systems-com/anchore-tap/commit/5c33bb320e0b9ddd2cab0b5d3b6bd69331da9b04))
+* **kubernetes:** write Anchore's Kubernetes inventory into computing_core's types ([9281cee](https://github.com/unified-systems-com/anchore-tap/commit/9281ceecbf32a2f4595d7835968c291923097390))
+* **kubernetes:** write the Kubernetes objects Anchore reports into computing_core's types ([dbf8c52](https://github.com/unified-systems-com/anchore-tap/commit/dbf8c52135d1cc9fa921b4bb8a81425d35395288))
+* **scope:** envelope settings and the pure scope selection ([d6e827e](https://github.com/unified-systems-com/anchore-tap/commit/d6e827e035969e28f4540c2e8b651b977e09ef34))
+* **scope:** read only what the scope selects, and record what Anchore saw running ([89d7c47](https://github.com/unified-systems-com/anchore-tap/commit/89d7c47be5a62b64a81517af3b22a0f1fdf12c07))
+* **scope:** repository_prefixes narrows what the runtime inventory writes ([0a6a5ca](https://github.com/unified-systems-com/anchore-tap/commit/0a6a5ca65ec035bad43b80dc90374203df6b5c10))
+* **scope:** scope.running_only is required, with no default ([453f55d](https://github.com/unified-systems-com/anchore-tap/commit/453f55d57ebb2ea751c53b8e1ea1acc315d2f429))
+* **scope:** the collector reads only what the scope selects, and records what it saw running ([a43531c](https://github.com/unified-systems-com/anchore-tap/commit/a43531c60823ee5466b2c1162336ff458574fee2))
+
+
+### Bug Fixes
+
+* **ecs:** a later scanner joins its nodes to ancestors an earlier scanner staged ([e80381f](https://github.com/unified-systems-com/anchore-tap/commit/e80381f5b4ad14adc21674fba9ee030dfa382874))
+* **ecs:** a later scanner links its image to a container an earlier scanner staged ([452d24f](https://github.com/unified-systems-com/anchore-tap/commit/452d24f636c85b71e43dc9ad93345e5fa6b8f01c))
+* **ecs:** an ECS ARN needs a real partition and region shape and a bounded length ([4b6cdd9](https://github.com/unified-systems-com/anchore-tap/commit/4b6cdd9a64264b82e66626c3e43a5c3e2ff2b590))
+* **ecs:** reject malformed ARN paths and a task and service that disagree on the cluster ([dce89ac](https://github.com/unified-systems-com/anchore-tap/commit/dce89ac8dd23595b5a66d7b0cba4a8ad1a62930f))
+* **kubernetes:** a kube-system uid keys a cluster only when the namespace list confirms it ([aa5c538](https://github.com/unified-systems-com/anchore-tap/commit/aa5c5385bd9d45c130b9b4d863dbc0bbfbb13bb7))
+* **scope:** bound the freshness window on both sides; say the create settings write nothing yet ([ab8f5c0](https://github.com/unified-systems-com/anchore-tap/commit/ab8f5c07906216d01a331925a46b1347bc22f83f))
+* **scope:** cap inventory_max_age_hours at one year ([aa3d26f](https://github.com/unified-systems-com/anchore-tap/commit/aa3d26ff32c5bb41a57fb9d4bc2b95a77828c438))
+
+
+### Documentation
+
+* **spec:** an unconfigured collector reads running images only ([69e21b5](https://github.com/unified-systems-com/anchore-tap/commit/69e21b5566214c645719f928216ab197b9176846))
+* **spec:** borrowed freshness does not identify a container ([0fab149](https://github.com/unified-systems-com/anchore-tap/commit/0fab149d337c86e49a7407c79d06c2d753211a33))
+* **spec:** collection scope from Anchore's inventory, and opt-in node creation ([94063a7](https://github.com/unified-systems-com/anchore-tap/commit/94063a71fb9d4cbe32f45cadd23fed6abab3b104))
+* **spec:** collection scope from Anchore's inventory, and opt-in node creation ([c1ff99c](https://github.com/unified-systems-com/anchore-tap/commit/c1ff99c169f2b71881d9977784a8ffa2352d2a72))
+* **spec:** make the EKS rule read the same everywhere ([225b4aa](https://github.com/unified-systems-com/anchore-tap/commit/225b4aa175fcc8c39bc5ffd75d1ccff1c849f65d))
+* **spec:** no EKS link on a cluster name alone ([8c6b134](https://github.com/unified-systems-com/anchore-tap/commit/8c6b134242418f6d4b8ed823c536af973c143cc8))
+* **spec:** region is the ARN's fourth field and account its fifth ([7c29b6f](https://github.com/unified-systems-com/anchore-tap/commit/7c29b6f3c1f31674ea930bf38788bdc3d798db58))
+* **spec:** running_only must be stated; list create.ecs concerns by what an operator sees ([eb2e802](https://github.com/unified-systems-com/anchore-tap/commit/eb2e8026367619686814bc85e248a9fb0d889dc7))
+* **spec:** runtime inventory shares nodes with provider collectors, provider first ([0e37dc9](https://github.com/unified-systems-com/anchore-tap/commit/0e37dc970abc70cccb0ccb4951e939d82d264d82))
+* **spec:** scope the cluster-name fallback to the scanner; validate ECS ARNs before creating ([6384b81](https://github.com/unified-systems-com/anchore-tap/commit/6384b81c35cf088cd5aca307eb82ce9ad9bac205))
+* **spec:** share runtime-inventory nodes with the provider collectors ([5bc59d3](https://github.com/unified-systems-com/anchore-tap/commit/5bc59d3ffb51f02ea24cd002f571322e144056de))
+* **spec:** shared inventory nodes: provider first, Anchore alone later ([16b1ccc](https://github.com/unified-systems-com/anchore-tap/commit/16b1cccc253d975e3ed5ed4357dc72a8569cfb7d))
+* **spec:** shared nodes: say tags are discarded, require the write race as a test ([313cc9c](https://github.com/unified-systems-com/anchore-tap/commit/313cc9c918c409108f7638ae4983df8957a50dc5))
+* **spec:** state the create race in the criteria; limit ECS creation to selected containers' ancestors ([1ca6fb9](https://github.com/unified-systems-com/anchore-tap/commit/1ca6fb91b2a20847ad8c19ef1ad787af8f507d2a))
+* the ECS link is built ([dcc6243](https://github.com/unified-systems-com/anchore-tap/commit/dcc6243a548ff6330da620fa3881aa9b44ca0c30))
+* the Kubernetes requirement as built ([3e54863](https://github.com/unified-systems-com/anchore-tap/commit/3e54863d30e91ef59f5fdd23f781191a92e50a53))
+* the scope requirement is in development; README says how to choose what a run reads ([ca54331](https://github.com/unified-systems-com/anchore-tap/commit/ca54331839f5a01fc00ad55d57cbba864005ebc3))
+
 ## [0.1.3](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.2...v0.1.3) (2026-11-03)
 
 
