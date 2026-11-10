@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.7](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.6...v0.1.7) (2026-11-10)
+
+
+### Bug Fixes
+
+* **contract:** a pod's node_id may be null (an unscheduled pod) ([fba4fba](https://github.com/unified-systems-com/anchore-tap/commit/fba4fba1f2716a3d8fa1d936a2877b643ce8be79))
+* **contract:** a pod's node_id may be null, as it is for a pod not yet scheduled ([4ddc10f](https://github.com/unified-systems-com/anchore-tap/commit/4ddc10f2a8d9c2a307a840ebd5810b77a20e5d9d))
+
 ## [0.1.6](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.5...v0.1.6) (2026-11-10)
 
 

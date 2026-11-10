@@ -1,5 +1,5 @@
 manifest_version = "0"
-plugin_version = "0.1.6" # x-release-please-version
+plugin_version = "0.1.7" # x-release-please-version
 requires_tap = ">=0.3.1"
 slug = "anchore"
 name = "TAP Anchore"
@@ -41,4 +41,4 @@ INDEXES_PLATFORM_IMAGE__anchore = "edges/INDEXES_PLATFORM_IMAGE__anchore.edge.js
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "d9896c2cc752b7174110cde44c255a13463c816f853ebfd0a899e45349709606"
+sha256 = "d1934998542044b84cd0c155def0cf979d3f98d59d951eeb54b3560d0026b65d"
