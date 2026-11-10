@@ -41,4 +41,4 @@ INDEXES_PLATFORM_IMAGE__anchore = "edges/INDEXES_PLATFORM_IMAGE__anchore.edge.js
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "b8ff2ccd73e98a13b2616812b63e5463a82d779b8f0f039da8d3f76c647da615"
+sha256 = "cf09f6c8c8dac70cd2003ca030df3a1279e5d8c339dc3acfd8c1b00138773b6f"
