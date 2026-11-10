@@ -115,6 +115,17 @@ def _starts_with_any(value: Any, prefixes: Iterable[str]) -> bool:
     return isinstance(value, str) and any(value.startswith(prefix) for prefix in prefixes)
 
 
+def passes_reference(reference: Any, prefixes: Iterable[str]) -> bool:
+    """Whether an inventory record's image reference passes the repository filter (req-anchore-scope-8).
+
+    True when no prefix is set, or when the reference (``registry/repo:tag``, as Anchore reports
+    it in ``image_tag``) begins with a listed prefix, compared as written. A record with no
+    reference passes no prefix: what cannot be shown to be in scope is not written.
+    """
+    prefixes = tuple(prefixes)
+    return not prefixes or _starts_with_any(reference, prefixes)
+
+
 def _digest(value: Any) -> str | None:
     return value if isinstance(value, str) and DIGEST.fullmatch(value) else None
 
@@ -133,6 +144,8 @@ class Running:
     no_digest: int = 0
     #: ECS containers with no inventory item for their context and digest, so no ``last_seen``.
     ecs_without_inventory: int = 0
+    #: Running records whose image reference is outside ``repository_prefixes``; not written.
+    out_of_repository: int = 0
 
     @property
     def digests(self) -> set[str]:
@@ -149,7 +162,9 @@ def select_running(
 
     ``context_prefixes`` and ``aws_account_ids`` are a union; with neither set every running
     record is selected. An ECS container has no ``last_seen`` of its own and takes the one of the
-    inventory item with its context and digest.
+    inventory item with its context and digest. ``repository_prefixes`` then narrows both: a
+    running record whose image reference is outside them is not selected, so nothing is written
+    for it.
     """
     out = Running()
     fresh: dict[tuple[Any, str], Mapping[str, Any]] = {}
@@ -163,6 +178,9 @@ def select_running(
             out.stale += 1
             continue
         fresh[(item.get("context"), digest)] = item
+        if not passes_reference(item.get("image_tag"), settings.repository_prefixes):
+            out.out_of_repository += 1
+            continue
         if not settings.has_running_selector or _starts_with_any(item.get("context"), settings.context_prefixes):
             selected[(item.get("inventory_type"), item.get("context"), digest)] = item
     for container in ecs_containers:
@@ -173,6 +191,9 @@ def select_running(
         item = fresh.get((container.get("context"), digest))
         if item is None:
             out.ecs_without_inventory += 1
+            continue
+        if not passes_reference(container.get("image_tag"), settings.repository_prefixes):
+            out.out_of_repository += 1
             continue
         in_scope = (
             not settings.has_running_selector

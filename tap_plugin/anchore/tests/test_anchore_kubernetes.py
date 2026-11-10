@@ -101,10 +101,15 @@ class TestClusterIdentity:
         got = planned([container("p1", "dns", "prod/kube-system")], [pod("p1", namespace="ns-unlisted")])
         assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
 
-    def test_repository_prefixes_do_not_narrow_placement(self):
-        """They narrow which images' findings are read (req-anchore-scope-8), not what is placed."""
-        got = planned([container("p1", image_tag="other.example/app:1")], [pod("p1")], repository_prefixes=("registry.example/",))
-        assert set(got.containers) == {("p1", "web")}
+    def test_repository_prefixes_narrow_placement(self):
+        """A container whose image is outside the repository prefixes is not written (req-anchore-scope-8)."""
+        got = planned([container("p1", image_tag="other.example/app:1"), container("p2")], [pod("p1"), pod("p2")], repository_prefixes=("registry.example/",))
+        assert set(got.containers) == {("p2", "web")} and set(got.pods) == {"p2"}
+        assert got.out_of_scope == 1
+
+    def test_a_container_with_no_image_reference_passes_no_repository_prefix(self):
+        got = planned([container("p1", image_tag=None)], [pod("p1")], repository_prefixes=("registry.example/",))
+        assert not got.containers and got.out_of_scope == 1
 
     def test_the_identity_does_not_depend_on_the_scope(self):
         got = planned([container("p1", context="prod/payments"), *SYSTEM], [pod("p1"), *SYSTEM_PODS], context_prefixes=("prod/payments",))

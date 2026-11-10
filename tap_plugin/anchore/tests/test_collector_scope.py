@@ -214,11 +214,11 @@ class TestAllImages:
     def test_repository_prefixes_narrow_the_running_selection_too(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True, "repository_prefixes": ["docker.io/"]})
         instance = self.images()
-        instance.inventory = [item("prod/default", DIGEST), item("prod/default", OTHER)]
+        instance.inventory = [item("prod/default", DIGEST), item("prod/default", OTHER, image_tag="docker.io/library/nginx:1")]
         run_against(monkeypatch, instance)
         assert read_images(latest_run()) == {OTHER}
-        # Both were seen running, so both observations are written, whatever was read.
-        assert AnchoreRuntimeImage.objects.count() == 2
+        # What is outside the prefixes is not written: one observation, not two.
+        assert [image.image_digest for image in AnchoreRuntimeImage.objects.all()] == [OTHER]
 
     def test_a_selector_that_cannot_narrow_is_recorded(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": False, "context_prefixes": ["prod/"]})

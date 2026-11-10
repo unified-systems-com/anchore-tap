@@ -340,7 +340,7 @@ class AnchoreCollector(CollectorBase):
             "images_not_in_anchore": len(plan.not_in_anchore),
             "inventory_stale": running.stale if running is not None else None,
         }
-        self.record_info(_SITE_SCOPE, "SCOPE_APPLIED", f"{credential.qualified}: {plan.images_selected} of {plan.images_listed} listed image(s) selected, {plan.images_out_of_scope} out of scope, {len(plan.not_in_anchore)} running digest(s) not in the image list.", message_data=out.run_fields)
+        self.record_info(_SITE_SCOPE, "SCOPE_APPLIED", f"{credential.qualified}: {plan.images_selected} of {plan.images_listed} listed image(s) selected, {plan.images_out_of_scope} out of scope, {len(plan.not_in_anchore)} running digest(s) not in the image list, {running.out_of_repository if running is not None else 0} running record(s) outside the repository prefixes.", message_data={**out.run_fields, "inventory_out_of_repository": running.out_of_repository if running is not None else None})
         for index, digest in enumerate(plan.digests):
             image = chosen[digest]
             scope = f"image:{digest}"

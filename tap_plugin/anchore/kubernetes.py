@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from tap_plugin.anchore.scope import DIGEST, Settings, is_fresh
+from tap_plugin.anchore.scope import DIGEST, Settings, is_fresh, passes_reference
 
 #: The cluster realms (req-computing-core-kubernetes, req-anchore-inventory-kubernetes-7).
 REALM_KUBE_SYSTEM = "kube-system-uid"
@@ -77,7 +77,7 @@ class Plan:
     edges: list[tuple[str, str, Any, str, Any]] = field(default_factory=list)
     #: Containers whose pod was not seen within the window, or has no readable last_seen.
     stale: int = 0
-    #: Containers the scope's context prefixes leave out.
+    #: Containers the scope's context prefixes or repository prefixes leave out.
     out_of_scope: int = 0
     #: Containers that cannot be written: no usable name, pod id or context, or a pod Anchore does not list.
     unusable: int = 0
@@ -138,8 +138,8 @@ def plan(
 
     In scope: every container when no running selector is set, else those whose context begins
     with a listed prefix (an AWS account selector selects no Kubernetes container). Running: the
-    container's pod was seen within the window. ``repository_prefixes`` narrows which images'
-    findings are read and plays no part here, as it plays none in the ECS placement.
+    container's pod was seen within the window. ``repository_prefixes`` narrows both: a
+    container whose image reference is outside them is out of scope and nothing is written for it.
     """
     out = Plan()
     containers = [c for c in containers if isinstance(c, Mapping)]
@@ -152,6 +152,9 @@ def plan(
     for container in containers:
         context = container.get("context")
         if settings.has_running_selector and not (isinstance(context, str) and any(context.startswith(p) for p in settings.context_prefixes)):
+            out.out_of_scope += 1
+            continue
+        if not passes_reference(container.get("image_tag"), settings.repository_prefixes):
             out.out_of_scope += 1
             continue
         name, pod_uid, cluster = _text(container.get("name"), _MAX_NAME), _text(container.get("pod_id"), _MAX_UID), cluster_of(context)
