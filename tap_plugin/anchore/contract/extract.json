@@ -9816,7 +9816,7 @@
       "id"
      ]
     ],
-    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+    "seen": "NOT OBSERVED: assumed to follow /kubernetes-namespaces, where a real instance returned id and no uid (maintainer, 2026-11-10). Confirm or remove once a node record is seen."
    }
   },
   {
