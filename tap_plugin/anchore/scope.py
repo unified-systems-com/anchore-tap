@@ -264,7 +264,7 @@ class EcsArn:
         """The last path segment: a cluster's or service's name, a task's or container's id."""
         return self.path.rsplit("/", 1)[-1]
 
-    def same_place(self, other: "EcsArn") -> bool:
+    def same_place(self, other: EcsArn) -> bool:
         return (self.partition, self.region, self.account) == (other.partition, other.region, other.account)
 
 

@@ -493,7 +493,7 @@ class AnchoreCollector(CollectorBase):
                 return
             existing[kind] = found
         read.append("create:ecs")
-        created = {kind: 0 for kind in wanted}
+        created = dict.fromkeys(wanted, 0)
         for kind, nodes in wanted.items():
             entity_type, key = store.ECS_TYPES[kind]
             defaults = store.default_dimensions(entity_type)
