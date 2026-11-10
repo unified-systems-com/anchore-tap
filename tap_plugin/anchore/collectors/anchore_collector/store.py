@@ -10,10 +10,14 @@ dependency (req-anchore-shared-4), so its model is taken from the registry by na
 absence is an answer, not an error.
 """
 
+from typing import Any
+
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.host import Host
+from tap_plugin.computing_core.models.package import Package
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
+from tap_grid.models import Edge
 from tap_grid.registry import get_model_class
 from tap_plugin.anchore.models.finding import AnchoreFinding
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
@@ -54,6 +58,36 @@ def known_vulnerabilities(ids: set[str]) -> set[str]:
     if not ids:
         return set()
     return set(ComplianceVulnerability.objects.filter(vuln_id__in=ids).values_list("vuln_id", flat=True))
+
+
+def sbom_document_state(content_digest: str) -> dict[str, Any] | None:
+    """What the grid's document with these exact bytes says of itself, or None when it holds none.
+
+    ``verified``, ``signer``, ``verification_note`` and ``authenticated_source``: enough to tell a
+    record this plugin wrote from one another collector did, and a parsed one from a recorded one.
+    """
+    row = SbomDocument.objects.filter(content_digest=content_digest).first()
+    if row is None:
+        return None
+    return {"verified": row.verified, "signer": row.signer, "verification_note": row.verification_note, "authenticated_source": getattr(row, "authenticated_source", "")}
+
+
+def sbom_describes_host(content_digest: str, image_digest: str) -> bool:
+    """Whether the grid's document with these bytes already has its edge to this image's host."""
+    document = SbomDocument.objects.filter(content_digest=content_digest).first()
+    host = Host.objects.filter(realm="oci-digest", stable_id=image_digest).first()
+    if document is None or host is None:
+        return False
+    return Edge.objects.filter(edge_type="DESCRIBES_HOST__computing_core", from_entity_id=document.entity_id, to_entity_id=host.entity_id, entity__deleted_at__isnull=True).exists()
+
+
+def packages_on_grid(keys: set[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+    """Which of these ``(ecosystem, name, version)`` package keys the grid holds."""
+    if not keys:
+        return set()
+    names = {name for _, name, _ in keys}
+    held = set(Package.objects.filter(name__in=names).values_list("ecosystem", "name", "version"))
+    return keys & held
 
 
 def sbom_document_exists(content_digest: str) -> bool:

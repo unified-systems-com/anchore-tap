@@ -22,7 +22,7 @@ from tap_grid.services import create_node
 from tap_plugin.anchore.models.finding import AnchoreFinding
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.tests.fakes import response
-from tap_plugin.anchore.tests.test_collector_run import DIGEST, OTHER, Instance, run_against, secrets, vuln  # noqa: F401
+from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, OTHER, Instance, run_against, secrets, vuln  # noqa: F401
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.host import Host
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
@@ -96,21 +96,21 @@ class TestSbomDocuments:
         assert set(docs) == {"anchore-native", "spdx", "cyclonedx"}
         exact = json.dumps({"format": "native-json", "digest": DIGEST}).encode()
         assert docs["anchore-native"].content_digest == hashlib.sha256(exact).hexdigest()
-        assert all(d.verified is None and d.signer == "" and d.subject_digest == DIGEST and d.verification_note.startswith("unsigned; read from") for d in docs.values())
+        assert all(d.verified is None and d.signer == "" and d.subject_digest == DIGEST for d in docs.values())
+        # The two formats nothing parses say so in their note; the parsed one names its source instead.
+        assert all(docs[f].verification_note.startswith("unsigned; read from") and docs[f].authenticated_source == "" for f in ("anchore-native", "spdx"))
+        assert (docs["cyclonedx"].verification_note, docs["cyclonedx"].authenticated_source) == ("", KEY)
         host = Host.objects.get()
         describes = edges("DESCRIBES_HOST__computing_core")
         assert len(describes) == 3 and {e.to_entity_id for e in describes} == {host.entity_id}
         run = AnchoreScanRun.objects.get()
         assert {f"sbom:{f}:{DIGEST}" for f in ("anchore-native", "spdx", "cyclonedx")} <= set(run.scopes_read)
 
-    def test_the_cyclonedx_header_fills_the_record_and_nothing_is_parsed_into_packages(self, secrets, monkeypatch):
+    def test_the_cyclonedx_header_fills_the_record(self, secrets, monkeypatch):
         run_against(monkeypatch, Instance())
         doc = SbomDocument.objects.get(format="cyclonedx")
         assert (doc.spec_version, doc.serial_number, doc.revision, doc.component_count) == ("1.6", "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79", 1, 2)
         assert doc.produced_at is not None
-        from tap_plugin.computing_core.models.package import Package
-
-        assert Package.objects.count() == 0
 
     def test_a_format_the_instance_does_not_serve_is_listed_not_read_and_the_image_is_still_read(self, secrets, monkeypatch):
         instance = Instance()

@@ -4,7 +4,7 @@ TAP plugin that reads vulnerability findings, SBOMs, VEX statements, policy resu
 from Anchore Enterprise, hosted or on-prem, and holds them on the grid as Anchore returns them, to support
 FedRAMP vulnerability detection and response (VDR).
 
-**Status: v0.1.4, with base-image attribution on main, spec-derived and not yet run against a real Anchore.** The observation command, the
+**Status: v0.1.5, with SBOM package inventory on main, spec-derived and not yet run against a real Anchore.** The observation command, the
 read-only client, the nodes and edges, the per-run self-test and probe, and a collector (`anchore:anchore`)
 exist and are tested against a canned instance. Every field is taken from Anchore's published OpenAPI file
 (2.20.0), not from a recorded response, so expect the first real run to find differences. The spec says no
@@ -82,6 +82,14 @@ well as its `image_digest`: the findings are read under the analyzed image, the 
 keeps the running digest and lists the analyzed ones in `analyzed_digests`, and several platform
 images under one index are all read.
 
+## Packages from the SBOM
+
+Each image's CycloneDX SBOM is parsed into its package inventory with `computing_core`'s parser
+(v0.10.5 or later): package nodes shared across images, joined to the image's host, and each
+finding joined to its package by purl. The document is unsigned, so it is recorded as
+source-authenticated, never verified. An instance read over plain `http` has its SBOMs recorded and
+not parsed.
+
 ## Base image or application
 
 Each image's vulnerabilities are read with `base_digest=auto`, so Anchore works out the image's
@@ -108,8 +116,8 @@ edges from findings to the image host and, only where it already exists with exa
 shared vulnerability. A scope that was not read is never a clean result, and a read that failed leaves the
 findings it would have updated as they were.
 
-To try it, boot a profile that installs `computing_core` v0.10.4, `compliance_core` v0.8.11 and this plugin at
-`v0.1.4` (the `ci` record in `tap_plugin/anchore/boot/ci.boot.json` is a working list), run `manage.py boot` so the
+To try it, boot a profile that installs `computing_core` v0.10.5, `compliance_core` v0.8.11 and this plugin at
+`v0.1.5` (the `ci` record in `tap_plugin/anchore/boot/ci.boot.json` is a working list), run `manage.py boot` so the
 collector node is reconciled, and fire the collector as the scheduler actor:
 
     with acting_as(get_builtin_actor(SCHEDULER)):
@@ -122,5 +130,5 @@ the intended refusal. Not yet built: findings linked to packages, source and app
 
 The plugin's own tests run in the stack described by `tap_plugin/anchore/boot/ci.boot.json`:
 `spawn-session.sh <label> --from 'git+https://github.com/unified-systems-com/anchore-tap@<rev>#ci' --dev-plugins anchore`,
-then `pytest --pyargs tap_plugin.anchore.tests`. The record pins `computing_core` v0.10.3 and
+then `pytest --pyargs tap_plugin.anchore.tests`. The record pins `computing_core` v0.10.5 and
 `compliance_core` v0.8.11 at tags, and this plugin at its own release.
