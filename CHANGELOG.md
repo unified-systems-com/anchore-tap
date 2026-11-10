@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.5](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.4...v0.1.5) (2026-11-10)
+
+
+### Features
+
+* **base-image:** ask Anchore for the base image, and say on each finding whether it was inherited ([0b6967e](https://github.com/unified-systems-com/anchore-tap/commit/0b6967ea21890d5ce5bcf37e3153c35d39f982e2))
+* **base-image:** say on each finding whether it was inherited from the base image ([e6235ba](https://github.com/unified-systems-com/anchore-tap/commit/e6235ba61df6f93a0a73a427b296c9ef6ec00f26))
+* **limits:** the envelope sets the response size cap and a run time limit ([80f8fa7](https://github.com/unified-systems-com/anchore-tap/commit/80f8fa70744898ed995e7371f20b44a0b01764b9))
+* **limits:** the envelope sets the response size cap and a run time limit ([67136e2](https://github.com/unified-systems-com/anchore-tap/commit/67136e2cf419fa48fb7f82d48535a3dd8e5f0a86))
+* **scope:** match a running index digest to the analyzed image through parent_digest ([96c87e1](https://github.com/unified-systems-com/anchore-tap/commit/96c87e19372f728d740ad7884df802127be2a7f5))
+* **scope:** match a running index digest to the image Anchore analyzed, through parent_digest ([7650d41](https://github.com/unified-systems-com/anchore-tap/commit/7650d41d0457692299934bd4de5680234c5d87f6))
+
+
+### Bug Fixes
+
+* **base-image:** only 400 and 422 are a refused parameter; an ancestor obeys repository_prefixes ([7aefe8f](https://github.com/unified-systems-com/anchore-tap/commit/7aefe8f5601cdadf1ef37717f1f0d9531d4d612f))
+
+
+### Documentation
+
+* **spec:** the parent-digest criterion is req-anchore-scope-16, and the not-in-anchore paragraph agrees with it ([70ba4ec](https://github.com/unified-systems-com/anchore-tap/commit/70ba4eccc3f92c230718898125a57f278b1adcbd))
+* the README names computing_core v0.10.4 ([4fadc92](https://github.com/unified-systems-com/anchore-tap/commit/4fadc924e76a5ca01a13bff279d1440465945e8e))
+* the README names v0.1.4 ([7ae90a4](https://github.com/unified-systems-com/anchore-tap/commit/7ae90a4310ea9f9d9c06dee00029f06119050983))
+
 ## [0.1.4](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.3...v0.1.4) (2026-11-10)
 
 
