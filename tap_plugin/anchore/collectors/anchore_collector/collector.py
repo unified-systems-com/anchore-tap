@@ -518,9 +518,12 @@ class AnchoreCollector(CollectorBase):
             entity_type, key = store.ECS_TYPES[kind]
             if arn in out.ecs_created:
                 return {"ref": out.ecs_created[arn]}
+            if arn in shared.ecs_created:
+                # Staged by an earlier scanner of this run: one batch, so its ref is good here too.
+                return {"ref": shared.ecs_created[arn]}
             if arn in existing[kind]:
                 return {"entity_type": entity_type, "key": {key: arn}}
-            return None  # staged by another scanner in this batch: that scanner draws its edges
+            return None
 
         ends = {"RUNS_CONTAINER": ("task", "container"), "RUNS_SERVICE": ("cluster", "service")}
         for number, (slug, source_arn, target_arn) in enumerate(plan.edges):
