@@ -66,7 +66,7 @@ class TestReducer:
     def test_the_committed_extract_is_what_the_reducer_makes_with_the_overrides(self):
         assert build.build() == build.EXTRACT.read_text(encoding="utf-8")
         observed = {op["path"]: op["observed"] for op in EXTRACT["operations"] if "observed" in op}
-        assert set(observed) == {"/images", "/images/{image_digest}", "/images/{image_digest}/vuln/{vuln_type}", "/sources/{source_id}/vuln/{vuln_type}", "/kubernetes-namespaces", "/kubernetes-nodes"}
+        assert set(observed) == {"/images", "/images/{image_digest}", "/images/{image_digest}/vuln/{vuln_type}", "/sources/{source_id}/vuln/{vuln_type}", "/kubernetes-namespaces", "/kubernetes-nodes", "/kubernetes-pods"}
         assert sum(len(o.get("nullable", [])) for o in observed.values()) == 24
 
 
@@ -96,6 +96,25 @@ class TestTheCommittedShape:
         assert not valid(source_id, {"namespaces": [record]})
 
 
+    def test_the_node_list_is_checked_under_the_key_the_instance_uses(self):
+        """The file wraps the node list in ``namespaces``; a real instance sends ``nodes``. Its records are
+        checked under either key, so the real key is not a way round the check."""
+        record = {"name": "ip-10-0-1-2", "labels": {}, "annotations": {}}
+        assert valid("kubernetes_nodes", {"nodes": [{**record, "id": "x"}]})
+        assert not valid("kubernetes_nodes", {"nodes": [record]})
+        assert not valid("kubernetes_nodes", {"nodes": [{**record, "id": 7}]})
+
+    def test_the_pod_list_is_checked_under_the_key_the_instance_uses(self):
+        record = {"id": "p1", "name": "p1", "account_name": "acct", "labels": {}, "annotations": {}}
+        assert valid("kubernetes_pods", {"pods": [record]})
+        assert not valid("kubernetes_pods", {"pods": [{**record, "labels": "not-a-map"}]})
+        assert not valid("kubernetes_pods", {"pods": [{key: value for key, value in record.items() if key != "id"}]})
+
+    def test_a_container_record_with_an_undeclared_last_seen_is_valid(self):
+        record = {"id": "containerd://x", "name": "web", "pod_id": "p1", "account_name": "acct", "context": "prod/default", "image_tag": "registry.example/app:1", "image_digest": DIGEST, "last_seen": "2026-11-10T00:00:00Z"}
+        assert valid("kubernetes_containers", {"containers": [record]})
+
+
 @pytest.mark.django_db
 class TestARun:
     def test_null_fields_no_longer_stop_the_scanner(self, secrets, monkeypatch):
@@ -111,8 +130,9 @@ class TestARun:
         server = cluster(with_kube_system=False)
         by_id = lambda record: {("id" if key == "uid" else key): value for key, value in record.items()}  # noqa: E731
         server.kubernetes["namespaces"] = ("namespaces", [by_id({"uid": "ns-default", "name": "default", "labels": {}, "annotations": {}}), by_id({"uid": SYSTEM_UID, "name": "kube-system", "labels": {}, "annotations": {}})])
-        server.kubernetes["nodes"] = ("namespaces", [by_id(node())])
-        server.kubernetes["pods"] = ("namespaces", [pod("p1"), pod("p-dns", namespace_uid=SYSTEM_UID)])
+        # The wrapper keys a real instance uses: nodes and pods, where the vendor's file says namespaces.
+        server.kubernetes["nodes"] = ("nodes", [by_id(node())])
+        server.kubernetes["pods"] = ("pods", [pod("p1"), pod("p-dns", namespace_uid=SYSTEM_UID)])
         server.kubernetes["containers"] = ("containers", [container("p1"), container("p-dns", "coredns", "prod/kube-system")])
         run_against(monkeypatch, server)
         namespace_type = get_model_class("computing_core__kubernetes_namespace")

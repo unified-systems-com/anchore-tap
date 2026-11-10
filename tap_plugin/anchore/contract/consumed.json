@@ -397,7 +397,7 @@
       "id"
      ]
     ],
-    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: no uid is sent; the identifier is id, which the file does not declare"
    }
   },
   {
@@ -409,15 +409,28 @@
      [
       "namespaces[].uid",
       "id"
+     ],
+     [
+      "namespaces",
+      "nodes"
      ]
     ],
-    "seen": "NOT OBSERVED: assumed to follow /kubernetes-namespaces, where a real instance returned id and no uid (maintainer, 2026-11-10). Confirm or remove once a node record is seen."
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: no uid is sent, and the list comes under nodes, not namespaces"
    }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
    "method": "get",
-   "path": "/kubernetes-pods"
+   "path": "/kubernetes-pods",
+   "observed": {
+    "either": [
+     [
+      "namespaces",
+      "pods"
+     ]
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: the list comes under pods, not namespaces; the fields match"
+   }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",

@@ -9719,7 +9719,7 @@
       "id"
      ]
     ],
-    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10"
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: no uid is sent; the identifier is id, which the file does not declare"
    }
   },
   {
@@ -9804,6 +9804,55 @@
           }
          ]
         }
+       },
+       "nodes": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "annotations",
+          "labels",
+          "name"
+         ],
+         "properties": {
+          "annotations": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "labels": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "last_seen": {
+           "type": "string"
+          },
+          "name": {
+           "type": "string"
+          },
+          "uid": {
+           "type": "string"
+          },
+          "id": {
+           "type": "string"
+          }
+         },
+         "anyOf": [
+          {
+           "required": [
+            "uid"
+           ]
+          },
+          {
+           "required": [
+            "id"
+           ]
+          }
+         ]
+        }
        }
       }
      }
@@ -9814,9 +9863,13 @@
      [
       "namespaces[].uid",
       "id"
+     ],
+     [
+      "namespaces",
+      "nodes"
      ]
     ],
-    "seen": "NOT OBSERVED: assumed to follow /kubernetes-namespaces, where a real instance returned id and no uid (maintainer, 2026-11-10). Confirm or remove once a node record is seen."
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: no uid is sent, and the list comes under nodes, not namespaces"
    }
   },
   {
@@ -9897,11 +9950,65 @@
           }
          }
         }
+       },
+       "pods": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "account_name",
+          "annotations",
+          "id",
+          "labels",
+          "name"
+         ],
+         "properties": {
+          "account_name": {
+           "type": "string"
+          },
+          "annotations": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "id": {
+           "type": "string"
+          },
+          "labels": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "string"
+           }
+          },
+          "last_seen": {
+           "type": "string"
+          },
+          "name": {
+           "type": "string"
+          },
+          "namespace_id": {
+           "type": "string"
+          },
+          "node_id": {
+           "type": "string"
+          }
+         }
+        }
        }
       }
      }
     }
-   ]
+   ],
+   "observed": {
+    "either": [
+     [
+      "namespaces",
+      "pods"
+     ]
+    ],
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: the list comes under pods, not namespaces; the fields match"
+   }
   },
   {
    "description": "Inventory: Runtime inventory lists (req-anchore-inventory).",
