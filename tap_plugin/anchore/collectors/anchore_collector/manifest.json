@@ -1,5 +1,5 @@
 {
-  "description": "The reads the Anchore collector makes in this slice: the probe (account, status, system, feeds) and, per image, the image list, the vulnerabilities and the three SBOM formats. Every path is in the committed extract. The vendor file describes each SBOM body as a string, which is not what an instance returns, so those bodies are stored by the digest of their exact bytes and checked only for being JSON, never against that schema. The inventory reads (the images in use and the ECS containers) decide which images a run reads (req-anchore-scope). The ECS task and service lists are read only when the envelope sets create.ecs (req-anchore-shared). Not yet covered: VEX, source, application-version and Kubernetes object reads, which later slices add. Field lists are spec-derived from the OpenAPI file (2.20.0) and not yet observed on a real instance.",
+  "description": "The reads the Anchore collector makes in this slice: the probe (account, status, system, feeds) and, per image, the image list, the vulnerabilities and the three SBOM formats. Every path is in the committed extract. The vendor file describes each SBOM body as a string, which is not what an instance returns, so those bodies are stored by the digest of their exact bytes and checked only for being JSON, never against that schema. The inventory reads (the images in use and the ECS containers) decide which images a run reads (req-anchore-scope). The ECS task and service lists are read only when the envelope sets create.ecs (req-anchore-shared). The four Kubernetes lists are read when create.kubernetes is on (req-anchore-inventory-kubernetes); the vendor file puts the node and pod lists under a wrapper key named namespaces, which looks like a copy, so the collector accepts that key or the natural one. Not yet covered: VEX, source and application-version reads, which later slices add. Field lists are spec-derived from the OpenAPI file (2.20.0) and not yet observed on a real instance.",
   "sources": [
     {
       "id": "account",
@@ -168,6 +168,62 @@
         "services[].arn",
         "services[].cluster_arn",
         "services[].tags"
+      ]
+    },
+    {
+      "id": "kubernetes_namespaces",
+      "path": "/kubernetes-namespaces",
+      "scope": "inventory",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "namespaces[].uid",
+        "namespaces[].name",
+        "namespaces[].labels",
+        "namespaces[].last_seen"
+      ]
+    },
+    {
+      "id": "kubernetes_nodes",
+      "path": "/kubernetes-nodes",
+      "scope": "inventory",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "namespaces[].uid",
+        "namespaces[].name",
+        "namespaces[].labels",
+        "namespaces[].last_seen"
+      ]
+    },
+    {
+      "id": "kubernetes_pods",
+      "path": "/kubernetes-pods",
+      "scope": "inventory",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "namespaces[].id",
+        "namespaces[].name",
+        "namespaces[].labels",
+        "namespaces[].node_id",
+        "namespaces[].namespace_id",
+        "namespaces[].last_seen"
+      ]
+    },
+    {
+      "id": "kubernetes_containers",
+      "path": "/kubernetes-containers",
+      "scope": "inventory",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "containers[].id",
+        "containers[].name",
+        "containers[].pod_id",
+        "containers[].context",
+        "containers[].image_tag",
+        "containers[].image_digest"
       ]
     }
   ]

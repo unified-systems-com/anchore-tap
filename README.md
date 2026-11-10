@@ -63,10 +63,10 @@ An envelope without it is refused, including one written for v0.1.3. The optiona
 | --- | --- |
 | `scope.aws_account_ids` | Running in ECS in these accounts (read from the container's ARN). |
 | `scope.context_prefixes` | Running in an inventory context that begins with one of these; `prod-east/` is one cluster. |
-| `scope.repository_prefixes` | Registry and repository begin with one of these. Narrows what is read in either mode. |
+| `scope.repository_prefixes` | Registry and repository begin with one of these. Narrows what is read in either mode, and what the runtime inventory writes: a running container whose image is outside them is not written. |
 | `inventory_max_age_hours` | How recently Anchore must have seen a record for it to count as running. Default 24. |
 | `create.ecs` | Default false. True creates the `aws_core` ECS container, task, service and cluster nodes the grid lacks for the selected containers. Read the spec's "Concerns to recognise in the field" first. |
-| `create.kubernetes` | Read and recorded on the scan run; nothing is written for it yet. |
+| `create.kubernetes` | Default true. Writes the Kubernetes cluster, namespace, node, pod and container objects behind the running containers in scope, into `computing_core`'s Kubernetes types (v0.10.4 or later). |
 
 Where `aws_core` is installed, each selected ECS container is joined to the `aws_core` container with the same ARN by `RUNS_IMAGE` to its image; nothing on that container is written, and one the grid does not have is counted on the scan run.
 

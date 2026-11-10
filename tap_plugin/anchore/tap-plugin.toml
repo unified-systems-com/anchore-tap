@@ -39,4 +39,4 @@ OBSERVES_IMAGE__anchore = "edges/OBSERVES_IMAGE__anchore.edge.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "8cee8c9ff7e6402bf670b673d377de8e7c9054f239611eaa8a9d27529dc73418"
+sha256 = "18eb423adf57228a4199a20e55cb6129125c82bc57a0f7c05ea02ad9606cc828"

@@ -278,3 +278,25 @@ class TestImagesToRead:
     def test_a_listed_digest_of_any_form_is_read_in_all_images_mode(self):
         got = scope.images_to_read({"md5:abc": {"image_digest": "md5:abc"}}, None, settings(False))
         assert got.digests == ["md5:abc"]
+
+
+class TestRepositoryNarrowsTheInventory:
+    """What is outside repository_prefixes is not written, so it is not selected (req-anchore-scope-8)."""
+
+    def test_an_inventory_item_outside_the_prefixes_is_not_selected(self):
+        inside = {**item("prod/a", D1), "image_tag": f"{ECR}/platform/api:1"}
+        outside = {**item("prod/a", D2), "image_tag": "docker.io/library/nginx:1"}
+        got = scope.select_running([inside, outside], [], settings(repository_prefixes=(f"{ECR}/platform/",)), NOW)
+        assert got.digests == {D1} and got.out_of_repository == 1
+
+    def test_an_ecs_container_outside_the_prefixes_is_not_selected(self):
+        inventory = [{**item("ctx", D1, kind="ecs"), "image_tag": f"{ECR}/platform/api:1"}]
+        outside = {**container("123456789012", "ctx", D1), "image_tag": "docker.io/library/nginx:1"}
+        inside = {**container("123456789012", "ctx", D1, name="c2"), "image_tag": f"{ECR}/platform/api:1"}
+        got = scope.select_running(inventory, [outside, inside], settings(repository_prefixes=(f"{ECR}/platform/",)), NOW)
+        assert [c["arn"] for c in got.ecs_containers] == [inside["arn"]] and got.out_of_repository == 1
+
+    def test_a_record_with_no_reference_passes_no_prefix_and_every_record_passes_none(self):
+        bare = item("prod/a", D1)
+        assert scope.select_running([bare], [], settings(repository_prefixes=("docker.io/",)), NOW).digests == set()
+        assert scope.select_running([bare], [], settings(), NOW).digests == {D1}

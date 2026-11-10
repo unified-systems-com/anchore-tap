@@ -135,6 +135,11 @@ def provider_node(ref: str, entity_type: str, name: str, fields: dict[str, Any],
     return {"entity": {"ref": ref, "entity_type": entity_type, "name": name[:255], "dimensions": dimensions}, "node": fields}
 
 
+def typed_node(ref: str, entity_type: str, name: str, fields: dict[str, Any], dimensions: dict[str, str]) -> dict[str, Any]:
+    """A node of a type named by slug, with the dimensions its model declares."""
+    return {"entity": {"ref": ref, "entity_type": entity_type, "name": name[:255] or entity_type, "dimensions": dict(dimensions)}, "node": fields}
+
+
 def host_node(ref: str, digest: str) -> dict[str, Any]:
     """The image host for a digest: the computing_core host with realm oci-digest. Written only where none exists."""
     return envelope(ref, Host, digest, {"realm": IMAGE_REALM, "stable_id": digest, "kind": "container"})
