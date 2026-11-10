@@ -176,3 +176,8 @@ class TestIdentifierNames:
         got = kubernetes.plan([container("p1"), container("p-dns", "coredns", "prod/kube-system")], [pod("p1"), pod("p-dns", namespace="42")], namespaces, NODES, settings(), NOW, KEY)
         assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
         assert "42" in got.namespaces
+
+    def test_an_unscheduled_pod_with_a_null_node_id_is_written_without_a_node(self):
+        got = planned([container("p1")], [pod("p1", node=None, node_id=None)])
+        assert set(got.pods) == {"p1"} and not got.nodes
+        assert not [e for e in got.edges if e[0] in ("SCHEDULED_ON_NODE", "REGISTERS_NODE")]

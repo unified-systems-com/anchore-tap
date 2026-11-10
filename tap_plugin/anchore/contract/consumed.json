@@ -423,13 +423,16 @@
    "method": "get",
    "path": "/kubernetes-pods",
    "observed": {
+    "nullable": [
+     "namespaces[].node_id"
+    ],
     "either": [
      [
       "namespaces",
       "pods"
      ]
     ],
-    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: the list comes under pods, not namespaces; the fields match"
+    "seen": "a real Anchore Enterprise instance, reported by the maintainer 2026-11-10: the list comes under pods, not namespaces; the fields match; node_id is null for a pod not yet scheduled"
    }
   },
   {
