@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.6](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.5...v0.1.6) (2026-11-10)
+
+
+### Features
+
+* **sbom:** parse each image's CycloneDX SBOM into its package inventory and join findings to packages ([f9c3fdd](https://github.com/unified-systems-com/anchore-tap/commit/f9c3fddfc2999969cb066c631f79c136c145d089))
+* **sbom:** parse each image's CycloneDX SBOM into package inventory and join findings to packages ([3ca71da](https://github.com/unified-systems-com/anchore-tap/commit/3ca71daa590394e5b26beea8f9a3f03d9784dce5))
+
+
+### Bug Fixes
+
+* **contract:** accept what a real instance returns: nullable fields, and id where uid is declared ([ff48178](https://github.com/unified-systems-com/anchore-tap/commit/ff48178c922396540d43d018ccbaf5beaf45370f))
+* **contract:** accept what a real instance returns: twelve fields that may be null, and id where uid is declared ([3519206](https://github.com/unified-systems-com/anchore-tap/commit/3519206bb8841f5467cbe14a2b0239c7c3e57cbc))
+* **contract:** nodes send id and come under nodes; pods come under pods ([76b7b9c](https://github.com/unified-systems-com/anchore-tap/commit/76b7b9c372b42b64c95e85a4be80a4e18c8a20c0))
+* **sbom:** a document not parsed is named in the run; a foreign package is joined only under the same purl ([b5da7e1](https://github.com/unified-systems-com/anchore-tap/commit/b5da7e122b489bcc92aa30c42abdf044663b9a9e))
+* **sbom:** bytes another scanner only recorded this run are not staged over; a legacy row is ours only if it names this instance ([fb0a987](https://github.com/unified-systems-com/anchore-tap/commit/fb0a9870e34de5b7b152d323c76267fc7a375e79))
+* **sbom:** only this scanner's own document row is restaged, and only the placeholder host id is rewritten ([6cf4d76](https://github.com/unified-systems-com/anchore-tap/commit/6cf4d7653ca33bc936a765c6d776180989839e39))
+
+
+### Documentation
+
+* **contract:** the node override is marked as assumed, not observed; the namespace id is a UUID ([cddbcc2](https://github.com/unified-systems-com/anchore-tap/commit/cddbcc29287e65627667a58a9124541766b05ece))
+
 ## [0.1.5](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.4...v0.1.5) (2026-11-10)
 
 
