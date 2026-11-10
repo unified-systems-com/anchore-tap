@@ -128,6 +128,8 @@ class _Scanner:
     built_on: set[tuple[str, str]] = field(default_factory=set)
     #: Images whose vulnerabilities response named a base image, and images read without the base parameter.
     images_with_base: int = 0
+    #: Ancestors left unwritten because none of their tags is inside repository_prefixes.
+    ancestors_out_of_scope: int = 0
     images_base_refused: int = 0
     #: ARN -> batch ref of each aws_core ECS node this scanner staged for creation.
     ecs_created: dict[str, str] = field(default_factory=dict)
@@ -177,8 +179,12 @@ class Failure:
 
     @property
     def refused(self) -> bool:
-        """The instance turned the request itself down (a 4xx that is not about who is asking)."""
-        return self.status is not None and 400 <= self.status < 500 and self.status not in (401, 403)
+        """The instance said the request itself is not one it accepts: 400 or 422, and nothing else.
+
+        Not 401 or 403 (who is asking), not 404 (what is asked for), and not 408 or 429, which are
+        about now and not about the request.
+        """
+        return self.status in (400, 422)
 
 
 def _get_json(client: ReadOnlyClient, extract: dict[str, Any], source: Source, path: str, params: dict[str, Any] | None = None) -> tuple[Any, Failure | None]:
@@ -421,7 +427,7 @@ class AnchoreCollector(CollectorBase):
             # An image that left the list is not a cleared image: its findings stay as they were, and say so.
             not_read.append({"scope": f"image:{gone}", "reason": "no longer in the image list; its findings were left as they were"})
         if out.images_read:
-            self.record_info(_SITE_BASE_IMAGE, "BASE_IMAGES", f"{credential.qualified}: Anchore named a base image for {out.images_with_base} of {out.images_read} image(s) read; {out.images_base_refused} were read without the base parameter; {len(out.built_on)} ancestor link(s) written.", message_data={"images_read": out.images_read, "with_base": out.images_with_base, "base_refused": out.images_base_refused, "ancestor_links": len(out.built_on)})
+            self.record_info(_SITE_BASE_IMAGE, "BASE_IMAGES", f"{credential.qualified}: Anchore named a base image for {out.images_with_base} of {out.images_read} image(s) read; {out.images_base_refused} were read without the base parameter; {len(out.built_on)} ancestor link(s) written, {out.ancestors_out_of_scope} ancestor(s) outside the repository prefixes not written.", message_data={"images_read": out.images_read, "with_base": out.images_with_base, "base_refused": out.images_base_refused, "ancestor_links": len(out.built_on), "ancestors_out_of_scope": out.ancestors_out_of_scope})
         if out.hosts_created:
             self.record_info(_SITE_HOST_CREATED, "IMAGE_HOSTS_CREATED", f"{credential.qualified}: {out.hosts_created} image host(s) did not exist on the grid and were written with only their digest.")
         if out.unlinked_images:
@@ -703,10 +709,11 @@ class AnchoreCollector(CollectorBase):
     def _ancestors(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], source: Source, digest: str, ref: str, out: _Scanner, shared: _Shared, read: list[str], not_read: list[dict[str, str]]) -> None:
         """Join an image to each image Anchore says forms its base layers (req-anchore-base-image-4, -5).
 
-        ``BUILT_ON_IMAGE`` from this image's host to the ancestor's. An ancestor is a fact about the
-        image's layers, so its host is written as a digest-only stub wherever the grid has none,
-        whether or not the ancestor is itself in scope. A read that fails writes nothing and is
-        recorded; it never fails the image.
+        ``BUILT_ON_IMAGE`` from this image's host to the ancestor's, whose host is written as a
+        digest-only stub where the grid has none. With ``repository_prefixes`` set, an ancestor
+        none of whose tags begins with a listed prefix is outside the scope and is not written
+        (req-anchore-scope-8); the finding's ``base_digest`` still names the base. A read that
+        fails writes nothing and is recorded; it never fails the image.
         """
         if not decompose.OCI_DIGEST.fullmatch(digest):
             return
@@ -718,6 +725,11 @@ class AnchoreCollector(CollectorBase):
         for number, entry in enumerate(body):
             ancestor = entry.get("image_digest") if isinstance(entry, dict) else None
             if not isinstance(ancestor, str) or not decompose.OCI_DIGEST.fullmatch(ancestor) or ancestor == digest:
+                continue
+            prefixes = credential.settings.repository_prefixes
+            tags = entry.get("tags")
+            if prefixes and not any(scoping.passes_reference(t, prefixes) for t in (tags if isinstance(tags, list) else [])):
+                out.ancestors_out_of_scope += 1
                 continue
             if (digest, ancestor) in out.built_on or (digest, ancestor) in shared.built_on:
                 continue

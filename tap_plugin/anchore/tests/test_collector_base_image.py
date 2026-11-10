@@ -12,6 +12,7 @@ from tap_plugin.computing_core.models.host import Host
 from tap_grid.models import Edge
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, Instance, findings, no_sockets, run_against, secrets, vuln  # noqa: F401 — fixtures
+from tap_plugin.anchore.tests.test_collector_scope import configure
 
 BASE = "sha256:" + "b" * 64
 ROOT = "sha256:" + "c" * 64
@@ -57,13 +58,24 @@ class TestAttribution:
         run_against(monkeypatch, server)
         assert {f.base_digest for f in findings().values()} == {None}
 
-    def test_an_instance_that_refuses_the_parameter_is_read_without_it_and_says_so(self, secrets, monkeypatch):
+    @pytest.mark.parametrize("status", [400, 422])
+    def test_an_instance_that_refuses_the_parameter_is_read_without_it_and_says_so(self, secrets, monkeypatch, status):
         server = instance()
-        server.refuse_base = 400
+        server.refuse_base = status
         run_against(monkeypatch, server)
         assert len(findings()) == 3
-        assert "refused base_digest=auto (HTTP 400)" in not_read()[f"base:{DIGEST}"]
+        assert f"refused base_digest=auto (HTTP {status})" in not_read()[f"base:{DIGEST}"]
         assert f"image:{DIGEST}" in run().scopes_read
+
+    @pytest.mark.parametrize("status", [404, 408, 429])
+    def test_a_status_that_is_not_about_the_request_is_not_taken_for_a_refusal(self, secrets, monkeypatch, status):
+        """Throttling is about now: reading again without the parameter would add load and lose the attribution."""
+        server = instance()
+        server.refuse_base = status
+        run_against(monkeypatch, server)
+        asked = [str(call.url) for call in server.transport.calls if "/vuln/all" in str(call.url)]
+        assert all("base_digest=auto" in url for url in asked)
+        assert f"base:{DIGEST}" not in not_read() and f"image:{DIGEST}" in not_read() and not findings()
 
     def test_a_failure_that_is_not_about_the_parameter_is_not_retried_without_it(self, secrets, monkeypatch):
         server = instance()
@@ -109,3 +121,16 @@ class TestAncestors:
         run_against(monkeypatch, server)
         assert f"ancestors:{DIGEST}" in not_read()
         assert len(findings()) == 3 and built_on() == set()
+
+
+@pytest.mark.django_db
+class TestAncestorsObeyTheScope:
+    def test_an_ancestor_outside_the_repository_prefixes_is_not_written_and_the_base_still_is(self, tmp_path, monkeypatch):
+        configure(tmp_path, monkeypatch, {"running_only": False, "repository_prefixes": ["registry.example/"]})
+        server = Instance(vulns=[vuln("CVE-2024-0001", inherited_from_base=True)], images=[{"image_digest": DIGEST, "analysis_status": "analyzed", "image_detail": [{"registry": "registry.example", "repo": "app", "tag": "1"}]}])
+        server.base[DIGEST] = BASE
+        server.ancestors[DIGEST] = [{"image_digest": BASE, "tags": ["docker.io/library/node:20"]}, {"image_digest": ROOT, "tags": ["registry.example/base/os:9"]}, {"image_digest": "sha256:" + "d" * 64}]
+        run_against(monkeypatch, server)
+        assert built_on() == {(DIGEST, ROOT)}
+        assert not Host.objects.filter(stable_id=BASE).exists()
+        assert findings()[("CVE-2024-0001", DIGEST)].base_digest == BASE
