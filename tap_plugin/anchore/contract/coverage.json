@@ -6,7 +6,7 @@
     {"pattern": "^/registries(/|$)", "status": "excluded", "reason": "registry settings hold credentials (ruled out)"},
     {"pattern": "^/(notifications|events|event-types|subscriptions|jobs|actions|health|version|system)(/|$)", "status": "excluded", "reason": "administration and operation of Anchore, not a fact about an artifact or a running container"},
     {"pattern": "^/downloads(/|$)", "status": "excluded", "reason": "bulk file download (ruled out)"},
-    {"pattern": "/artifacts/(secret-search|retrieved-files|file-content-search)$", "status": "excluded", "reason": "secret-search and retrieved-file results are secret material (ruled out)"},
+    {"pattern": "/artifacts/(secret-search|retrieved-files|file-content-search)(/|$)", "status": "excluded", "reason": "secret-search and retrieved-file results are secret material (ruled out)"},
     {"pattern": "^/imports(/|$)", "status": "excluded", "reason": "staging of an upload in progress; the finished image or source is read under /images or /sources"},
     {"pattern": "^/apps/\\{app_id\\}/(jobs|downloads)(/|$)", "status": "excluded", "reason": "export jobs and their files: operation of Anchore and bulk downloads (ruled out)"},
     {"pattern": "^/applications(/|$)", "status": "excluded", "reason": "deprecated duplicate of /apps; to revisit if an instance serves only this family"},

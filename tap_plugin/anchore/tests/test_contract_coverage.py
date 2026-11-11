@@ -9,7 +9,9 @@ from tap_plugin.anchore.contract import coverage
 
 RULES = json.loads(coverage.RULES.read_text(encoding="utf-8"))["rules"]
 READS = coverage.classify()
-RULED_OUT = re.compile(r"^/(accounts|rbac-manager|user|my-user-groups|registries)(/|$)|/artifacts/(secret-search|retrieved-files|file-content-search)$")
+#: The families the maintainer ruled out. ``/account`` (singular) is not among them: it is the probe's
+#: read of the credential's own account name, which the collector checks before reading anything else.
+RULED_OUT = re.compile(r"^/(accounts|rbac-manager|user|my-user-groups|registries)(/|$)|/(secret-search|secret-searches|retrieved-files|file-content-search|file-contents|content-searches)(/|$)")
 
 
 class TestEveryReadIsAccountedFor:
@@ -40,6 +42,15 @@ class TestExclusions:
     def test_the_ruled_exclusions_hold(self):
         ruled = [read for read in READS if RULED_OUT.search(read.path)]
         assert ruled and all(read.status == coverage.EXCLUDED for read in ruled)
+
+    @pytest.mark.parametrize("path", ["/accounts", "/accounts/{account_name}/users", "/rbac-manager/roles", "/user/credentials", "/registries/{registry}", "/images/{image_digest}/artifacts/secret-search", "/images/{image_digest}/artifacts/secret-search/{id}", "/imports/images/{operation_id}/secret-searches"])
+    def test_the_guard_covers_the_families_and_what_sits_beneath_them(self, path):
+        assert RULED_OUT.search(path)
+
+    def test_the_probes_own_account_read_is_the_one_account_path_landed(self):
+        landed = [read.path for read in READS if read.status == coverage.LANDED]
+        assert [path for path in landed if "account" in path] == ["/account"]
+        assert not RULED_OUT.search("/account")
 
 
 class TestTheTableIsGenerated:
