@@ -897,7 +897,7 @@ RID: `req-anchore-coverage`
 
 Status: `In Development`
 
-The maintainer's target (2026-11-11): import everything Anchore holds about artifacts and running containers into the grid. The default for a read is yes: read it and find it a home. A read is left out only for a stated reason. Administration of Anchore itself (accounts, users, permissions, notifications, system settings) is out of scope, and four exclusions stand by ruling: secret-search results, retrieved file contents, the account, user and permission endpoints, and registry settings.
+The maintainer's target (2026-11-11): import everything Anchore holds about artifacts and running containers into the grid. The default for a read is yes: read it and find it a home. A read is left out only for a stated reason. Administration of Anchore itself (accounts, users, permissions, notifications, system settings) is out of scope, and four exclusions stand by ruling: secret-search results, retrieved file contents, the account, user and permission administration endpoints (`/accounts`, `/user`, `/rbac-manager`, `/my-user-groups`), and registry settings. One read with a similar name is not among them and is landed: `/account`, by which the probe reads the name of the credential's own account and refuses to go on if it is not the one configured (`req-anchore-probe-4`). It lists no user and no permission.
 
 This section is how the target is measured. It is generated from three committed files: the vendor's OpenAPI file, the collector's manifest of what it reads, and `contract/coverage.json`, which gives each excluded read its reason. The target is hit when nothing is planned.
 
@@ -999,7 +999,7 @@ Anchore's API (the committed vendor file) has 247 reads. 18 are landed, 53 are p
 | req-anchore-coverage-1 | Every Read Is Accounted For | Implemented | Each GET of the committed vendor file is exactly one of landed, planned or excluded; landed is decided by the collector's manifest and nothing else. | `tests/test_contract_coverage.py` |
 | req-anchore-coverage-2 | An Exclusion States Its Reason | Implemented | Every excluded read carries a non-empty reason from `contract/coverage.json`; a rule with no reason, or a status other than planned or excluded, is refused. | |
 | req-anchore-coverage-3 | The Table Is Generated | Implemented | The section between the coverage markers is what `tap_plugin.anchore.contract.coverage` prints; a test fails when it is stale, so a read cannot be added or dropped without the table moving. | |
-| req-anchore-coverage-4 | The Ruled Exclusions Hold | Implemented | No read under the secret-search, retrieved-file, account, user, permission or registry families is landed or planned. | Changing this needs the maintainer's ruling, not an edit. |
+| req-anchore-coverage-4 | The Ruled Exclusions Hold | Implemented | No read under `/accounts`, `/user`, `/rbac-manager`, `/my-user-groups` or `/registries`, and no secret-search, retrieved-file or file-content read at any depth, is landed or planned. `/account`, the probe's read of the credential's own account name, is the one account path landed. | The families are the maintainer's ruling of record. |
 
 ### v0 Non-Goals
 ----
