@@ -60,6 +60,25 @@ def known_vulnerabilities(ids: set[str]) -> set[str]:
     return set(ComplianceVulnerability.objects.filter(vuln_id__in=ids).values_list("vuln_id", flat=True))
 
 
+def natural_key_of(node: dict[str, Any]) -> dict[str, Any] | None:
+    """A staged node's ``{"entity_type", "key"}`` by its type's natural key, or None when it cannot be stated.
+
+    None for a type that is not registered, one with no natural key, and a node missing a key
+    field: an edge to such a node cannot be moved to another batch (req-anchore-limits-7).
+    """
+    entity_type = node.get("entity", {}).get("entity_type")
+    try:
+        fields = get_model_class(entity_type).NATURAL_KEY
+    except Exception:  # noqa: BLE001 - an unregistered type has no key to state
+        return None
+    if not isinstance(fields, tuple) or not fields:
+        return None
+    values = node.get("node", {})
+    if any("." in name or values.get(name) is None for name in fields):
+        return None
+    return {"entity_type": entity_type, "key": {name: values[name] for name in fields}}
+
+
 def sbom_document_state(content_digest: str) -> dict[str, Any] | None:
     """What the grid's document with these exact bytes says of itself, or None when it holds none.
 

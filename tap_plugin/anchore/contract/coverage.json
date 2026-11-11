@@ -1,0 +1,25 @@
+{
+  "description": "How each GET in Anchore's API stands against the target of importing everything Anchore holds about artifacts and running containers (req-anchore-coverage). A read the collector makes is 'landed' and needs no entry here. Every other read matches the first rule below whose pattern matches its path: 'excluded' with the reason, or 'planned'. A read no rule matches is 'planned'. Edit a rule only with the ruling or the build that changes it.",
+  "rules": [
+    {"pattern": "^/$", "status": "excluded", "reason": "the API root; it names the service and holds no record"},
+    {"pattern": "^/(accounts|rbac-manager|user|my-user-groups)(/|$)", "status": "excluded", "reason": "administration of Anchore: accounts, users and permissions (ruled out, and personal data)"},
+    {"pattern": "^/registries(/|$)", "status": "excluded", "reason": "registry settings hold credentials (ruled out)"},
+    {"pattern": "^/(notifications|events|event-types|subscriptions|jobs|actions|health|version|system)(/|$)", "status": "excluded", "reason": "administration and operation of Anchore, not a fact about an artifact or a running container"},
+    {"pattern": "^/downloads(/|$)", "status": "excluded", "reason": "bulk file download (ruled out)"},
+    {"pattern": "/artifacts/(secret-search|retrieved-files|file-content-search)$", "status": "excluded", "reason": "secret-search and retrieved-file results are secret material (ruled out)"},
+    {"pattern": "^/imports(/|$)", "status": "excluded", "reason": "staging of an upload in progress; the finished image or source is read under /images or /sources"},
+    {"pattern": "^/apps/\\{app_id\\}/(jobs|downloads)(/|$)", "status": "excluded", "reason": "export jobs and their files: operation of Anchore and bulk downloads (ruled out)"},
+    {"pattern": "^/applications(/|$)", "status": "excluded", "reason": "deprecated duplicate of /apps; to revisit if an instance serves only this family"},
+    {"pattern": "^/reporting(/|$)", "status": "excluded", "reason": "the output of an operator-defined report, derived from records read elsewhere"},
+    {"pattern": "^/stig-profiles$", "status": "excluded", "reason": "download of the STIG profile database, a bulk file; an image's STIG results are /images/{image_digest}/stig"},
+    {"pattern": "^/archives/rules(/|$)", "status": "excluded", "reason": "archive rules are administration of Anchore"},
+    {"pattern": "^/(summaries|query)(/|$)", "status": "excluded", "reason": "a count or lookup derived from records the collector reads itself"},
+    {"pattern": "-xml$", "status": "excluded", "reason": "the same document as its JSON form in another encoding"},
+    {"pattern": "^/images/\\{image_digest\\}/vuln/\\{vuln_type\\}/cyclonedx-json$", "status": "excluded", "reason": "the vulnerability list the collector reads, in another format"},
+    {"pattern": "^/images/\\{image_digest\\}/(vuln|content|metadata)$", "status": "excluded", "reason": "lists the names of the types the collector asks for; it holds no record"},
+    {"pattern": "^/sources/\\{source_id\\}/(vuln|content)$", "status": "excluded", "reason": "lists the names of the types the collector asks for; it holds no record"},
+    {"pattern": "^/images/\\{image_digest\\}$", "status": "excluded", "reason": "the same record as its entry in the /images list"},
+    {"pattern": "^/kubernetes-(namespaces|nodes|pods)/\\{[a-z_]+\\}$", "status": "excluded", "reason": "the same record as its entry in the list the collector reads"},
+    {"pattern": "^/images/\\{image_digest\\}/content/files$", "status": "planned", "reason": "every file of every image: very large; how to land it is undecided"}
+  ]
+}

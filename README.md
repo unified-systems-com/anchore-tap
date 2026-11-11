@@ -66,6 +66,7 @@ An envelope without it is refused, including one written for v0.1.3. The optiona
 | `scope.repository_prefixes` | Registry and repository begin with one of these. Narrows what is read in either mode, and what the runtime inventory writes: a running container whose image is outside them is not written. |
 | `inventory_max_age_hours` | How recently Anchore must have seen a record for it to count as running. Default 24. |
 | `limits.max_response_mib` | The largest response body read, in MiB. Default 64, up to 1024. A larger body is not read and is listed as not read. Raise it for very large SBOMs. |
+| `limits.max_batch_rows` | The most rows one batch of a run holds. Default 5000. A larger run is written as several batches, so one failed write does not lose the whole run. |
 | `limits.max_run_minutes` | How long a run may keep starting new image reads. Unset by default: no limit. Past it, the images left are listed as not read, their findings are left alone, and what was read is written. |
 | `create.ecs` | Default false. True creates the `aws_core` ECS container, task, service and cluster nodes the grid lacks for the selected containers. Read the spec's "Concerns to recognise in the field" first. |
 | `create.kubernetes` | Default true. Writes the Kubernetes cluster, namespace, node, pod and container objects behind the running containers in scope, into `computing_core`'s Kubernetes types (v0.10.4 or later). |

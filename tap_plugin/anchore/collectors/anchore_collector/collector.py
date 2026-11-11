@@ -40,7 +40,7 @@ from typing import Any, ClassVar
 from tap import secrets_root
 
 from tap_cares.collectors import CeilingExceeded, CollectorBase, run_with_ceiling
-from tap_plugin.anchore import kubernetes
+from tap_plugin.anchore import batching, kubernetes
 from tap_plugin.computing_core.sbom import SbomParseError, Verification, parse_cyclonedx
 from tap_plugin.anchore import scope as scoping
 from tap_cares.collectors.readiness import CollectorReadinessStatus, CollectorSelfTestResult, check_fail, check_pass
@@ -79,6 +79,7 @@ _SITE_BASE_IMAGE = "57eb"
 _SITE_RUN_LIMIT = "49b9"
 _SITE_PARENT_DIGEST = "7591"
 _SITE_SBOM_PARSED = "dc6c"
+_SITE_BATCHES = "c9cb"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -289,7 +290,14 @@ class AnchoreCollector(CollectorBase):
             self.record_error(_SITE_NOTHING_WRITTEN, "NOTHING_WRITTEN", self.summary)
             raise AnchoreCollectorError(self.summary)
 
-        self.submit_grift(self._document(nodes, edges, written))
+        # One write per batch: the smallest limit any credential of this run sets (req-anchore-limits-7).
+        max_rows = min(credential.settings.max_batch_rows for credential in usable)
+        batches, unsplit = batching.split(nodes, edges, max_rows, store.natural_key_of)
+        if unsplit is not None:
+            self.record_warn(_SITE_BATCHES, "BATCH_NOT_SPLIT", f"The run's {len(nodes) + len(edges)} row(s) were written as one batch, over the limit of {max_rows}: {unsplit}.")
+        elif len(batches) > 1:
+            self.record_info(_SITE_BATCHES, "BATCHES", f"The run's {len(nodes) + len(edges)} row(s) were written as {len(batches)} batches of at most {max_rows}.", message_data={"rows": len(nodes) + len(edges), "batches": len(batches), "max_rows": max_rows})
+        self.submit_grift(self._document(batches, written))
         self.summary = "; ".join(written)
         self.record_info(_SITE_RUN_FINISHED, "RUN_FINISHED", self.summary)
 
@@ -995,22 +1003,24 @@ class AnchoreCollector(CollectorBase):
             out.package_links += 1
 
     @staticmethod
-    def _document(nodes: list[dict[str, Any]], edges: list[dict[str, Any]], written: list[str]) -> dict[str, Any]:
-        return {
-            "metadata": {"grift_version": "0"},
-            "_reserved": {},
-            "batches": [{
-                "batch_entity": {"entity_id": str(uuid.uuid4()), "entity_type": "batch", "name": "Anchore collection", "dimensions": {}},
+    def _document(batches: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]], written: list[str]) -> dict[str, Any]:
+        """One GRIFT document for the run: its batches in the order they are applied."""
+        total = len(batches)
+        out = []
+        for number, (nodes, edges) in enumerate(batches, start=1):
+            name = "Anchore collection" if total == 1 else f"Anchore collection ({number} of {total})"
+            out.append({
+                "batch_entity": {"entity_id": str(uuid.uuid4()), "entity_type": "batch", "name": name, "dimensions": {}},
                 "batch_node": {
                     "source": "tap_plugin.anchore.collectors.anchore_collector",
-                    "name": "Anchore collection",
-                    "description": "One run of the Anchore collector.",
-                    "description_json": {"format": "tap.anchore.collection-v0", "data": {"scanners": written}},
+                    "name": name,
+                    "description": "One run of the Anchore collector." if total == 1 else f"Part {number} of {total} of one run of the Anchore collector.",
+                    "description_json": {"format": "tap.anchore.collection-v0", "data": {"scanners": written, "part": number, "parts": total}},
                 },
                 "nodes": nodes,
                 "edges": edges,
-            }],
-        }
+            })
+        return {"metadata": {"grift_version": "0"}, "_reserved": {}, "batches": out}
 
 
 def _contract_dir() -> Path:

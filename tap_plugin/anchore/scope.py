@@ -19,6 +19,8 @@ DEFAULT_MAX_AGE_HOURS = 24
 MIB = 1024 * 1024
 #: The response cap when the envelope sets none; the client's own default is the same number.
 DEFAULT_MAX_RESPONSE_MIB = 64
+#: The most rows one batch holds when the envelope sets none.
+DEFAULT_MAX_BATCH_ROWS = 5000
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,8 @@ class Settings:
     max_response_bytes: int = DEFAULT_MAX_RESPONSE_MIB * MIB
     #: Minutes a run may keep starting reads; None is no limit (req-anchore-limits-3).
     max_run_minutes: int | None = None
+    #: The most rows (nodes and edges) one batch of a run holds (req-anchore-limits-7).
+    max_batch_rows: int = DEFAULT_MAX_BATCH_ROWS
 
     @classmethod
     def from_data(cls, data: Mapping[str, Any]) -> Settings:
@@ -56,6 +60,7 @@ class Settings:
         return cls(
             max_response_bytes=limits.get("max_response_mib", DEFAULT_MAX_RESPONSE_MIB) * MIB,
             max_run_minutes=limits.get("max_run_minutes"),
+            max_batch_rows=limits.get("max_batch_rows", DEFAULT_MAX_BATCH_ROWS),
             running_only=scope["running_only"],
             aws_account_ids=tuple(scope.get("aws_account_ids", ())),
             context_prefixes=tuple(scope.get("context_prefixes", ())),
@@ -80,7 +85,7 @@ class Settings:
             },
             "inventory_max_age_hours": self.inventory_max_age_hours,
             "create": {"kubernetes": self.create_kubernetes, "ecs": self.create_ecs},
-            "limits": {"max_response_mib": self.max_response_bytes // MIB, "max_run_minutes": self.max_run_minutes},
+            "limits": {"max_response_mib": self.max_response_bytes // MIB, "max_run_minutes": self.max_run_minutes, "max_batch_rows": self.max_batch_rows},
         }
 
 
