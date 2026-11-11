@@ -68,6 +68,7 @@ Six consequences shape v0:
 | req-anchore-policy-result | [Policy Results](#policy-results) | Proposed | Version-level policy status and counts stored on the application version |
 | req-anchore-image | [Anchore's Record Of An Image](#anchores-record-of-an-image) | In Development | One Anchore node per image for its analysis state and the record as returned; the image's host is given its name and operating system |
 | req-anchore-record | [Records Kept As Returned](#records-kept-as-returned) | In Development | Each Anchore-owned node keeps the upstream record it was made from, every key, beside the fields taken from it |
+| req-anchore-image-policy | [Policy Evaluation Per Image](#policy-evaluation-per-image) | In Development | Anchore's pass or fail verdict on each image, per tag and policy, with the evaluation as returned |
 | req-anchore-base-image | [Base Image Attribution](#base-image-attribution) | In Development | Each finding says whether its package came with the base image and which base; an image is joined to the images it was built on |
 | req-anchore-inventory | [Runtime Inventory: Images In Use](#runtime-inventory-images-in-use) | In Development | The flat list of images in use, per context, with when each was last seen |
 | req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | In Development | Cluster, namespace, node, pod and container written into `computing_core`'s Kubernetes types when `create.kubernetes` is on, joined to the image host |
@@ -663,6 +664,35 @@ Nothing under the ruled exclusions reaches a `record`: no secret-search or retri
 | req-anchore-record-1 | The Entry Is Kept Whole | Implemented | `record` on a finding, a runtime image and an image equals the upstream entry it was made from, including keys the model has no field for. | `tests/test_collector_image_record.py::TestRecordsAsReturned`, `::TestTheRecord` |
 | req-anchore-record-2 | Kept Through Resolution | Implemented | A finding marked resolved keeps the `record` it last had. | |
 
+### Policy Evaluation Per Image
+----
+RID: `req-anchore-image-policy`
+
+Status: `In Development`
+
+Anchore evaluates each image against a policy and returns pass or fail, the final action, and the rules that fired. That verdict is the compliance gate, a different fact from the findings behind it, and it is landed as Anchore returned it. This is the per-image evaluation; the per-application-version one is `req-anchore-policy-result`.
+
+#### Implementation
+
+Everything Anchore-shaped below is from the vendor's OpenAPI file (2.20.0) and not from a recorded response.
+
+- **The read.** `GET /images/{image_digest}/check`, which requires a `tag`. Anchore evaluates under a tag because a policy's mapping rules select by registry, repository and tag. So there is one read for each full tag the image record lists, sent with `base_digest=auto` as the vulnerabilities read is; an instance that answers that with HTTP 400 or 422 is asked again without it.
+- **The node.** `anchore_policy_evaluation` (`anchore.area: policy`), key `(scanner_key, image_digest, evaluated_tag, policy_id)`. From the response's first evaluation, which without `history` is the latest: `status`, `final_action`, `final_action_reason`, `number_of_findings`, `evaluation_time`, `comparison_image_digest`, `image_allowlisted`, `image_denylisted`. `record` is the whole response (`req-anchore-record`), so the evaluation's own findings, the matched mapping rule and any allowlist match are kept though no field holds them. `EVALUATES_IMAGE__anchore` joins it to the image's host.
+- **Not read is said.** A tag whose read fails, or whose response names no policy or holds no evaluation, is recorded as not read under `policy:<digest>:<tag>` and never fails the image.
+- **An image with no tag** has no evaluation in Anchore to read. That is nothing there, not something unread, so it is counted in the run's log and not listed as not read.
+- **What is not built.** The evaluation's findings are not separate nodes; they are in `record`. An evaluation for a tag the image no longer carries is not removed or marked: absence from a later read is not proof Anchore withdrew it. With `history` Anchore returns earlier evaluations; they are not read.
+
+Unobserved: whether this read makes Anchore compute an evaluation it has not cached, and how long that takes; `limits.max_run_minutes` bounds the run either way.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-image-policy-1 | One Verdict Per Tag And Policy | Implemented | Each full tag of an analyzed image the run reads has one `anchore_policy_evaluation` per policy, holding the verdict fields as returned and the response in `record`, joined to the image's host; a later read of the same tag and policy replaces the fields and writes no second node. | `tests/test_collector_policy.py::TestEvaluations` |
+| req-anchore-image-policy-2 | The Read Names The Tag And Asks For The Base | Implemented | Every read carries `tag` and `base_digest=auto`, is a GET, and is repeated without the base parameter only on HTTP 400 or 422. | |
+| req-anchore-image-policy-3 | An Unread Tag Is Recorded | Implemented | A failed read, or a response with no policy or no evaluation, is recorded under `policy:<digest>:<tag>`, writes no node, and leaves the image's findings and other tags as read. | `::TestNotRead` |
+| req-anchore-image-policy-4 | No Tag Is Nothing To Read | Implemented | An image Anchore lists no tag for has no evaluation, is not listed as not read, and is counted in the run's log. | |
+
 ### Base Image Attribution
 ----
 RID: `req-anchore-base-image`
@@ -903,7 +933,7 @@ This section is how the target is measured. It is generated from three committed
 
 <!-- coverage:begin (generated by tap_plugin.anchore.contract.coverage; do not edit by hand) -->
 
-Anchore's API (the committed vendor file) has 247 reads. 18 are landed, 53 are planned and 176 are excluded. The target is hit when none is planned.
+Anchore's API (the committed vendor file) has 247 reads. 19 are landed, 52 are planned and 176 are excluded. The target is hit when none is planned.
 
 **Planned: not yet read.**
 
@@ -937,7 +967,6 @@ Anchore's API (the committed vendor file) has 247 reads. 18 are landed, 53 are p
 | `/artifact-relationships/{relationship_id}/diffs/sbom` |  |
 | `/corrections` |  |
 | `/corrections/{uuid}` |  |
-| `/images/{image_digest}/check` |  |
 | `/images/{image_digest}/content-summary` |  |
 | `/images/{image_digest}/content/files` | every file of every image: very large; how to land it is undecided |
 | `/images/{image_digest}/content/java` |  |
@@ -965,7 +994,7 @@ Anchore's API (the committed vendor file) has 247 reads. 18 are landed, 53 are p
 
 **Landed: the collector reads it.**
 
-`/account`, `/ecs-containers`, `/ecs-services`, `/ecs-tasks`, `/images`, `/images/{image_digest}/ancestors`, `/images/{image_digest}/sboms/cyclonedx-json`, `/images/{image_digest}/sboms/native-json`, `/images/{image_digest}/sboms/spdx-json`, `/images/{image_digest}/vuln/{vuln_type}`, `/inventories`, `/kubernetes-containers`, `/kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods`, `/status`, `/system`, `/system/feeds`.
+`/account`, `/ecs-containers`, `/ecs-services`, `/ecs-tasks`, `/images`, `/images/{image_digest}/ancestors`, `/images/{image_digest}/check`, `/images/{image_digest}/sboms/cyclonedx-json`, `/images/{image_digest}/sboms/native-json`, `/images/{image_digest}/sboms/spdx-json`, `/images/{image_digest}/vuln/{vuln_type}`, `/inventories`, `/kubernetes-containers`, `/kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods`, `/status`, `/system`, `/system/feeds`.
 
 **Excluded, by reason.**
 

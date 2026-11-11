@@ -25,6 +25,7 @@ from tap_plugin.computing_core.models.sbom_document import SbomDocument
 from tap_plugin.anchore import scope
 from tap_plugin.anchore.models.finding import AnchoreFinding, package_key_for
 from tap_plugin.anchore.models.image import AnchoreImage
+from tap_plugin.anchore.models.policy_evaluation import AnchorePolicyEvaluation
 from tap_plugin.anchore.models.runtime_image import AnchoreRuntimeImage
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.models.scanner import AnchoreScanner
@@ -188,6 +189,53 @@ def image_naming(image: Any) -> tuple[str | None, str | None]:
     version = metadata.get("distro_version") if isinstance(metadata, dict) else None
     os = " ".join(part for part in (distro, version) if isinstance(part, str) and part) or None
     return name, os
+
+
+def image_tags(image: Any) -> list[str]:
+    """Every distinct full tag reference of an image record, sorted."""
+    details = image.get("image_detail") if isinstance(image, dict) else None
+    return sorted({d["full_tag"] for d in details or [] if isinstance(d, dict) and isinstance(d.get("full_tag"), str) and d["full_tag"]})
+
+
+def policy_evaluation_node(ref: str, scanner_key: str, digest: str, tag: str, body: dict[str, Any], run_id: str) -> dict[str, Any] | None:
+    """Anchore's verdict on an image under one tag (req-anchore-image-policy-1), or None when the response names no policy or holds no evaluation.
+
+    The response's first evaluation is the one stored: without ``history`` Anchore returns the
+    latest. The whole response is kept in ``record``.
+    """
+    policy_id = body.get("policy_id")
+    evaluations = body.get("evaluations")
+    evaluation = evaluations[0] if isinstance(evaluations, list) and evaluations and isinstance(evaluations[0], dict) else None
+    if not isinstance(policy_id, str) or not policy_id or len(policy_id) > 255 or evaluation is None or len(tag) > 2048:
+        return None
+
+    def text(name: str, limit: int) -> str | None:
+        value = evaluation.get(name)
+        return value if isinstance(value, str) and len(value) <= limit else None
+
+    def flag(name: str) -> bool | None:
+        value = evaluation.get(name)
+        return value if isinstance(value, bool) else None
+
+    count = evaluation.get("number_of_findings")
+    when = scope.parse_time(evaluation.get("evaluation_time"))
+    fields: dict[str, Any] = {
+        "scanner_key": scanner_key,
+        "image_digest": digest,
+        "evaluated_tag": tag,
+        "policy_id": policy_id,
+        "status": text("status", 16),
+        "final_action": text("final_action", 16),
+        "final_action_reason": text("final_action_reason", 64),
+        "number_of_findings": count if isinstance(count, int) and not isinstance(count, bool) and 0 <= count <= 2147483647 else None,
+        "evaluation_time": when.isoformat() if when is not None else None,
+        "comparison_image_digest": text("comparison_image_digest", 512),
+        "image_allowlisted": flag("image_allowlisted"),
+        "image_denylisted": flag("image_denylisted"),
+        "last_seen_run_id": run_id,
+        "record": body,
+    }
+    return envelope(ref, AnchorePolicyEvaluation, f"{fields['status'] or 'unevaluated'} · {tag}", fields)
 
 
 def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, Any]:

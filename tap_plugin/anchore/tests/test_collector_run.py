@@ -72,8 +72,11 @@ class Instance:
         self.ancestors: dict[str, object] = {}
         #: Set to an HTTP status to make the instance turn down the base_digest parameter.
         self.refuse_base: int | None = None
+        #: Policy evaluations by (digest, full tag); a tag with none answers 404.
+        self.policy: dict[tuple[str, str], object] = {}
         for digest in (DIGEST, OTHER):
             self.transport.routes[f"/images/{digest}/ancestors"] = self._ancestors(digest)
+            self.transport.routes[f"/images/{digest}/check"] = self._check(digest)
             self.transport.routes[f"/images/{digest}/vuln/all"] = self._vulns(digest)
             for fmt in ("native-json", "spdx-json", "cyclonedx-json"):
                 self.transport.routes[f"/images/{digest}/sboms/{fmt}"] = self._sbom(digest, fmt)
@@ -104,6 +107,18 @@ class Instance:
             if digest in self.base and "base_digest=auto" in str(request.url):
                 body["base_digest"] = self.base[digest]
             return response(200, body)
+
+        return answer
+
+    def _check(self, digest):
+        def answer(request):
+            from urllib.parse import parse_qs, urlsplit
+
+            asked = parse_qs(urlsplit(str(request.url)).query)
+            body = self.policy.get((digest, asked.get("tag", [""])[0]))
+            if body is None:
+                return response(404, {"detail": "no evaluation"})
+            return response(body, {"detail": "boom"}) if isinstance(body, int) else response(200, body)
 
         return answer
 

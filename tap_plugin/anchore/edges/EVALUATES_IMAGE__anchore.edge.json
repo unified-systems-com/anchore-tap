@@ -1,0 +1,17 @@
+{
+  "slug": "EVALUATES_IMAGE__anchore",
+  "name": "Evaluates Image",
+  "description": "An Anchore policy evaluation is a verdict on the image host with that digest. Written only when the digest can name an image host.",
+  "sources": [
+    "anchore__anchore_policy_evaluation"
+  ],
+  "targets": [
+    "computing_core__host"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "policy"
+  }
+}
