@@ -630,7 +630,9 @@ An image on the grid is `computing_core`'s host keyed by its digest. Facts true 
 
 tap has no write that yields to a value already held (`unified-systems-com/tap#1172`), so the fill is a read and then a write of only the lacking fields. A collector that fills the same field between the two is overwritten. The code carries a `WORKAROUND` comment naming that issue.
 
-Architecture, size, layer count and build time are in Anchore's record and are generic facts about an image. They are not written to the host yet: `computing_core` has no fields for them, and adding them is a separate change there. Until then they are in `record`.
+**The image's other generic facts.** `computing_core` v0.10.6 gives the host `architecture`, `image_size_bytes` and `image_layer_count`, and they are filled the same way as the name: from `image_content.metadata.arch`, `image_size` and `layer_count`, in full on a host this run creates and only where lacking on a host the grid holds. A value the field cannot hold (an architecture over 32 characters, a negative or non-integer size) is left out and stays in `record`. `image_built_at` is never written: Anchore's record carries when Anchore created its own record, not when the image was built. On a `computing_core` without these fields none is sent.
+
+**Tags.** Each `image_detail` entry that carries a registry, a repository and a tag is `computing_core`'s `image_tag`, keyed by those three, with `TAGS_IMAGE__computing_core` to the image's host. The edge's `detected_at` is Anchore's `tag_detected_at` where it reads as a time. It says Anchore saw the tag on this image; it does not say the tag points there now. A tag two images carry is one node with an edge to each. A tag whose reference is outside `repository_prefixes` is outside the scope and is not written. An entry missing a part, or with a part longer than the type holds, names no tag. On a `computing_core` without the type no tag is written.
 
 #### Acceptance Criteria
 
@@ -640,6 +642,8 @@ Architecture, size, layer count and build time are in Anchore's record and are g
 | req-anchore-image-2 | Written Whatever Else Is Read | Implemented | An image Anchore has not finished analyzing, or whose findings were not read, still has its record. | |
 | req-anchore-image-3 | A New Host Is Named | Implemented | A host this run creates for an image carries the reference as `name` and the distribution and version as `os`, each only where Anchore's record gives it. | `::TestTheHostsName`, `::TestNaming` |
 | req-anchore-image-4 | An Existing Host Is Filled, Not Replaced | Implemented | A host the grid holds gets only the `name` or `os` it lacks; one it holds is left as it is. | The read-then-write race is stated above. |
+| req-anchore-image-5 | Tags Are Generic Nodes | Implemented | Each whole tag Anchore lists for an image is one `computing_core__image_tag` with `TAGS_IMAGE__computing_core` to the image's host, carrying `detected_at` where Anchore gives a time; a second run writes no second node or edge; a tag outside `repository_prefixes` is not written. | `tests/test_collector_image_facts.py::TestTags` |
+| req-anchore-image-6 | The Image's Facts Go On The Host | Implemented | `architecture`, `image_size_bytes` and `image_layer_count` are written to the host from Anchore's record, in full on a host this run creates and only where lacking on one the grid holds, a held zero included; `image_built_at` is never written. | `::TestFacts` |
 
 ### Records Kept As Returned
 ----

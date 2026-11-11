@@ -85,10 +85,18 @@ def current_policy_evaluations(scanner_key: str, image_digest: str) -> list[Anch
     return list(AnchorePolicyEvaluation.objects.filter(scanner_key=scanner_key, image_digest=image_digest, state="current"))
 
 
-def image_host_fields(digest: str) -> dict[str, str] | None:
-    """The name and operating system the grid's image host for a digest holds, or None when it holds no such host."""
+def host_holds_image_facts() -> bool:
+    """Whether the installed computing_core's host has the image fact fields (v0.10.6 on)."""
+    return all(any(f.name == name for f in Host._meta.get_fields()) for name in ("architecture", "image_size_bytes", "image_layer_count"))
+
+
+def image_host_fields(digest: str) -> dict[str, Any] | None:
+    """What the grid's image host for a digest holds of its name, operating system and image facts, or None when it holds no such host."""
     row = Host.objects.filter(realm="oci-digest", stable_id=digest).first()
-    return None if row is None else {"name": row.name, "os": row.os}
+    if row is None:
+        return None
+    # The image facts are fields of computing_core v0.10.6; an older one has none, and they read as held so nothing is sent.
+    return {"name": row.name, "os": row.os, **{name: getattr(row, name, "not a field of this computing_core") for name in ("architecture", "image_size_bytes", "image_layer_count")}}
 
 
 def sbom_document_state(content_digest: str) -> dict[str, Any] | None:

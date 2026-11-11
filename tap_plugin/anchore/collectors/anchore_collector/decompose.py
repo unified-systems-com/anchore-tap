@@ -93,11 +93,11 @@ def edge(ref: str, slug: str, from_ref: str, to_ref: str) -> dict[str, Any]:
     }
 
 
-def edge_to_key(ref: str, slug: str, from_ref: str, entity_type: str, key: dict[str, str]) -> dict[str, Any]:
+def edge_to_key(ref: str, slug: str, from_ref: str, entity_type: str, key: dict[str, str], properties: dict[str, Any] | None = None) -> dict[str, Any]:
     """An edge from a node of this batch to a node named by type and natural key, which must already exist or be in the batch."""
     return {
         "entity": {"ref": ref, "entity_type": "edge", "name": slug, "dimensions": {}},
-        "edge": {"from_ref": from_ref, "to_key": {"entity_type": entity_type, "key": key}, "edge_type": slug, "properties": {}},
+        "edge": {"from_ref": from_ref, "to_key": {"entity_type": entity_type, "key": key}, "edge_type": slug, "properties": dict(properties or {})},
     }
 
 
@@ -191,6 +191,60 @@ def image_naming(image: Any) -> tuple[str | None, str | None]:
     os = " ".join(part for part in (distro, version) if isinstance(part, str) and part) or None
     # A value the host's column cannot hold is not sent: it would fail the batch, and it is in the record.
     return name, os if os is not None and len(os) <= _MAX_HOST_OS else None
+
+
+#: The image facts computing_core's host holds beyond its name and operating system (computing_core v0.10.6).
+IMAGE_FACT_FIELDS = ("architecture", "image_size_bytes", "image_layer_count")
+
+
+def image_facts(image: Any) -> dict[str, Any]:
+    """What Anchore's image record says of the image itself, by the host field that holds it; a fact it does not give is left out.
+
+    ``name`` and ``os`` as :func:`image_naming` gives them; ``architecture``, ``image_size_bytes`` and
+    ``image_layer_count`` from the record's content metadata, each only where it has the type and
+    range the host's field holds. Anchore's record has no build time for the image: its
+    ``created_at`` is when Anchore made its own record, so ``image_built_at`` is never written.
+    """
+    name, os = image_naming(image)
+    facts: dict[str, Any] = {key: value for key, value in (("name", name), ("os", os)) if value}
+    content = image.get("image_content") if isinstance(image, dict) else None
+    metadata = content.get("metadata") if isinstance(content, dict) else None
+    if not isinstance(metadata, dict):
+        return facts
+    arch = metadata.get("arch")
+    if isinstance(arch, str) and 0 < len(arch) <= 32:
+        facts["architecture"] = arch
+    for field_name, key, ceiling in (("image_size_bytes", "image_size", 9223372036854775807), ("image_layer_count", "layer_count", 2147483647)):
+        value = metadata.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= ceiling:
+            facts[field_name] = value
+    return facts
+
+
+_TAG_LIMITS = (("registry", 255), ("repo", 255), ("tag", 128))
+
+
+def image_tag_rows(image: Any) -> list[dict[str, Any]]:
+    """The tags Anchore lists for an image, as ``{registry, repository, tag, reference, detected_at}``, one per distinct tag, sorted.
+
+    A detail missing a part, or with a part longer than computing_core's ``image_tag`` holds, names
+    no tag and is left out. ``detected_at`` is Anchore's ``tag_detected_at`` where it reads as a time.
+    """
+    out: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for detail in (image.get("image_detail") or []) if isinstance(image, dict) else []:
+        if not isinstance(detail, dict):
+            continue
+        parts = [detail.get(key) for key, _ in _TAG_LIMITS]
+        if not all(isinstance(part, str) and 0 < len(part) <= limit for part, (_, limit) in zip(parts, _TAG_LIMITS, strict=True)):
+            continue
+        seen = scope.parse_time(detail.get("tag_detected_at"))
+        out.setdefault((parts[0], parts[1], parts[2]), {"registry": parts[0], "repository": parts[1], "tag": parts[2], "reference": f"{parts[0]}/{parts[1]}:{parts[2]}", "detected_at": seen.isoformat() if seen is not None else None})
+    return [out[key] for key in sorted(out)]
+
+
+def image_tag_node(ref: str, row: dict[str, Any]) -> dict[str, Any]:
+    """computing_core's image tag for one of Anchore's tag details."""
+    return typed_node(ref, "computing_core__image_tag", row["reference"], {"registry": row["registry"], "repository": row["repository"], "tag": row["tag"]}, {"tap.computing": "runtime"})
 
 
 def image_tags(image: Any) -> list[str]:
