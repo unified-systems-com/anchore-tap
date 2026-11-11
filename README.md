@@ -86,7 +86,7 @@ images under one index are all read.
 ## Packages from the SBOM
 
 Each image's CycloneDX SBOM is parsed into its package inventory with `computing_core`'s parser
-(v0.10.5 or later): package nodes shared across images, joined to the image's host, and each
+(v0.10.5 or later; v0.10.6 for image facts and tags): package nodes shared across images, joined to the image's host, and each
 finding joined to its package by purl. The document is unsigned, so it is recorded as
 source-authenticated, never verified. An instance read over plain `http` has its SBOMs recorded and
 not parsed.
@@ -117,7 +117,7 @@ edges from findings to the image host and, only where it already exists with exa
 shared vulnerability. A scope that was not read is never a clean result, and a read that failed leaves the
 findings it would have updated as they were.
 
-To try it, boot a profile that installs `computing_core` v0.10.5, `compliance_core` v0.8.11 and this plugin at
+To try it, boot a profile that installs `computing_core` v0.10.6, `compliance_core` v0.8.11 and this plugin at
 `v0.1.5` (the `ci` record in `tap_plugin/anchore/boot/ci.boot.json` is a working list), run `manage.py boot` so the
 collector node is reconciled, and fire the collector as the scheduler actor:
 
@@ -131,5 +131,5 @@ the intended refusal. Not yet built: findings linked to packages, source and app
 
 The plugin's own tests run in the stack described by `tap_plugin/anchore/boot/ci.boot.json`:
 `spawn-session.sh <label> --from 'git+https://github.com/unified-systems-com/anchore-tap@<rev>#ci' --dev-plugins anchore`,
-then `pytest --pyargs tap_plugin.anchore.tests`. The record pins `computing_core` v0.10.5 and
+then `pytest --pyargs tap_plugin.anchore.tests`. The record pins `computing_core` v0.10.6 and
 `compliance_core` v0.8.11 at tags, and this plugin at its own release.
