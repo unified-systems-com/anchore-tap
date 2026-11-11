@@ -66,7 +66,10 @@ class AnchoreFinding(BaseModel):
     ]
 
     # A finding is reached by traversal and nothing in v0 points at it (req-anchore-findings-4).
-    INBOUND_EDGES: ClassVar[list[dict[str, Any]]] = []
+    # The one thing that points at a finding: the VEX statement Anchore attached to it.
+    INBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
+        {"nodes": [{"type": "anchore__anchore_vex_annotation"}], "edges": [{"type": "ANNOTATES_FINDING__anchore"}]},
+    ]
 
     FIELD_CRUD_SCHEMA: ClassVar[dict[str, Any]] = {
         "scanner_key": {"type": "string", "minLength": 1},

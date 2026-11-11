@@ -104,6 +104,18 @@
       ]
     },
     {
+      "id": "image_vuln_annotations",
+      "path": "/images/{image_digest}/vuln-annotations",
+      "scope": "image",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "items[].annotation.uuid",
+        "items[].annotation.vulnerability_id",
+        "items[].annotation.status"
+      ]
+    },
+    {
       "id": "image_policy_check",
       "path": "/images/{image_digest}/check",
       "scope": "image",

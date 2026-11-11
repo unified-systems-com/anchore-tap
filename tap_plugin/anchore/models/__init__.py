@@ -6,5 +6,6 @@ from .policy_evaluation import AnchorePolicyEvaluation
 from .runtime_image import AnchoreRuntimeImage
 from .scan_run import AnchoreScanRun
 from .scanner import AnchoreScanner
+from .vex_annotation import AnchoreVexAnnotation
 
-__all__ = ["AnchoreFinding", "AnchoreImage", "AnchorePolicyEvaluation", "AnchoreRuntimeImage", "AnchoreScanRun", "AnchoreScanner"]
+__all__ = ["AnchoreFinding", "AnchoreImage", "AnchorePolicyEvaluation", "AnchoreRuntimeImage", "AnchoreScanRun", "AnchoreScanner", "AnchoreVexAnnotation"]

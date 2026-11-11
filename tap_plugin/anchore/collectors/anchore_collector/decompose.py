@@ -29,6 +29,7 @@ from tap_plugin.anchore.models.policy_evaluation import AnchorePolicyEvaluation
 from tap_plugin.anchore.models.runtime_image import AnchoreRuntimeImage
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.models.scanner import AnchoreScanner
+from tap_plugin.anchore.models.vex_annotation import AnchoreVexAnnotation
 
 #: Anchore finding key -> AnchoreFinding field, where the two differ.
 _RENAMED = {"vuln": "vulnerability_id"}
@@ -317,6 +318,62 @@ def superseded_policy_node(row: AnchorePolicyEvaluation, ref: str) -> dict[str, 
     fields["state"] = SUPERSEDED
     fields["evaluation_time"] = row.evaluation_time.isoformat() if row.evaluation_time is not None else None
     return envelope(ref, AnchorePolicyEvaluation, f"superseded {row.status or 'unevaluated'} · {row.evaluated_tag}", fields)
+
+
+WITHDRAWN = "withdrawn"
+#: The VEX annotation's own columns that hold text as returned, each with the longest value its column takes.
+_VEX_TEXT = {"status": 32, "justification": 64, "status_notes": None, "impact_statement": None, "action_statement": None, "additional_details": None}
+
+
+def vex_annotation_node(ref: str, scanner_key: str, scope_kind: str, scope_id: str, item: Any, run_id: str) -> dict[str, Any] | None:
+    """One VEX annotation of a scope as Anchore returned it (req-anchore-vex-1), or None when it has no usable uuid or vulnerability id.
+
+    ``item`` is one entry of the list: the annotation and, beside it, the package it is scoped
+    to. A null package scope stays null (req-anchore-vex-5). The whole entry is kept in ``record``.
+    """
+    annotation = item.get("annotation") if isinstance(item, dict) else None
+    if not isinstance(annotation, dict):
+        return None
+    uuid_, vulnerability = annotation.get("uuid"), annotation.get("vulnerability_id")
+    if not (isinstance(uuid_, str) and 0 < len(uuid_) <= 64 and isinstance(vulnerability, str) and 0 < len(vulnerability) <= 255):
+        return None
+
+    def text(holder: Any, name: str, limit: int | None) -> str | None:
+        value = holder.get(name) if isinstance(holder, dict) else None
+        return value if isinstance(value, str) and (limit is None or len(value) <= limit) else None
+
+    package, source = item.get("package_identifier"), annotation.get("source")
+    version = annotation.get("version")
+    created, updated = scope.parse_time(annotation.get("created_at")), scope.parse_time(annotation.get("updated_at"))
+    fields: dict[str, Any] = {
+        "scanner_key": scanner_key,
+        "scope_kind": scope_kind,
+        "scope_id": scope_id,
+        "annotation_id": uuid_,
+        "state": CURRENT,
+        "vulnerability_id": vulnerability,
+        "package_name": text(package, "name", 512),
+        "package_version": text(package, "version", 512),
+        "package_type": text(package, "type", 64),
+        **{name: text(annotation, name, limit) for name, limit in _VEX_TEXT.items()},
+        "source_type": text(source, "type", 32),
+        "source_name": text(source, "name", 512),
+        "annotation_version": version if isinstance(version, int) and not isinstance(version, bool) and 0 <= version <= 2147483647 else None,
+        "annotation_created_at": created.isoformat() if created is not None else None,
+        "annotation_updated_at": updated.isoformat() if updated is not None else None,
+        "last_seen_run_id": run_id,
+        "record": item,
+    }
+    return envelope(ref, AnchoreVexAnnotation, f"{fields['status'] or 'unstated'} · {vulnerability}", fields)
+
+
+def withdrawn_vex_node(row: AnchoreVexAnnotation, ref: str) -> dict[str, Any]:
+    """A statement a later whole read of its scope no longer returned: every field re-sent as stored, with only the state changed."""
+    fields = {name: getattr(row, name) for name in AnchoreVexAnnotation.FIELD_CRUD_SCHEMA}
+    fields["state"] = WITHDRAWN
+    for name in ("annotation_created_at", "annotation_updated_at"):
+        fields[name] = fields[name].isoformat() if fields[name] is not None else None
+    return envelope(ref, AnchoreVexAnnotation, f"withdrawn {row.status or 'unstated'} · {row.vulnerability_id}", fields)
 
 
 def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, Any]:

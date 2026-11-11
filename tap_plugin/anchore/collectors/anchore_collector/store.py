@@ -23,6 +23,7 @@ from tap_plugin.anchore import keys
 from tap_plugin.anchore.models.finding import AnchoreFinding
 from tap_plugin.anchore.models.policy_evaluation import AnchorePolicyEvaluation
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
+from tap_plugin.anchore.models.vex_annotation import AnchoreVexAnnotation
 
 
 def previous_run(scanner_key: str) -> AnchoreScanRun | None:
@@ -79,6 +80,11 @@ def natural_key_of(node: dict[str, Any]) -> dict[str, Any] | None:
     if any("." in name or values.get(name) is None for name in fields):
         return None
     return {"entity_type": entity_type, "key": {name: values[name] for name in fields}}
+
+
+def current_vex_annotations(scanner_key: str, scope_kind: str, scope_id: str) -> list[AnchoreVexAnnotation]:
+    """The VEX annotations the grid holds as current for one scope of one scanner."""
+    return list(AnchoreVexAnnotation.objects.filter(scanner_key=scanner_key, scope_kind=scope_kind, scope_id=scope_id, state="current"))
 
 
 def current_policy_evaluations(scanner_key: str, image_digest: str) -> list[AnchorePolicyEvaluation]:
