@@ -1050,7 +1050,8 @@ class AnchoreCollector(CollectorBase):
                     "source": "tap_plugin.anchore.collectors.anchore_collector",
                     "name": name,
                     "description": "One run of the Anchore collector." if total == 1 else f"Part {number} of {total} of one run of the Anchore collector.",
-                    "description_json": {"format": "tap.anchore.collection-v0", "data": {"scanners": written, "part": number, "parts": total}},
+                    # A run that fits one batch describes itself exactly as it always did; the part numbers appear only when it is split.
+                    "description_json": {"format": "tap.anchore.collection-v0", "data": {"scanners": written} if total == 1 else {"scanners": written, "part": number, "parts": total}},
                 },
                 "nodes": nodes,
                 "edges": edges,

@@ -59,6 +59,24 @@ class TestSplit:
         assert batching.split(NODES, EDGES, 0, by_name) == ([(NODES, EDGES)], None)
 
 
+class TestTheDocument:
+    def test_a_run_that_fits_one_batch_describes_itself_as_it_always_did(self):
+        from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollector
+
+        (batch,) = AnchoreCollector._document([(NODES, EDGES)], ["a: 1 finding(s)"])["batches"]
+        assert batch["batch_entity"]["name"] == batch["batch_node"]["name"] == "Anchore collection"
+        assert batch["batch_node"]["description"] == "One run of the Anchore collector."
+        assert batch["batch_node"]["description_json"] == {"format": "tap.anchore.collection-v0", "data": {"scanners": ["a: 1 finding(s)"]}}
+        assert (batch["nodes"], batch["edges"]) == (NODES, EDGES)
+
+    def test_a_split_run_numbers_its_parts(self):
+        from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollector
+
+        batches = AnchoreCollector._document([(NODES, []), ([], EDGES)], ["a"])["batches"]
+        assert [b["batch_node"]["description_json"]["data"] for b in batches] == [{"scanners": ["a"], "part": 1, "parts": 2}, {"scanners": ["a"], "part": 2, "parts": 2}]
+        assert len({b["batch_entity"]["entity_id"] for b in batches}) == 2
+
+
 class TestSettings:
     def test_the_default_and_the_envelopes_value(self):
         assert cred.credential_from_envelope(envelope(payload=data())).settings.max_batch_rows == 5000
