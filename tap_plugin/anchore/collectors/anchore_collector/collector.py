@@ -139,6 +139,10 @@ class _Scanner:
     #: whether the host has a name and an operating system once it is written; and the image records staged.
     staged_hosts: dict[str, dict[str, Any]] = field(default_factory=dict)
     image_records: int = 0
+    #: (registry, repository, tag) -> batch ref of each image tag staged; the (tag, image digest) edges staged; tags left out of scope.
+    image_tags: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    tag_edges: set[tuple[tuple[str, str, str], str]] = field(default_factory=set)
+    tags_out_of_scope: int = 0
     #: Policy evaluations read, and how many of them Anchore marked as failing.
     policy_evaluations: int = 0
     policy_failures: int = 0
@@ -183,6 +187,8 @@ class _Shared:
     inventory_refs: set[str] = field(default_factory=set)
     inventory_documents: set[str] = field(default_factory=set)
     staged_hosts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    image_tags: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    tag_edges: set[tuple[tuple[str, str, str], str]] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
@@ -198,6 +204,8 @@ class _Shared:
         self.inventory_refs |= scanner.inventory_refs
         self.inventory_documents |= scanner.inventory_documents
         self.staged_hosts.update(scanner.staged_hosts)
+        self.image_tags.update(scanner.image_tags)
+        self.tag_edges |= scanner.tag_edges
 
 
 #: The clock the run time limit is measured on; a test replaces it.
@@ -882,13 +890,16 @@ class AnchoreCollector(CollectorBase):
         out.image_records += 1
         if not decompose.OCI_DIGEST.fullmatch(digest):
             return
-        name, os = decompose.image_naming(image)
+        facts = decompose.image_facts(image)
+        if not store.host_holds_image_facts():
+            facts = {key: value for key, value in facts.items() if key not in decompose.IMAGE_FACT_FIELDS}
         self._ensure_host(out, digest, f"{ref}:host", shared, count_unlinked=False)
         out.edges.append(decompose.edge_to_key(f"{ref}:image", "RECORDS_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
-        if not (name or os):
+        self._image_tags(credential, image, digest, f"{ref}:t", out, shared)
+        if not facts:
             return
         # One staged row per host per batch, whichever scanner or step staged it: what this record
-        # adds is put on that row, so two scanners that each know one of the two fields give the host both.
+        # adds is put on that row, so two scanners that each know a different fact give the host both.
         staged = out.staged_hosts.get(digest) or shared.staged_hosts.get(digest)
         if staged is None:
             held = store.image_host_fields(digest)
@@ -897,17 +908,46 @@ class AnchoreCollector(CollectorBase):
             # WORKAROUND(unified-systems-com/tap#1172): tap has no write that yields to a value already
             # held, so the host is read and only the fields it lacks are sent. A collector that fills the
             # same field between this read and the write is overwritten.
-            if (not name or held["name"]) and (not os or held["os"]):
+            has = {key for key, value in held.items() if value not in (None, "")}
+            if not set(facts) - has:
                 return
-            staged = {"node": decompose.host_fill(f"{ref}:fill", digest, held["name"] or digest, None, None), "name": bool(held["name"]), "os": bool(held["os"])}
+            staged = {"node": decompose.host_fill(f"{ref}:fill", digest, held["name"] or digest, None, None), "has": has}
             out.staged_hosts[digest] = staged
             out.nodes.append(staged["node"])
-        if name and not staged["name"]:
-            staged["node"]["node"]["name"] = staged["node"]["entity"]["name"] = name
-            staged["name"] = True
-        if os and not staged["os"]:
-            staged["node"]["node"]["os"] = os
-            staged["os"] = True
+        for key, value in facts.items():
+            if key in staged["has"]:
+                continue
+            staged["node"]["node"][key] = value
+            if key == "name":
+                staged["node"]["entity"]["name"] = value
+            staged["has"].add(key)
+
+    def _image_tags(self, credential: Credential, image: dict[str, Any], digest: str, ref: str, out: _Scanner, shared: _Shared) -> None:
+        """Write each tag Anchore lists for an image as computing_core's image tag, pointing at the image's host (req-anchore-image-5).
+
+        A tag is a generic thing a registry or another scanner also knows, so it goes in the generic
+        type. ``TAGS_IMAGE`` says Anchore saw the tag on this image and when; it makes no claim about
+        now. A tag outside ``repository_prefixes`` is outside the scope and is not written. Nothing is
+        written where the installed computing_core has no image tag type.
+        """
+        if not store.types_installed(["computing_core__image_tag"]):
+            return
+        prefixes = credential.settings.repository_prefixes
+        for number, row in enumerate(decompose.image_tag_rows(image)):
+            if not scoping.passes_reference(row["reference"], prefixes):
+                out.tags_out_of_scope += 1
+                continue
+            key = (row["registry"], row["repository"], row["tag"])
+            tag_ref = out.image_tags.get(key) or shared.image_tags.get(key)
+            if tag_ref is None:
+                tag_ref = f"{ref}{number}"
+                out.image_tags[key] = tag_ref
+                out.nodes.append(decompose.image_tag_node(tag_ref, row))
+            if (key, digest) in out.tag_edges or (key, digest) in shared.tag_edges:
+                continue
+            out.tag_edges.add((key, digest))
+            properties = {"detected_at": row["detected_at"]} if row["detected_at"] else None
+            out.edges.append(decompose.edge_to_key(f"{ref}{number}:image", "TAGS_IMAGE__computing_core", tag_ref, "computing_core__host", decompose.host_key(digest), properties))
 
     def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared, name: str | None = None, os: str | None = None, count_unlinked: bool = True) -> None:
         """Stage the image host for a digest only where neither this batch nor the grid has one.
@@ -921,7 +961,7 @@ class AnchoreCollector(CollectorBase):
         if digest not in shared.hosts and digest not in out.hosts and not store.image_host_exists(digest):
             node = decompose.host_node(host_ref, digest, name, os)
             out.nodes.append(node)
-            out.staged_hosts[digest] = {"node": node, "name": bool(name), "os": bool(os)}
+            out.staged_hosts[digest] = {"node": node, "has": {key for key, value in (("name", name), ("os", os)) if value}}
             out.hosts.add(digest)
             out.hosts_created += 1
 
