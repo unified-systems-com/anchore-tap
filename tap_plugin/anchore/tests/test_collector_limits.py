@@ -32,12 +32,12 @@ class TestSettings:
     def test_the_defaults_are_the_cap_as_it_was_and_no_time_limit(self):
         settings = credential().settings
         assert (settings.max_response_bytes, settings.max_run_minutes) == (64 * MIB, None)
-        assert settings.as_recorded()["limits"] == {"max_response_mib": 64, "max_run_minutes": None}
+        assert settings.as_recorded()["limits"] == {"max_response_mib": 64, "max_run_minutes": None, "max_batch_rows": 5000}
 
     def test_the_envelope_sets_them(self):
         settings = credential(max_response_mib=256, max_run_minutes=90).settings
         assert (settings.max_response_bytes, settings.max_run_minutes) == (256 * MIB, 90)
-        assert settings.as_recorded()["limits"] == {"max_response_mib": 256, "max_run_minutes": 90}
+        assert settings.as_recorded()["limits"] == {"max_response_mib": 256, "max_run_minutes": 90, "max_batch_rows": 5000}
 
     @pytest.mark.parametrize(
         "limits",
@@ -79,7 +79,7 @@ class TestRunTimeLimit:
         # The inventory steps that make further reads are not started, and say so.
         assert "1-minute limit" in not_read(run)["create:kubernetes"]
         assert not any("/kubernetes-" in str(call.url) for call in instance.transport.calls)
-        assert run.settings["limits"] == {"max_response_mib": 64, "max_run_minutes": 1}
+        assert run.settings["limits"] == {"max_response_mib": 64, "max_run_minutes": 1, "max_batch_rows": 5000}
 
     def test_an_image_left_unread_keeps_its_findings_as_they_were(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": False}, limits={"max_run_minutes": 1})

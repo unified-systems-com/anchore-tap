@@ -73,6 +73,7 @@ Six consequences shape v0:
 | req-anchore-inventory-ecs | [Runtime Inventory: ECS](#runtime-inventory-ecs) | Proposed | Container joined to `aws_core`'s ECS container by ARN and to the image host; tasks, services and absent nodes written only with `create.ecs` |
 | req-anchore-differences-ledger | [Hosted And On-Prem Differences](#hosted-and-on-prem-differences) | Proposed | The ledger of known and unknown differences, refreshed from the trial and from each run's self-test |
 | req-anchore-fips | [FIPS Posture](#fips-posture) | Proposed | `requests` over system OpenSSL, no native binary, declared in `[fips]` |
+| req-anchore-coverage | [Coverage Of Anchore's API](#coverage-of-anchores-api) | In Development | Every read in Anchore's API is landed on the grid, planned, or excluded with its reason; the table is generated and checked |
 | req-anchore-nongoals | [v0 Non-Goals](#v0-non-goals) | Proposed | What this plugin deliberately does not do, and who owns it |
 
 ### Connection And Credential
@@ -153,6 +154,7 @@ Two resource limits the operator sets per Anchore instance, in the envelope's op
 | setting | type | default | meaning |
 | --- | --- | --- | --- |
 | `limits.max_response_mib` | integer, 1 to 1024 | `64` | The largest response body the client reads, in mebibytes. |
+| `limits.max_batch_rows` | integer, 100 to 200000 | `5000` | The most rows, nodes and edges together, one batch of a run holds. |
 | `limits.max_run_minutes` | integer, 1 to 10080 | unset: no limit | How long a run against this instance may keep starting new reads, counted from its first request. |
 
 **The response cap.** It was a constant of 64 MiB; the default is the same number. A body the instance declares larger than the cap, or that grows past it while streaming, is not read: the read fails as it did before and its scope is recorded as not read. Nothing is truncated. The largest bodies are SBOMs, so raising the cap is how an operator reads a very large one, and lowering it bounds memory on a small host.
@@ -166,7 +168,9 @@ Two resource limits the operator sets per Anchore instance, in the envelope's op
 
 The limit does not cover the probe and self-test, which have their own ceilings, and it is per instance: a second envelope's run has its own clock. Images are read in the order the scope selects them, so a run that keeps hitting the limit keeps reading the same first images; there is no rotation in v0, and the not-read list is where that shows.
 
-Both settings are on the scan run's recorded settings.
+**The batch size.** A run hands the grid its rows in batches, and a batch is applied whole or not at all. One batch for a whole run makes the run depend on a single write, and parsed SBOMs make that write large. So a run over `limits.max_batch_rows` is split: nodes first, then edges, with each edge naming its ends by natural key so it resolves against what an earlier batch wrote. The cost is stated: a failure partway leaves the earlier batches on the grid.
+
+All three settings are on the scan run's recorded settings.
 
 #### Acceptance Criteria
 
@@ -178,6 +182,7 @@ Both settings are on the scan run's recorded settings.
 | req-anchore-limits-4 | Out Of Time Resolves Nothing | Implemented | A finding of an image the limit left unread stays in its prior state, and the inventory steps that read further are recorded as not read, not skipped silently. | |
 | req-anchore-limits-5 | No Limit By Default | Implemented | With `limits.max_run_minutes` absent, elapsed time is never a reason an image is not read. | |
 | req-anchore-limits-6 | Limits Are Recorded | Implemented | The scan run's settings carry both limits as they applied. | |
+| req-anchore-limits-7 | A Large Run Is Several Batches | Implemented | A run with more rows than `limits.max_batch_rows` is written as several batches in one document: the nodes in batches of that size, then the edges, each edge end that named a node by batch reference rewritten to name it by natural key. A run that fits is one batch, unchanged. If any such node's key cannot be stated the run is written as one batch and a warning says why. Where several envelopes are read in one run the smallest value applies. | `tests/test_batching.py`. A batch is applied whole or not at all, so a split run is no longer all-or-nothing: a failure leaves the earlier batches written. |
 
 ### The Trial Observation Command
 ----
@@ -829,6 +834,116 @@ The manifest declares `[fips] status = "compatible"` after `validate_plugin --st
 | --- | --- | --- | --- | --- |
 | req-anchore-fips-1 | Declared Compatible | Proposed | The manifest declares `[fips]` as compatible and `validate_plugin --strict` agrees. | |
 | req-anchore-fips-2 | No Native Binary | Proposed | The wheel ships no binary and calls none. | |
+
+### Coverage Of Anchore's API
+----
+RID: `req-anchore-coverage`
+
+Status: `In Development`
+
+The maintainer's target (2026-11-11): import everything Anchore holds about artifacts and running containers into the grid. The default for a read is yes: read it and find it a home. A read is left out only for a stated reason. Administration of Anchore itself (accounts, users, permissions, notifications, system settings) is out of scope, and four exclusions stand by ruling: secret-search results, retrieved file contents, the account, user and permission administration endpoints (`/accounts`, `/user`, `/rbac-manager`, `/my-user-groups`), and registry settings. One read with a similar name is not among them and is landed: `/account`, by which the probe reads the name of the credential's own account and refuses to go on if it is not the one configured (`req-anchore-probe-4`). It lists no user and no permission.
+
+This section is how the target is measured. It is generated from three committed files: the vendor's OpenAPI file, the collector's manifest of what it reads, and `contract/coverage.json`, which gives each excluded read its reason. The target is hit when nothing is planned.
+
+<!-- coverage:begin (generated by tap_plugin.anchore.contract.coverage; do not edit by hand) -->
+
+Anchore's API (the committed vendor file) has 247 reads. 18 are landed, 53 are planned and 176 are excluded. The target is hit when none is planned.
+
+**Planned: not yet read.**
+
+| read | note |
+| --- | --- |
+| `/alerts/compliance-violations` |  |
+| `/alerts/compliance-violations/{uuid}` |  |
+| `/alerts/summaries` |  |
+| `/apps` |  |
+| `/apps/{app_id}` |  |
+| `/apps/{app_id}/versions` |  |
+| `/apps/{app_id}/versions/{version_id}` |  |
+| `/apps/{app_id}/versions/{version_id}/assets` |  |
+| `/apps/{app_id}/versions/{version_id}/assets-by-package` |  |
+| `/apps/{app_id}/versions/{version_id}/assets/{asset_id}` |  |
+| `/apps/{app_id}/versions/{version_id}/assets/{asset_id}/sbom` |  |
+| `/apps/{app_id}/versions/{version_id}/packages` |  |
+| `/apps/{app_id}/versions/{version_id}/packages-by-vulnerability` |  |
+| `/apps/{app_id}/versions/{version_id}/policy/findings/all` |  |
+| `/apps/{app_id}/versions/{version_id}/policy/findings/packages` |  |
+| `/apps/{app_id}/versions/{version_id}/policy/findings/vulnerabilities` |  |
+| `/apps/{app_id}/versions/{version_id}/policy/status` |  |
+| `/apps/{app_id}/versions/{version_id}/vulnerabilities` |  |
+| `/apps/{app_id}/versions/{version_id}/vulnerability-annotations` |  |
+| `/apps/{app_id}/versions/{version_id}/vulnerability-annotations/{vulnerability_annotation_id}` |  |
+| `/archives` |  |
+| `/archives/images` |  |
+| `/archives/images/{image_digest}` |  |
+| `/artifact-relationships` |  |
+| `/artifact-relationships/{relationship_id}` |  |
+| `/artifact-relationships/{relationship_id}/diffs/sbom` |  |
+| `/corrections` |  |
+| `/corrections/{uuid}` |  |
+| `/images/{image_digest}/check` |  |
+| `/images/{image_digest}/content-summary` |  |
+| `/images/{image_digest}/content/files` | every file of every image: very large; how to land it is undecided |
+| `/images/{image_digest}/content/java` |  |
+| `/images/{image_digest}/content/licenses` |  |
+| `/images/{image_digest}/content/malware` |  |
+| `/images/{image_digest}/content/{content_type}` |  |
+| `/images/{image_digest}/metadata/{metadata_type}` |  |
+| `/images/{image_digest}/stig` |  |
+| `/images/{image_digest}/stig/{evaluation_uuid}/file` |  |
+| `/images/{image_digest}/vex/cyclonedx-json` |  |
+| `/images/{image_digest}/vex/openvex` |  |
+| `/images/{image_digest}/vuln-annotations` |  |
+| `/images/{image_digest}/vuln-annotations/{vuln_annotation_uuid}` |  |
+| `/policies` |  |
+| `/policies/{policy_id}` |  |
+| `/sources` |  |
+| `/sources/{source_id}` |  |
+| `/sources/{source_id}/check` |  |
+| `/sources/{source_id}/content-summary` |  |
+| `/sources/{source_id}/content/{content_type}` |  |
+| `/sources/{source_id}/sbom/cyclonedx-json` |  |
+| `/sources/{source_id}/sbom/native-json` |  |
+| `/sources/{source_id}/sbom/spdx-json` |  |
+| `/sources/{source_id}/vuln/{vuln_type}` |  |
+
+**Landed: the collector reads it.**
+
+`/account`, `/ecs-containers`, `/ecs-services`, `/ecs-tasks`, `/images`, `/images/{image_digest}/ancestors`, `/images/{image_digest}/sboms/cyclonedx-json`, `/images/{image_digest}/sboms/native-json`, `/images/{image_digest}/sboms/spdx-json`, `/images/{image_digest}/vuln/{vuln_type}`, `/inventories`, `/kubernetes-containers`, `/kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods`, `/status`, `/system`, `/system/feeds`.
+
+**Excluded, by reason.**
+
+| reason | reads |
+| --- | --- |
+| administration and operation of Anchore, not a fact about an artifact or a running container | 79: `/actions`, `/event-types`, `/events`, `/events/{event_id}`, `/health`, `/jobs/export-apps-by-vulnerability` and 73 more |
+| export jobs and their files: operation of Anchore and bulk downloads (ruled out) | 25: `/apps/{app_id}/downloads/{download_id}`, `/apps/{app_id}/jobs`, `/apps/{app_id}/jobs/add-container-image-asset`, `/apps/{app_id}/jobs/add-container-image-asset/{job_id}`, `/apps/{app_id}/jobs/add-imported-image-asset`, `/apps/{app_id}/jobs/add-imported-image-asset/{job_id}` and 19 more |
+| administration of Anchore: accounts, users and permissions (ruled out, and personal data) | 23: `/accounts`, `/accounts/users`, `/accounts/{account_name}`, `/accounts/{account_name}/users`, `/accounts/{account_name}/users-with-roles`, `/accounts/{account_name}/users/{username}` and 17 more |
+| staging of an upload in progress; the finished image or source is read under /images or /sources | 14: `/imports/images`, `/imports/images/{operation_id}`, `/imports/images/{operation_id}/analysis_result_manifest`, `/imports/images/{operation_id}/content-searches`, `/imports/images/{operation_id}/dockerfile`, `/imports/images/{operation_id}/file-contents` and 8 more |
+| deprecated duplicate of /apps; to revisit if an instance serves only this family | 7: `/applications`, `/applications/{application_id}`, `/applications/{application_id}/versions`, `/applications/{application_id}/versions/{application_version_id}`, `/applications/{application_id}/versions/{application_version_id}/artifacts`, `/applications/{application_id}/versions/{application_version_id}/sboms/native-json` and 1 more |
+| lists the names of the types the collector asks for; it holds no record | 5: `/images/{image_digest}/content`, `/images/{image_digest}/metadata`, `/images/{image_digest}/vuln`, `/sources/{source_id}/content`, `/sources/{source_id}/vuln` |
+| a count or lookup derived from records the collector reads itself | 4: `/query/images/by-package`, `/query/vulnerabilities`, `/summaries/image-counts`, `/summaries/image-tags` |
+| secret-search and retrieved-file results are secret material (ruled out) | 3: `/images/{image_digest}/artifacts/file-content-search`, `/images/{image_digest}/artifacts/retrieved-files`, `/images/{image_digest}/artifacts/secret-search` |
+| the same record as its entry in the list the collector reads | 3: `/kubernetes-namespaces/{namespace_id}`, `/kubernetes-nodes/{node_id}`, `/kubernetes-pods/{pod_id}` |
+| archive rules are administration of Anchore | 2: `/archives/rules`, `/archives/rules/{rule_id}` |
+| registry settings hold credentials (ruled out) | 2: `/registries`, `/registries/{registry}` |
+| the output of an operator-defined report, derived from records read elsewhere | 2: `/reporting/reports/global/scheduled-query-results/{result_uuid}`, `/reporting/scheduled-query-results/{result_uuid}` |
+| the same document as its JSON form in another encoding | 2: `/images/{image_digest}/vex/cyclonedx-xml`, `/images/{image_digest}/vuln/{vuln_type}/cyclonedx-xml` |
+| bulk file download (ruled out) | 1: `/downloads/{download_id}` |
+| download of the STIG profile database, a bulk file; an image's STIG results are /images/{image_digest}/stig | 1: `/stig-profiles` |
+| the API root; it names the service and holds no record | 1: `/` |
+| the same record as its entry in the /images list | 1: `/images/{image_digest}` |
+| the vulnerability list the collector reads, in another format | 1: `/images/{image_digest}/vuln/{vuln_type}/cyclonedx-json` |
+
+<!-- coverage:end -->
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-coverage-1 | Every Read Is Accounted For | Implemented | Each GET of the committed vendor file is exactly one of landed, planned or excluded; landed is decided by the collector's manifest and nothing else. | `tests/test_contract_coverage.py` |
+| req-anchore-coverage-2 | An Exclusion States Its Reason | Implemented | Every excluded read carries a non-empty reason from `contract/coverage.json`; a rule with no reason, or a status other than planned or excluded, is refused. | |
+| req-anchore-coverage-3 | The Table Is Generated | Implemented | The section between the coverage markers is what `tap_plugin.anchore.contract.coverage` prints; a test fails when it is stale, so a read cannot be added or dropped without the table moving. | |
+| req-anchore-coverage-4 | The Ruled Exclusions Hold | Implemented | No read under `/accounts`, `/user`, `/rbac-manager`, `/my-user-groups` or `/registries`, and no secret-search, retrieved-file or file-content read at any depth, is landed or planned. `/account`, the probe's read of the credential's own account name, is the one account path landed. | The families are the maintainer's ruling of record. |
 
 ### v0 Non-Goals
 ----
