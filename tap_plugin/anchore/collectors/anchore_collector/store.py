@@ -19,6 +19,7 @@ from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
 from tap_grid.models import Edge
 from tap_grid.registry import get_model_class
+from tap_plugin.anchore import keys
 from tap_plugin.anchore.models.finding import AnchoreFinding
 from tap_plugin.anchore.models.policy_evaluation import AnchorePolicyEvaluation
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
@@ -48,7 +49,7 @@ def image_host_exists(digest: str) -> bool:
     The collector writes a host only where none exists, so it never rewrites a record another
     collector filled in.
     """
-    return Host.objects.filter(realm="oci-digest", stable_id=digest).exists()
+    return _hosts("oci-digest", digest).exists()
 
 
 def known_vulnerabilities(ids: set[str]) -> set[str]:
@@ -92,7 +93,7 @@ def host_holds_image_facts() -> bool:
 
 def image_host_fields(digest: str) -> dict[str, Any] | None:
     """What the grid's image host for a digest holds of its name, operating system and image facts, or None when it holds no such host."""
-    row = Host.objects.filter(realm="oci-digest", stable_id=digest).first()
+    row = _hosts("oci-digest", digest).first()
     if row is None:
         return None
     # The image facts are fields of computing_core v0.10.6; an older one has none, and they read as held so nothing is sent.
@@ -114,7 +115,7 @@ def sbom_document_state(content_digest: str) -> dict[str, Any] | None:
 def sbom_describes_host(content_digest: str, image_digest: str) -> bool:
     """Whether the grid's document with these bytes already has its edge to this image's host."""
     document = SbomDocument.objects.filter(content_digest=content_digest).first()
-    host = Host.objects.filter(realm="oci-digest", stable_id=image_digest).first()
+    host = _hosts("oci-digest", image_digest).first()
     if document is None or host is None:
         return False
     return Edge.objects.filter(edge_type="DESCRIBES_HOST__computing_core", from_entity_id=document.entity_id, to_entity_id=host.entity_id, entity__deleted_at__isnull=True).exists()
@@ -142,21 +143,34 @@ def sbom_document_exists(content_digest: str) -> bool:
     return SbomDocument.objects.filter(content_digest=content_digest).exists()
 
 
-#: The aws_core type an Anchore ECS container record is joined to, and the field its ARN is in.
+#: The aws_core type an Anchore ECS container record is joined to.
 ECS_CONTAINER_TYPE = "aws_core__aws_ecs_container"
-ECS_CONTAINER_KEY = "container_arn"
 
 
-#: The other aws_core ECS types a run may create (req-anchore-shared), each with its ARN field.
+#: The aws_core ECS types a run links to or may create (req-anchore-shared). The field each one's
+#: own ARN is in is read from the type (``ecs_key``), never written here.
 ECS_TYPES = {
-    "container": (ECS_CONTAINER_TYPE, ECS_CONTAINER_KEY),
-    "task": ("aws_core__aws_ecs_task", "task_arn"),
-    "service": ("aws_core__aws_ecs_service", "service_arn"),
-    "cluster": ("aws_core__aws_ecs_cluster", "cluster_arn"),
+    "container": ECS_CONTAINER_TYPE,
+    "task": "aws_core__aws_ecs_task",
+    "service": "aws_core__aws_ecs_service",
+    "cluster": "aws_core__aws_ecs_cluster",
 }
 
 
-def aws_nodes_on_grid(entity_type: str, key: str, arns: set[str]) -> set[str] | None:
+def ecs_key(kind: str) -> str | None:
+    """The field an aws_core ECS type keeps its own ARN in; None when aws_core is not installed."""
+    try:
+        return keys.sole_field(get_model_class(ECS_TYPES[kind]))
+    except KeyError:
+        return None
+
+
+def scheme_field(entity_type: str) -> str:
+    """The field beside ``stable_id`` in a computing_core type's key (a host's, a cluster's)."""
+    return keys.scheme_field(get_model_class(entity_type))
+
+
+def aws_nodes_on_grid(entity_type: str, key: str | None, arns: set[str]) -> set[str] | None:
     """Which of these ARNs name a live node of an aws_core type on the grid; None when the type is not installed.
 
     An existence check only: the plugin links to a node it finds and writes no field of it
@@ -166,6 +180,8 @@ def aws_nodes_on_grid(entity_type: str, key: str, arns: set[str]) -> set[str] | 
         model = get_model_class(entity_type)
     except KeyError:
         return None
+    if key is None:
+        return None
     if not arns:
         return set()
     return set(model.objects.filter(**{f"{key}__in": arns}).values_list(key, flat=True))
@@ -173,7 +189,7 @@ def aws_nodes_on_grid(entity_type: str, key: str, arns: set[str]) -> set[str] | 
 
 def ecs_containers_on_grid(arns: set[str]) -> set[str] | None:
     """Which of these ARNs name a live aws_core ECS container on the grid; None when aws_core is not installed."""
-    return aws_nodes_on_grid(ECS_CONTAINER_TYPE, ECS_CONTAINER_KEY, arns)
+    return aws_nodes_on_grid(ECS_CONTAINER_TYPE, ecs_key("container"), arns)
 
 
 def default_dimensions(entity_type: str) -> dict[str, str]:
@@ -181,9 +197,14 @@ def default_dimensions(entity_type: str) -> dict[str, str]:
     return dict(get_model_class(entity_type).DEFAULT_DIMENSIONS)
 
 
+def _hosts(scheme: str, stable_id: str) -> Any:
+    """The live hosts under one identifier scheme and identifier, by whatever the host's key fields are called."""
+    return Host.objects.filter(**{keys.scheme_field(Host): scheme, keys.STABLE_ID: stable_id})
+
+
 def host_exists(realm: str, stable_id: str) -> bool:
     """Whether the grid holds a live host under this realm and identifier."""
-    return Host.objects.filter(realm=realm, stable_id=stable_id).exists()
+    return _hosts(realm, stable_id).exists()
 
 
 def refused_annotation_keys() -> frozenset[str] | None:

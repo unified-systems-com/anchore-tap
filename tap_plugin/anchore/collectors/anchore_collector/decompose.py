@@ -22,7 +22,7 @@ from django.db import models as dj_models
 from tap_plugin.computing_core.models.host import Host
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
-from tap_plugin.anchore import scope
+from tap_plugin.anchore import keys, scope
 from tap_plugin.anchore.models.finding import AnchoreFinding, package_key_for
 from tap_plugin.anchore.models.image import AnchoreImage
 from tap_plugin.anchore.models.policy_evaluation import AnchorePolicyEvaluation
@@ -148,7 +148,7 @@ def host_node(ref: str, digest: str, name: str | None = None, os: str | None = N
     ``name`` and ``os`` are set where Anchore's image record gives them (req-anchore-image-3); a
     host staged for a digest Anchore has no record of carries the digest alone.
     """
-    fields: dict[str, Any] = {"realm": IMAGE_REALM, "stable_id": digest, "kind": "container"}
+    fields: dict[str, Any] = {**host_key(digest), "kind": "container"}
     if name:
         fields["name"] = name
     if os:
@@ -161,7 +161,7 @@ def host_fill(ref: str, digest: str, display: str, name: str | None, os: str | N
 
     ``display`` is the host's name as it will stand after the write, which the envelope must carry.
     """
-    fields: dict[str, Any] = {"realm": IMAGE_REALM, "stable_id": digest}
+    fields: dict[str, Any] = host_key(digest)
     if name:
         fields["name"] = name
     if os:
@@ -333,7 +333,7 @@ def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, A
 
 
 def host_key(digest: str) -> dict[str, str]:
-    return {"realm": IMAGE_REALM, "stable_id": digest}
+    return {keys.scheme_field(Host): IMAGE_REALM, keys.STABLE_ID: digest}
 
 
 #: The longest inventory type and context the runtime image node can hold.

@@ -28,6 +28,9 @@ from tap_plugin.anchore.scope import DIGEST, Settings, is_fresh, passes_referenc
 #: The cluster realms (req-computing-core-kubernetes, req-anchore-inventory-kubernetes-7).
 REALM_KUBE_SYSTEM = "kube-system-uid"
 REALM_FALLBACK = "anchore-inventory"
+#: The planner's own name for a cluster's identifier scheme. The field it is written to is named by
+#: computing_core's type and read from it when the node is staged (req-anchore-shared-13).
+SCHEME = "scheme"
 #: The realm of the host row behind a node.
 REALM_NODE_HOST = "kubernetes-node-uid"
 KUBE_SYSTEM = "kube-system"
@@ -217,7 +220,7 @@ def plan(
         edges.add(("RUNS_CONTAINER", "pod", pod_uid, "container", key))
         cluster_id = cluster_key(cluster, system.get(cluster), scanner_key)
         if cluster_id is not None:
-            out.clusters[cluster_id] = {"realm": cluster_id[0], "stable_id": cluster_id[1], "name": cluster}
+            out.clusters[cluster_id] = {SCHEME: cluster_id[0], "stable_id": cluster_id[1], "name": cluster}
             if cluster_id[0] == REALM_FALLBACK:
                 fallback.add(cluster)
         namespace_uid = _text(_ident(pod, "namespace_id", "namespace_uid"), _MAX_UID)
