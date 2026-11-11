@@ -204,7 +204,7 @@ MAX_EVALUATED_TAG = 512
 
 
 def policy_evaluation_node(ref: str, scanner_key: str, digest: str, tag: str, body: dict[str, Any], run_id: str) -> dict[str, Any] | None:
-    """Anchore's verdict on an image under one tag (req-anchore-image-policy-1), or None when the response names no policy, holds no evaluation, or says it evaluated another tag.
+    """Anchore's verdict on an image under one tag (req-anchore-image-policy-1), or None when the response names no policy, holds no evaluation, or says it evaluated another tag or another image.
 
     The response's first evaluation is the one stored: without ``history`` Anchore returns the
     latest. The whole response is kept in ``record``.
@@ -218,6 +218,10 @@ def policy_evaluation_node(ref: str, scanner_key: str, digest: str, tag: str, bo
     # is not a verdict on this one, and policy is tag-sensitive, so it is not stored under it.
     said = body.get("evaluated_tag")
     if isinstance(said, str) and said and said != tag:
+        return None
+    # Likewise a response that names another image is not this image's verdict.
+    about = body.get("image_digest")
+    if isinstance(about, str) and about and about != digest:
         return None
 
     def text(name: str, limit: int) -> str | None:

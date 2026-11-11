@@ -856,7 +856,7 @@ class AnchoreCollector(CollectorBase):
                 body, failure = _get_json(client, extract, source, fill(source.path, image_digest=digest), params={"tag": image_tag})
             node = decompose.policy_evaluation_node(f"{ref}:{number}", credential.scanner_key, digest, image_tag, body, run_id) if failure is None and isinstance(body, dict) else None
             if node is None:
-                not_read.append({"scope": scope, "reason": failure.reason if failure is not None else "the response named no policy, held no evaluation, or was for another tag"})
+                not_read.append({"scope": scope, "reason": failure.reason if failure is not None else "the response named no policy, held no evaluation, or was for another tag or image"})
                 continue
             read.append(scope)
             out.nodes.append(node)

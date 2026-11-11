@@ -149,6 +149,15 @@ class TestNotRead:
         assert [e.evaluated_tag for e in AnchorePolicyEvaluation.objects.all()] == [OTHER_TAG]
         assert "another tag" in not_read()[f"policy:{DIGEST}:{TAG}"]
 
+    def test_a_response_that_names_another_image_is_not_stored_as_this_images_verdict(self, secrets, monkeypatch):
+        from tap_plugin.anchore.tests.test_collector_run import OTHER
+
+        instance = server()
+        instance.policy[(DIGEST, TAG)] = {**evaluation(), "image_digest": OTHER}
+        run_against(monkeypatch, instance)
+        assert [e.evaluated_tag for e in AnchorePolicyEvaluation.objects.all()] == [OTHER_TAG]
+        assert "another tag or image" in not_read()[f"policy:{DIGEST}:{TAG}"]
+
     def test_a_tag_too_long_to_key_an_evaluation_is_recorded_not_written(self, secrets, monkeypatch):
         long = "registry.example/app:" + "t" * 600
         image = {**IMAGE, "image_detail": [{"registry": "registry.example", "repo": "app", "tag": "t" * 600, "full_tag": long}]}
