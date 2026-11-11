@@ -181,3 +181,34 @@ class TestIdentifierNames:
         got = planned([container("p1")], [pod("p1", node=None, node_id=None)])
         assert set(got.pods) == {"p1"} and not got.nodes
         assert not [e for e in got.edges if e[0] in ("SCHEDULED_ON_NODE", "REGISTERS_NODE")]
+
+
+class TestAnnotations:
+    """req-anchore-inventory-kubernetes-5: every annotation except an excluded key."""
+
+    MANIFEST = "kubectl.kubernetes.io/last-applied-configuration"
+
+    def plan(self, excluded, **annotated):
+        pods = [pod("p1", **annotated)]
+        return kubernetes.plan([container("p1")], pods, [{**NAMESPACES[0], "annotations": {"owner": "platform", self.MANIFEST: "{}"}}], [{**NODES[0], "annotations": {}}], settings(), NOW, KEY, excluded)
+
+    def test_an_excluded_key_is_left_out_and_noted_by_key(self):
+        got = self.plan(frozenset({self.MANIFEST}), annotations={"a": "1", self.MANIFEST: "secret"})
+        assert got.pods["p1"]["annotations"] == {"a": "1"}
+        assert got.namespaces["ns-default"]["annotations"] == {"owner": "platform"}
+        assert got.nodes["node-1"]["annotations"] == {}
+        assert got.annotations_left_out == {("pod", "p1", self.MANIFEST), ("namespace", "ns-default", self.MANIFEST)}
+
+    def test_with_no_exclusion_list_no_annotation_is_planned(self):
+        got = self.plan(None, annotations={"a": "1"})
+        assert "annotations" not in got.pods["p1"] and "annotations" not in got.namespaces["ns-default"]
+        assert got.annotations_left_out == set()
+
+    def test_a_map_with_a_non_string_value_is_not_claimed_as_observed(self):
+        got = self.plan(frozenset(), annotations={"a": 1})
+        assert "annotations" not in got.pods["p1"]
+
+    def test_a_pod_reached_by_two_containers_is_noted_once(self):
+        pods = [pod("p1", annotations={self.MANIFEST: "x"})]
+        got = kubernetes.plan([container("p1", "web"), container("p1", "sidecar", digest=D2)], pods, NAMESPACES, NODES, settings(), NOW, KEY, frozenset({self.MANIFEST}))
+        assert got.annotations_left_out == {("pod", "p1", self.MANIFEST)}

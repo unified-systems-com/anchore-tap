@@ -637,7 +637,11 @@ class AnchoreCollector(CollectorBase):
                 return
             lists[source_id] = rows
         read.append("create:kubernetes")
-        plan = kubernetes.plan(lists["kubernetes_containers"], lists["kubernetes_pods"], lists["kubernetes_namespaces"], lists["kubernetes_nodes"], credential.settings, started, credential.scanner_key)
+        refused = store.refused_annotation_keys()
+        if refused is None:
+            not_read.append({"scope": "create:kubernetes:annotations", "reason": "the installed computing_core stores no Kubernetes annotation (v0.10.7 or later is needed), so none was written"})
+        excluded = None if refused is None else refused | frozenset(credential.annotation_excluded_keys)
+        plan = kubernetes.plan(lists["kubernetes_containers"], lists["kubernetes_pods"], lists["kubernetes_namespaces"], lists["kubernetes_nodes"], credential.settings, started, credential.scanner_key, excluded)
 
         def ref_of(kind: str, key: Any) -> str | None:
             return out.kubernetes.get((kind, key)) or shared.kubernetes.get((kind, key))
@@ -682,6 +686,10 @@ class AnchoreCollector(CollectorBase):
             out.edges.append(decompose.edge_to_key(edge_ref, "RUNS_IMAGE__computing_core", ref_of("container", key), "computing_core__host", decompose.host_key(digest)))
             out.kubernetes[identity] = edge_ref
         counts = {"clusters": len(plan.clusters), "namespaces": len(plan.namespaces), "nodes": len(plan.nodes), "pods": len(plan.pods), "containers": len(plan.containers), "stale": plan.stale, "out_of_scope": plan.out_of_scope, "unusable": plan.unusable, "fallback_clusters": plan.fallback_clusters}
+        left_out = sorted({key for _kind, _uid, key in plan.annotations_left_out})
+        if left_out:
+            # Named by key and never by value: the value is the reason the key is excluded.
+            not_read.append({"scope": "create:kubernetes:annotations:excluded", "reason": f"{len(plan.annotations_left_out)} annotation(s) on written objects were left out because their key is excluded: {', '.join(left_out)}"})
         if plan.unusable:
             not_read.append({"scope": "create:kubernetes:unusable", "reason": f"{plan.unusable} Kubernetes container record(s) named no usable name, context or listed pod and were not written"})
         self.record_info(_SITE_KUBERNETES, "KUBERNETES_WRITTEN", f"{credential.qualified}: {counts['containers']} container(s) in {counts['pods']} pod(s), {counts['namespaces']} namespace(s), {counts['nodes']} node(s), {counts['clusters']} cluster(s); {counts['stale']} not seen recently, {counts['out_of_scope']} out of scope, {counts['unusable']} unusable, {counts['fallback_clusters']} cluster(s) keyed by name.", message_data=counts)
