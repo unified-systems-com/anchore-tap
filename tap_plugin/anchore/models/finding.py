@@ -94,6 +94,7 @@ class AnchoreFinding(BaseModel):
         "detected_at": _STR_OR_NULL,
         "inherited_from_base": _BOOL_OR_NULL,
         "base_digest": _STR_OR_NULL,
+        "record": {"type": ["object", "null"]},
         "package": _STR_OR_NULL,
         "package_name": _STR_OR_NULL,
         "package_version": _STR_OR_NULL,
@@ -149,6 +150,12 @@ class AnchoreFinding(BaseModel):
     detected_at = models.CharField(max_length=64, null=True, blank=True, default=None, help_text="When Anchore says it detected the match, as the string returned.")
     inherited_from_base = models.BooleanField(null=True, blank=True, default=None, help_text="Anchore's inherited_from_base flag: true when the vulnerable package is in the base image. Null when not carried, and null in place of false when the response named no base image, because not-inherited means nothing without a base to compare against.")
     base_digest = models.CharField(max_length=128, null=True, blank=True, default=None, help_text="The digest of the base image Anchore compared this image against, from the vulnerabilities response; null when it named none. Source: the image vulnerabilities response read with base_digest=auto.")
+    record = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="The vulnerability entry exactly as Anchore returned it, every key kept. Source: the image vulnerabilities response. Null on a row written before this was recorded.",
+    )
     package = models.TextField(null=True, blank=True, default=None, help_text="Anchore's package field as returned; part of the package identity.")
     package_name = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package_name as returned.")
     package_version = models.CharField(max_length=255, null=True, blank=True, default=None, help_text="Anchore's package_version as returned.")

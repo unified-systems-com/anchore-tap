@@ -50,6 +50,7 @@ class AnchoreRuntimeImage(BaseModel):
         "created_at": {"type": ["string", "null"]},
         "last_updated": {"type": ["string", "null"]},
         "last_seen": {"type": ["string", "null"]},
+        "record": {"type": ["object", "null"]},
         "analyzed_digests": {"type": ["array", "null"], "items": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "uniqueItems": True},
     }
     FIELD_VALIDATION_SCHEMA: ClassVar[dict[str, Any]] = {
@@ -73,6 +74,12 @@ class AnchoreRuntimeImage(BaseModel):
         null=True, blank=True, default=None, help_text="When Anchore's agent last reported this image in this context; null when not returned or unreadable."
     )
 
+    record = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="The inventory item exactly as Anchore returned it, every key kept. Source: GET /inventories. Null on a row written before this was recorded.",
+    )
     analyzed_digests = models.JSONField(
         null=True,
         blank=True,

@@ -79,6 +79,12 @@ def natural_key_of(node: dict[str, Any]) -> dict[str, Any] | None:
     return {"entity_type": entity_type, "key": {name: values[name] for name in fields}}
 
 
+def image_host_fields(digest: str) -> dict[str, str] | None:
+    """The name and operating system the grid's image host for a digest holds, or None when it holds no such host."""
+    row = Host.objects.filter(realm="oci-digest", stable_id=digest).first()
+    return None if row is None else {"name": row.name, "os": row.os}
+
+
 def sbom_document_state(content_digest: str) -> dict[str, Any] | None:
     """What the grid's document with these exact bytes says of itself, or None when it holds none.
 

@@ -134,6 +134,9 @@ class _Scanner:
     built_on: set[tuple[str, str]] = field(default_factory=set)
     #: Batch refs of the inventory rows (packages, libraries, operating systems, their edges) staged from parsed SBOMs.
     inventory_refs: set[str] = field(default_factory=set)
+    #: Image hosts on the grid this scanner staged a name or operating system for, and the image records it staged.
+    host_fills: set[str] = field(default_factory=set)
+    image_records: int = 0
     #: Content digests of the documents whose parsed inventory this scanner staged (not merely recorded).
     inventory_documents: set[str] = field(default_factory=set)
     #: SBOMs parsed into inventory, documents whose inventory was staged, rows staged, and findings joined to a package.
@@ -172,6 +175,7 @@ class _Shared:
     platform_of: set[tuple[str, str]] = field(default_factory=set)
     inventory_refs: set[str] = field(default_factory=set)
     inventory_documents: set[str] = field(default_factory=set)
+    host_fills: set[str] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
@@ -186,6 +190,7 @@ class _Shared:
         self.platform_of |= scanner.platform_of
         self.inventory_refs |= scanner.inventory_refs
         self.inventory_documents |= scanner.inventory_documents
+        self.host_fills |= scanner.host_fills
 
 
 #: The clock the run time limit is measured on; a test replaces it.
@@ -403,6 +408,9 @@ class AnchoreCollector(CollectorBase):
         for index, digest in enumerate(plan.digests):
             image = chosen[digest]
             scope = f"image:{digest}"
+            # Anchore's own record of the image comes from the list already read, so it is written
+            # whether or not the image's findings can be read this run (req-anchore-image-1).
+            self._image_record(credential, image, digest, f"{tag}:i{index}", out, shared)
             if deadline is not None and _monotonic() >= deadline:
                 # Out of time: not read is never clean, so each image left is named and nothing of it is resolved.
                 not_read.append({"scope": scope, "reason": f"not read: the run reached its {settings.max_run_minutes}-minute limit (limits.max_run_minutes)"})
@@ -809,17 +817,44 @@ class AnchoreCollector(CollectorBase):
             self._ensure_host(out, ancestor, f"{ref}:{number}:host", shared)
             out.edges.append(decompose.edge_between_keys(f"{ref}:{number}", "BUILT_ON_IMAGE__anchore", "computing_core__host", decompose.host_key(digest), "computing_core__host", decompose.host_key(ancestor)))
 
-    def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared) -> None:
+    def _image_record(self, credential: Credential, image: dict[str, Any], digest: str, ref: str, out: _Scanner, shared: _Shared) -> None:
+        """Stage Anchore's record of an image, and give the image's host its name and operating system.
+
+        The record is this plugin's node and is written every run (req-anchore-image-1, -2). The host is
+        computing_core's: a host this batch creates carries the name and operating system Anchore reports,
+        and a host the grid already holds gets only the ones it lacks (req-anchore-image-3, -4).
+        """
+        out.nodes.append(decompose.image_node(ref, credential.scanner_key, image))
+        out.image_records += 1
+        if not decompose.OCI_DIGEST.fullmatch(digest):
+            return
+        name, os = decompose.image_naming(image)
+        self._ensure_host(out, digest, f"{ref}:host", shared, name, os, count_unlinked=False)
+        out.edges.append(decompose.edge_to_key(f"{ref}:image", "RECORDS_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
+        if digest in out.hosts or digest in shared.hosts or digest in out.host_fills or digest in shared.host_fills or not (name or os):
+            return
+        held = store.image_host_fields(digest)
+        if held is None:
+            return
+        # WORKAROUND(unified-systems-com/tap#1172): tap has no write that yields to a value already
+        # held, so the host is read and only the fields it lacks are sent. A collector that fills the
+        # same field between this read and the write is overwritten.
+        fill_name, fill_os = (name if not held["name"] else None), (os if not held["os"] else None)
+        if fill_name or fill_os:
+            out.host_fills.add(digest)
+            out.nodes.append(decompose.host_fill(f"{ref}:fill", digest, fill_name or held["name"] or digest, fill_name, fill_os))
+
+    def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared, name: str | None = None, os: str | None = None, count_unlinked: bool = True) -> None:
         """Stage the image host for a digest only where neither this batch nor the grid has one.
 
-        Where the grid has one it is never rewritten, whatever another collector filled in. A digest that
+        Where the grid has one it is not staged here, whatever another collector filled in. A digest that
         is not a plain sha256 digest names no host key, so nothing is staged and the image is counted.
         """
         if not decompose.OCI_DIGEST.fullmatch(digest):
-            out.unlinked_images += 1
+            out.unlinked_images += count_unlinked
             return
         if digest not in shared.hosts and digest not in out.hosts and not store.image_host_exists(digest):
-            out.nodes.append(decompose.host_node(host_ref, digest))
+            out.nodes.append(decompose.host_node(host_ref, digest, name, os))
             out.hosts.add(digest)
             out.hosts_created += 1
 

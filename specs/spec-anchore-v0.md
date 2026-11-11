@@ -66,6 +66,8 @@ Six consequences shape v0:
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
 | req-anchore-vex | [VEX Annotations](#vex-annotations) | Proposed | One annotation type for image and application-version scope, with edges to its scope and its subject |
 | req-anchore-policy-result | [Policy Results](#policy-results) | Proposed | Version-level policy status and counts stored on the application version |
+| req-anchore-image | [Anchore's Record Of An Image](#anchores-record-of-an-image) | In Development | One Anchore node per image for its analysis state and the record as returned; the image's host is given its name and operating system |
+| req-anchore-record | [Records Kept As Returned](#records-kept-as-returned) | In Development | Each Anchore-owned node keeps the upstream record it was made from, every key, beside the fields taken from it |
 | req-anchore-base-image | [Base Image Attribution](#base-image-attribution) | In Development | Each finding says whether its package came with the base image and which base; an image is joined to the images it was built on |
 | req-anchore-inventory | [Runtime Inventory: Images In Use](#runtime-inventory-images-in-use) | In Development | The flat list of images in use, per context, with when each was last seen |
 | req-anchore-inventory-kubernetes | [Runtime Inventory: Kubernetes](#runtime-inventory-kubernetes) | In Development | Cluster, namespace, node, pod and container written into `computing_core`'s Kubernetes types when `create.kubernetes` is on, joined to the image host |
@@ -606,6 +608,60 @@ From `GET /apps/{app_id}/versions/{version_id}/policy/status` and the policy-fin
 | --- | --- | --- | --- | --- |
 | req-anchore-policy-result-1 | Status On The Version | Proposed | `policy_status`, `policy_id`, `policy_evaluated_at` and finding counts are properties of `anchore_app_version`. | |
 | req-anchore-policy-result-2 | Unevaluated Is Null | Proposed | A version Anchore has not evaluated has `null` policy fields, not a passing status. | |
+
+### Anchore's Record Of An Image
+----
+RID: `req-anchore-image`
+
+Status: `In Development`
+
+An image on the grid is `computing_core`'s host keyed by its digest. Facts true of the image whoever looks belong there. What Anchore alone knows, the state of its own analysis, belongs on a node this plugin owns. Ruled by the maintainer 2026-11-11: a generic fact goes in the generic type, and an Anchore node is warranted only for what the generic node cannot hold.
+
+#### Implementation
+
+**The node.** `anchore_image` (`anchore.area: image`), key `(scanner_key, image_digest)`. From each entry of the image list (`GET /images`) the run selects: `analysis_status`, `image_status`, `parent_digest`, `created_at` and `last_updated` as returned, a display `reference`, and `record`, the entry exactly as returned (`req-anchore-record`). `RECORDS_IMAGE__anchore` joins it to the image's host. It is written from the list the run has already read, so an image whose findings could not be read this run, or that Anchore has not finished analyzing, still has its record.
+
+**The host's name and operating system.** `computing_core`'s host has a `name` and an `os`, and its spec says an image's name is its reference. So:
+
+- `name` is the first of the record's `image_detail[].full_tag` values in sorted order, so the choice does not move with the order Anchore lists them. An image has as many names as it has tags; the rest are in `record` until `computing_core` has a type for an image tag.
+- `os` is `image_content.metadata.distro` and `distro_version`, joined by a space.
+- A host this run creates carries both. A host the grid already holds gets only the ones it lacks: a name or operating system another collector wrote is not replaced.
+
+tap has no write that yields to a value already held (`unified-systems-com/tap#1172`), so the fill is a read and then a write of only the lacking fields. A collector that fills the same field between the two is overwritten. The code carries a `WORKAROUND` comment naming that issue.
+
+Architecture, size, layer count and build time are in Anchore's record and are generic facts about an image. They are not written to the host yet: `computing_core` has no fields for them, and adding them is a separate change there. Until then they are in `record`.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-image-1 | One Record Per Image | Implemented | Each image the run selects has one `anchore_image` holding its analysis state and `record`, joined to its host by `RECORDS_IMAGE__anchore`; a second run writes no second node or edge. | `tests/test_collector_image_record.py::TestTheRecord` |
+| req-anchore-image-2 | Written Whatever Else Is Read | Implemented | An image Anchore has not finished analyzing, or whose findings were not read, still has its record. | |
+| req-anchore-image-3 | A New Host Is Named | Implemented | A host this run creates for an image carries the reference as `name` and the distribution and version as `os`, each only where Anchore's record gives it. | `::TestTheHostsName`, `::TestNaming` |
+| req-anchore-image-4 | An Existing Host Is Filled, Not Replaced | Implemented | A host the grid holds gets only the `name` or `os` it lacks; one it holds is left as it is. | The read-then-write race is stated above. |
+
+### Records Kept As Returned
+----
+RID: `req-anchore-record`
+
+Status: `In Development`
+
+Ruled by the maintainer 2026-11-11: what comes from upstream is kept. A node made from an Anchore record keeps that record whole, in a `record` field, beside the fields taken from it. A key the model has no field for is then not lost: it is in `record`.
+
+#### Implementation
+
+`record` is a JSON object, null on a row written before it was recorded. It holds the upstream entry exactly as returned: on `anchore_finding` the vulnerability entry, on `anchore_runtime_image` the inventory item, on `anchore_image` the image list entry. The typed fields stay what queries and keys use; `record` is what is read when a field is missing. A finding that a later run resolves keeps the record it had.
+
+The scan run still counts the response keys no field holds; with `record` they are a note about the model, no longer a loss.
+
+Nothing under the ruled exclusions reaches a `record`: no secret-search or retrieved-file result is read at all. A `record` can hold whatever an operator typed into Anchore, such as an annotation on an image. Who can read it is the grid's read authorization.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-record-1 | The Entry Is Kept Whole | Implemented | `record` on a finding, a runtime image and an image equals the upstream entry it was made from, including keys the model has no field for. | `tests/test_collector_image_record.py::TestRecordsAsReturned`, `::TestTheRecord` |
+| req-anchore-record-2 | Kept Through Resolution | Implemented | A finding marked resolved keeps the `record` it last had. | |
 
 ### Base Image Attribution
 ----

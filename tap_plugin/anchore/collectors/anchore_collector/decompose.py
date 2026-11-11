@@ -24,6 +24,7 @@ from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
 from tap_plugin.anchore import scope
 from tap_plugin.anchore.models.finding import AnchoreFinding, package_key_for
+from tap_plugin.anchore.models.image import AnchoreImage
 from tap_plugin.anchore.models.runtime_image import AnchoreRuntimeImage
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.models.scanner import AnchoreScanner
@@ -140,9 +141,66 @@ def typed_node(ref: str, entity_type: str, name: str, fields: dict[str, Any], di
     return {"entity": {"ref": ref, "entity_type": entity_type, "name": name[:255] or entity_type, "dimensions": dict(dimensions)}, "node": fields}
 
 
-def host_node(ref: str, digest: str) -> dict[str, Any]:
-    """The image host for a digest: the computing_core host with realm oci-digest. Written only where none exists."""
-    return envelope(ref, Host, digest, {"realm": IMAGE_REALM, "stable_id": digest, "kind": "container"})
+def host_node(ref: str, digest: str, name: str | None = None, os: str | None = None) -> dict[str, Any]:
+    """The image host for a digest: the computing_core host with realm oci-digest. Written only where none exists.
+
+    ``name`` and ``os`` are set where Anchore's image record gives them (req-anchore-image-3); a
+    host staged for a digest Anchore has no record of carries the digest alone.
+    """
+    fields: dict[str, Any] = {"realm": IMAGE_REALM, "stable_id": digest, "kind": "container"}
+    if name:
+        fields["name"] = name
+    if os:
+        fields["os"] = os
+    return envelope(ref, Host, name or digest, fields)
+
+
+def host_fill(ref: str, digest: str, display: str, name: str | None, os: str | None) -> dict[str, Any]:
+    """A write of only the name and operating system a host on the grid lacks; every other field is left as it is.
+
+    ``display`` is the host's name as it will stand after the write, which the envelope must carry.
+    """
+    fields: dict[str, Any] = {"realm": IMAGE_REALM, "stable_id": digest}
+    if name:
+        fields["name"] = name
+    if os:
+        fields["os"] = os
+    return envelope(ref, Host, display, fields)
+
+
+_MAX_HOST_NAME = 255
+
+
+def image_naming(image: Any) -> tuple[str | None, str | None]:
+    """(display reference, operating system) from Anchore's image record, each None where it gives none.
+
+    The reference is the first of the record's full tags in sorted order, so the choice does not
+    move with the order Anchore lists them. The operating system is the distribution and its
+    version as Anchore reports them.
+    """
+    if not isinstance(image, dict):
+        return None, None
+    tags = sorted(d["full_tag"] for d in image.get("image_detail") or [] if isinstance(d, dict) and isinstance(d.get("full_tag"), str) and d["full_tag"])
+    name = next((tag for tag in tags if len(tag) <= _MAX_HOST_NAME), None)
+    content = image.get("image_content")
+    metadata = content.get("metadata") if isinstance(content, dict) else None
+    distro = metadata.get("distro") if isinstance(metadata, dict) else None
+    version = metadata.get("distro_version") if isinstance(metadata, dict) else None
+    os = " ".join(part for part in (distro, version) if isinstance(part, str) and part) or None
+    return name, os
+
+
+def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, Any]:
+    """Anchore's record of one image (req-anchore-image-1): the analysis state, and the record as returned."""
+    reference, _ = image_naming(image)
+    fields: dict[str, Any] = {"scanner_key": scanner_key, "image_digest": image["image_digest"], "reference": reference, "record": image}
+    for name, limit in (("analysis_status", 64), ("image_status", 64), ("parent_digest", 512)):
+        value = image.get(name)
+        fields[name] = value if isinstance(value, str) and len(value) <= limit else None
+    for name in ("created_at", "last_updated"):
+        seen = scope.parse_time(image.get(name))
+        fields[name] = seen.isoformat() if seen is not None else None
+    return envelope(ref, AnchoreImage, reference or image["image_digest"], fields)
 
 
 def host_key(digest: str) -> dict[str, str]:
@@ -176,6 +234,7 @@ def runtime_image_node(ref: str, scanner_key: str, item: Any, analyzed: list[str
         "image_tag": tag if isinstance(tag, str) and len(tag) <= _MAX_IMAGE_TAG else None,
         # The analyzed images read on this digest's behalf (req-anchore-scope-16); the digest above stays the running one.
         "analyzed_digests": analyzed,
+        "record": dict(item),
     }
     for name in ("created_at", "last_updated", "last_seen"):
         seen = scope.parse_time(item.get(name))
@@ -278,6 +337,8 @@ def finding_fields(entry: dict[str, Any], scanner_key: str, target_key: str, run
     if unidentifiable:
         return None
     fields["package_key"] = package_key_for(fields["package"], fields["package_path"])
+    # Nothing Anchore said is dropped: the entry as returned rides beside the fields taken from it (req-anchore-record-1).
+    fields["record"] = entry
     fields["base_digest"] = base_digest
     if base_digest is None and fields["inherited_from_base"] is False:
         fields["inherited_from_base"] = None
