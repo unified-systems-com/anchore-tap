@@ -27,7 +27,7 @@ from tap_plugin.anchore.tests.test_collector_scope import configure, container, 
 ACCOUNT, REGION = "123456789012", "us-gov-west-1"
 BASE = f"arn:aws-us-gov:ecs:{REGION}:{ACCOUNT}"
 CLUSTER, SERVICE, TASK, CONTAINER = f"{BASE}:cluster/prod", f"{BASE}:service/prod/web", f"{BASE}:task/prod/t1", f"{BASE}:container/prod/t1/c1"
-TYPES = {kind: store.ECS_TYPES[kind][0] for kind in store.ECS_TYPES}
+TYPES = dict(store.ECS_TYPES)
 CREATE = {"create": {"ecs": True}}
 
 

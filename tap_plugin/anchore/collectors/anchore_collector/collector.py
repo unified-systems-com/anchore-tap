@@ -643,6 +643,9 @@ class AnchoreCollector(CollectorBase):
         excluded = None if refused is None else refused | frozenset(credential.annotation_excluded_keys)
         plan = kubernetes.plan(lists["kubernetes_containers"], lists["kubernetes_pods"], lists["kubernetes_namespaces"], lists["kubernetes_nodes"], credential.settings, started, credential.scanner_key, excluded)
 
+        def node_host_key(uid: str) -> dict[str, str]:
+            return {store.scheme_field("computing_core__host"): kubernetes.REALM_NODE_HOST, "stable_id": uid}
+
         def ref_of(kind: str, key: Any) -> str | None:
             return out.kubernetes.get((kind, key)) or shared.kubernetes.get((kind, key))
 
@@ -659,14 +662,17 @@ class AnchoreCollector(CollectorBase):
                 # A label map the record did not carry is left out, so a stored one is kept; a container's
                 # runtime id and image reference are sent as reported, null included (a container not yet started has no id).
                 sent = {name: value for name, value in fields.items() if value is not None or name in ("container_id", "image_reference")}
+                if kind == "cluster":
+                    # The planner calls the cluster's identifier scheme by its own word; the type names the field.
+                    sent[store.scheme_field(KUBERNETES_TYPES[kind])] = sent.pop(kubernetes.SCHEME)
                 stage(kind, key, KUBERNETES_TYPES[kind], fields.get("name") or str(key), sent)
         for uid, fields in plan.nodes.items():
             # The machine behind a node is a host under its own realm, written only where the grid has none.
             if not store.host_exists(kubernetes.REALM_NODE_HOST, uid):
-                stage("host", uid, "computing_core__host", fields.get("name") or uid, {"realm": kubernetes.REALM_NODE_HOST, "stable_id": uid, "name": fields.get("name") or ""})
+                stage("host", uid, "computing_core__host", fields.get("name") or uid, {**node_host_key(uid), "name": fields.get("name") or ""})
             if ref_of("edge", ("BACKED_BY_HOST", uid)) is None:
                 host_ref = ref_of("host", uid)
-                target = {"ref": host_ref} if host_ref is not None else {"entity_type": "computing_core__host", "key": {"realm": kubernetes.REALM_NODE_HOST, "stable_id": uid}}
+                target = {"ref": host_ref} if host_ref is not None else {"entity_type": "computing_core__host", "key": node_host_key(uid)}
                 edge_ref = f"{tag}:k:edge:{len(out.kubernetes)}"
                 out.edges.append(decompose.edge_ends(edge_ref, "BACKED_BY_HOST__computing_core", {"ref": ref_of("node", uid)}, target))
                 out.kubernetes[("edge", ("BACKED_BY_HOST", uid))] = edge_ref
@@ -720,7 +726,7 @@ class AnchoreCollector(CollectorBase):
         # any other and never rewritten, because it cannot tell its own fields from the provider's.
         existing: dict[str, set[str]] = {}
         for kind, nodes in wanted.items():
-            entity_type, key = store.ECS_TYPES[kind]
+            entity_type, key = store.ECS_TYPES[kind], store.ecs_key(kind)
             found = store.aws_nodes_on_grid(entity_type, key, set(nodes))
             if found is None:
                 not_read.append({"scope": "create:ecs", "reason": "aws_core is not installed, so no ECS node was created"})
@@ -730,7 +736,7 @@ class AnchoreCollector(CollectorBase):
         read.append("create:ecs")
         created = dict.fromkeys(wanted, 0)
         for kind, nodes in wanted.items():
-            entity_type, key = store.ECS_TYPES[kind]
+            entity_type, key = store.ECS_TYPES[kind], store.ecs_key(kind)
             defaults = store.default_dimensions(entity_type)
             for arn, reported in sorted(nodes.items()):
                 if arn in existing[kind] or arn in out.ecs_created or arn in shared.ecs_created:
@@ -750,7 +756,7 @@ class AnchoreCollector(CollectorBase):
                 created[kind] += 1
 
         def end(kind: str, arn: str) -> dict[str, Any] | None:
-            entity_type, key = store.ECS_TYPES[kind]
+            entity_type, key = store.ECS_TYPES[kind], store.ecs_key(kind)
             if arn in out.ecs_created:
                 return {"ref": out.ecs_created[arn]}
             if arn in shared.ecs_created:
@@ -803,7 +809,7 @@ class AnchoreCollector(CollectorBase):
             # One relationship, one edge per batch: two scanners can report the same container.
             out.runs_image.add((arn, digest))
             self._ensure_host(out, digest, f"{tag}:eh{number}", shared)
-            source = {"ref": staged} if staged is not None else {"entity_type": store.ECS_CONTAINER_TYPE, "key": {store.ECS_CONTAINER_KEY: arn}}
+            source = {"ref": staged} if staged is not None else {"entity_type": store.ECS_CONTAINER_TYPE, "key": {store.ecs_key("container"): arn}}
             out.edges.append(decompose.edge_ends(f"{tag}:el{number}", "RUNS_IMAGE__computing_core", source, {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}))
             out.ecs_links += 1
         unresolved = len(set(by_arn) - found - set(out.ecs_created) - set(shared.ecs_created))

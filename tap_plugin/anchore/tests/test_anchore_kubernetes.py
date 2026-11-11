@@ -42,7 +42,7 @@ class TestChain:
     def test_a_container_leads_to_its_pod_namespace_node_and_cluster(self):
         got = planned([container("p1"), *SYSTEM], [pod("p1"), *SYSTEM_PODS])
         cluster = ("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f")
-        assert got.clusters == {cluster: {"realm": "kube-system-uid", "stable_id": "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "name": "prod"}}
+        assert got.clusters == {cluster: {"scheme": "kube-system-uid", "stable_id": "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "name": "prod"}}
         assert got.containers[("p1", "web")] == {"pod_uid": "p1", "name": "web", "container_id": "containerd://p1-web", "image_reference": "registry.example/app:1"}
         assert got.pods["p1"] == {"uid": "p1", "name": "p1-name", "labels": {"app": "web"}}
         assert got.namespaces["ns-default"] == {"uid": "ns-default", "name": "default", "labels": {}}
