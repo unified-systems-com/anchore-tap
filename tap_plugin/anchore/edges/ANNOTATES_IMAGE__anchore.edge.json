@@ -1,0 +1,17 @@
+{
+  "slug": "ANNOTATES_IMAGE__anchore",
+  "name": "Annotates Image",
+  "description": "An Anchore VEX annotation scoped to an image is a statement about the image host with that digest. Written only when the digest can name an image host.",
+  "sources": [
+    "anchore__anchore_vex_annotation"
+  ],
+  "targets": [
+    "computing_core__host"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "annotation"
+  }
+}

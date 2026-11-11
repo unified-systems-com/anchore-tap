@@ -64,7 +64,7 @@ Six consequences shape v0:
 | req-anchore-findings | [Findings And Vulnerabilities](#findings-and-vulnerabilities) | In Development | Anchore-owned scanner, scan-run and finding nodes holding Anchore's fields as returned, keyed by what they assert and linked to the shared vulnerability |
 | req-anchore-sbom | [SBOMs](#sboms) | In Development | Three formats stored as documents; CycloneDX parsed into packages under the source-authenticated outcome, and findings joined to them |
 | req-anchore-application | [The Application Graph](#the-application-graph) | Proposed | Application, version and asset nodes with the version chain and edges to image hosts and SBOM documents |
-| req-anchore-vex | [VEX Annotations](#vex-annotations) | Proposed | One annotation type for image and application-version scope, with edges to its scope and its subject |
+| req-anchore-vex | [VEX Annotations](#vex-annotations) | Partial | One annotation type for image and application-version scope, with edges to its scope and its subject |
 | req-anchore-policy-result | [Policy Results](#policy-results) | Proposed | Version-level policy status and counts stored on the application version |
 | req-anchore-image | [Anchore's Record Of An Image](#anchores-record-of-an-image) | In Development | One Anchore node per image for its analysis state and the record as returned; the image's host is given its name and operating system |
 | req-anchore-record | [Records Kept As Returned](#records-kept-as-returned) | In Development | Each Anchore-owned node keeps the upstream record it was made from, every key, beside the fields taken from it |
@@ -571,25 +571,39 @@ Edges: `HAS_VERSION__anchore` (application to version), `PRECEDES_VERSION__ancho
 ----
 RID: `req-anchore-vex`
 
-Status: `Proposed`
+Status: `Partial`
 
 A VEX annotation is a statement that says whether a vulnerability matters for a package ("CVE-X in package Y is `not_affected`, because `vulnerable_code_not_present`"). Anchore stores them at two scopes, an image and an application version, with the same fields. They live in Anchore-specific nodes linked to the neutral vulnerability and package nodes, and are never turned into a VDR factor automatically.
 
 #### Implementation
 
-One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_key, scope_kind, scope_id, annotation_id)` where `scope_kind` is `image` or `app_version`. Fields: the vulnerability id; package name, version and type (the package scope is null when the annotation is about a whole image; what that means in practice is unobserved); `status` (`not_affected`, `affected`, `fixed`, `under_investigation`); `justification` (the six values Anchore defines); status notes; impact statement; action statement; additional details; and source (type `external` or `user`, and a name). Edges: `ANNOTATES_IMAGE__anchore` (to the image host) or `ANNOTATES_VERSION__anchore` (to the application version), according to scope; `ABOUT_VULNERABILITY__anchore` (to the `compliance_vulnerability`); and `ABOUT_PACKAGE__anchore` (to the `package`) when the package scope is present. The free-text fields (status notes, impact and action statements, additional details) are operator-authored VDR evidence and are the point of the type; they are stored as Anchore returns them, bounded to their column lengths, and are not redacted by this plugin, so the grid's own access control is what protects them and an operator should treat them as sensitive. Whether an application version inherits its images' annotations is unobserved; both scopes are stored as Anchore reports them and nothing is merged.
+One type, `anchore_vex_annotation` (`anchore.area: annotation`), key `(scanner_key, scope_kind, scope_id, annotation_id)` where `scope_kind` is `image` or `app_version` and `annotation_id` is Anchore's uuid. Fields: the vulnerability id; package name, version and type (the package scope is null when the annotation is about a whole image; what that means in practice is unobserved); `status` (`not_affected`, `affected`, `fixed`, `under_investigation`); `justification` (the six values Anchore defines); status notes; impact statement; action statement; additional details; source (type `external` or `user`, and a name); Anchore's version number and its created and updated times; `state` (`current` or `withdrawn`); and the entry as returned, in `record`.
+
+**Built: the image scope.** One read per image read, `GET /images/{image_digest}/vuln-annotations`. The application-version scope waits for the application graph (`req-anchore-application`); the type and its key already carry it.
+
+Edges, each from the annotation:
+
+- `ANNOTATES_IMAGE__anchore` to the image host.
+- `ANNOTATES_FINDING__anchore` to each finding of the same read whose `annotation_uuid` is this annotation's uuid. That uuid is Anchore's own statement of which annotation it applied to the finding, so the join is exact. Nothing is joined by vulnerability id or package name: that would be this plugin deciding which statement applies.
+- `ABOUT_VULNERABILITY__anchore` to the `compliance_vulnerability`, where one exists with exactly the annotation's identifier.
+- `ABOUT_PACKAGE__anchore` to a `package`, only when exactly one package in the image's parsed inventory has the annotation's package name and version. Anchore's package type (`rpm`, `python`) is not a purl ecosystem and is not translated into one, so two packages sharing a name and version get no edge. `ANNOTATES_VERSION__anchore` comes with the application-version scope.
+
+The free-text fields (status notes, impact and action statements, additional details) are operator-authored evidence and are the point of the type; they are stored as Anchore returns them, in unbounded text columns, and are not redacted by this plugin, so the grid's own access control is what protects them and an operator should treat them as sensitive. Whether an application version inherits its images' annotations is unobserved; both scopes are stored as Anchore reports them and nothing is merged.
+
+An annotation the grid holds as current that a whole read of its image no longer returns is re-sent with `state: withdrawn` and kept. A read that failed withdraws nothing, and neither does a read in which some entry could not be stored (it had no usable uuid or vulnerability id), because that entry may be the one held; the run records why. An annotation returned again is current again.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | --- | --- | --- |
-| req-anchore-vex-1 | One Type, Scope In The Key | Proposed | A single `anchore_vex_annotation` type serves both scopes, with `scope_kind` and `scope_id` in its natural key. | One type; a later split is an accepted risk. |
-| req-anchore-vex-2 | Scope Edge Matches Scope | Proposed | An image-scope annotation has `ANNOTATES_IMAGE__anchore` and no version edge, and the reverse for an application-version scope. | |
-| req-anchore-vex-3 | Linked To Existing Nodes | Proposed | Each annotation has `ABOUT_VULNERABILITY__anchore` when the shared vulnerability node exists with exactly the annotation's identifier, and `ABOUT_PACKAGE__anchore` when its package scope is not null. | The plugin never creates or patches the shared vulnerability. |
-| req-anchore-vex-4 | No Automatic VDR Mapping | Proposed | No VEX status is written into any VDR factor by this plugin. | VEX nodes link to the VDR nodes without automatic mapping; mapping belongs to the VDR plugins. |
-| req-anchore-vex-5 | Null Package Scope Kept | Proposed | A null package scope is stored as null and is not widened to every package of the image. | Meaning to be observed on the trial. |
-| req-anchore-vex-6 | Free Text Is Evidence, Not Redacted | Proposed | The free-text fields are stored as returned and bounded in length; no redaction or scanning is attempted, and the fields are described as operator-authored free text. | The free-text fields are operator-authored and can hold anything an operator typed. This plugin stores them as Anchore returns them and neither scans nor redacts them: the operator who writes a VEX statement is responsible for what it contains. The grid has no per-field classification that this plugin could set, so the fields are described as operator-authored in their `help_text` and in the README, and who can read them is the grid's read authorization, not this plugin's. |
-| req-anchore-vex-7 | Withdrawn Annotations Stop Asserting | Proposed | An annotation Anchore no longer reports for a successfully read scope is marked `withdrawn` (`req-anchore-states-5`); a `not_affected` or `fixed` statement that has been withdrawn is not an assertion any VDR consumer may rely on. | An annotation Anchore stops reporting must stop asserting. |
+| req-anchore-vex-1 | One Type, Scope In The Key | Implemented | A single `anchore_vex_annotation` type serves both scopes, with `scope_kind` and `scope_id` in its natural key. Image scope is written; an entry is stored as returned, the keys the model has no field for included. | One type; a later split is an accepted risk. `tests/test_collector_vex.py::TestAnnotations`. |
+| req-anchore-vex-2 | Scope Edge Matches Scope | Partial | An image-scope annotation has `ANNOTATES_IMAGE__anchore` and no version edge, and the reverse for an application-version scope. | The image half is implemented; the version half waits for the application graph. |
+| req-anchore-vex-3 | Linked To Existing Nodes | Implemented | Each annotation has `ABOUT_VULNERABILITY__anchore` when the shared vulnerability node exists with exactly the annotation's identifier, and `ABOUT_PACKAGE__anchore` when exactly one package of the image's parsed inventory has its package name and version. | The plugin never creates or patches the shared vulnerability, and never translates Anchore's package type. `::TestPackageScope`. |
+| req-anchore-vex-4 | No Automatic VDR Mapping | Implemented | No VEX status is written into any VDR factor by this plugin, and no finding's state is changed by an annotation. | VEX nodes link to the VDR nodes without automatic mapping; mapping belongs to the VDR plugins. |
+| req-anchore-vex-5 | Null Package Scope Kept | Implemented | A null package scope is stored as null and is not widened to every package of the image. | Meaning to be observed on the trial. |
+| req-anchore-vex-6 | Free Text Is Evidence, Not Redacted | Implemented | The free-text fields are stored as returned; no redaction or scanning is attempted, and the fields are described as operator-authored free text. | The free-text fields are operator-authored and can hold anything an operator typed. This plugin stores them as Anchore returns them and neither scans nor redacts them: the operator who writes a VEX statement is responsible for what it contains. The grid has no per-field classification that this plugin could set, so the fields are described as operator-authored in their `help_text`, and who can read them is the grid's read authorization, not this plugin's. |
+| req-anchore-vex-7 | Withdrawn Annotations Stop Asserting | Implemented | An annotation Anchore no longer reports on a whole read of its image is marked `withdrawn` and kept; a failed read, or one with an entry that could not be stored, withdraws nothing. A `not_affected` or `fixed` statement that has been withdrawn is not an assertion any consumer may rely on. | An annotation Anchore stops reporting must stop asserting. `::TestWithdrawal`. |
+| req-anchore-vex-8 | Joined To A Finding By Anchore's Own Uuid | Implemented | `ANNOTATES_FINDING__anchore` is written from an annotation to each finding of the same read that carries its uuid in `annotation_uuid`, and to no other finding. | `::TestAnnotations::test_a_finding_is_never_joined_by_vulnerability_alone`. |
 
 ### Policy Results
 ----
@@ -940,7 +954,7 @@ This section is how the target is measured. It is generated from three committed
 
 <!-- coverage:begin (generated by tap_plugin.anchore.contract.coverage; do not edit by hand) -->
 
-Anchore's API (the committed vendor file) has 247 reads. 19 are landed, 52 are planned and 176 are excluded. The target is hit when none is planned.
+Anchore's API (the committed vendor file) has 247 reads. 20 are landed, 51 are planned and 176 are excluded. The target is hit when none is planned.
 
 **Planned: not yet read.**
 
@@ -985,7 +999,6 @@ Anchore's API (the committed vendor file) has 247 reads. 19 are landed, 52 are p
 | `/images/{image_digest}/stig/{evaluation_uuid}/file` |  |
 | `/images/{image_digest}/vex/cyclonedx-json` |  |
 | `/images/{image_digest}/vex/openvex` |  |
-| `/images/{image_digest}/vuln-annotations` |  |
 | `/images/{image_digest}/vuln-annotations/{vuln_annotation_uuid}` |  |
 | `/policies` |  |
 | `/policies/{policy_id}` |  |
@@ -1001,7 +1014,7 @@ Anchore's API (the committed vendor file) has 247 reads. 19 are landed, 52 are p
 
 **Landed: the collector reads it.**
 
-`/account`, `/ecs-containers`, `/ecs-services`, `/ecs-tasks`, `/images`, `/images/{image_digest}/ancestors`, `/images/{image_digest}/check`, `/images/{image_digest}/sboms/cyclonedx-json`, `/images/{image_digest}/sboms/native-json`, `/images/{image_digest}/sboms/spdx-json`, `/images/{image_digest}/vuln/{vuln_type}`, `/inventories`, `/kubernetes-containers`, `/kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods`, `/status`, `/system`, `/system/feeds`.
+`/account`, `/ecs-containers`, `/ecs-services`, `/ecs-tasks`, `/images`, `/images/{image_digest}/ancestors`, `/images/{image_digest}/check`, `/images/{image_digest}/sboms/cyclonedx-json`, `/images/{image_digest}/sboms/native-json`, `/images/{image_digest}/sboms/spdx-json`, `/images/{image_digest}/vuln-annotations`, `/images/{image_digest}/vuln/{vuln_type}`, `/inventories`, `/kubernetes-containers`, `/kubernetes-namespaces`, `/kubernetes-nodes`, `/kubernetes-pods`, `/status`, `/system`, `/system/feeds`.
 
 **Excluded, by reason.**
 

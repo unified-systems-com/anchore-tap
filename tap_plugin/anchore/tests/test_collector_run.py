@@ -74,9 +74,12 @@ class Instance:
         self.refuse_base: int | None = None
         #: Policy evaluations by (digest, full tag); a tag with none answers 404.
         self.policy: dict[tuple[str, str], object] = {}
+        #: VEX annotation entries by digest; an int answers with that status.
+        self.vex: dict[str, object] = {}
         for digest in (DIGEST, OTHER):
             self.transport.routes[f"/images/{digest}/ancestors"] = self._ancestors(digest)
             self.transport.routes[f"/images/{digest}/check"] = self._check(digest)
+            self.transport.routes[f"/images/{digest}/vuln-annotations"] = self._vex(digest)
             self.transport.routes[f"/images/{digest}/vuln/all"] = self._vulns(digest)
             for fmt in ("native-json", "spdx-json", "cyclonedx-json"):
                 self.transport.routes[f"/images/{digest}/sboms/{fmt}"] = self._sbom(digest, fmt)
@@ -107,6 +110,13 @@ class Instance:
             if digest in self.base and "base_digest=auto" in str(request.url):
                 body["base_digest"] = self.base[digest]
             return response(200, body)
+
+        return answer
+
+    def _vex(self, digest):
+        def answer(request):
+            body = self.vex.get(digest, [])
+            return response(body, {"detail": "boom"}) if isinstance(body, int) else response(200, {"items": body})
 
         return answer
 
@@ -165,7 +175,7 @@ class TestFirstRun:
         assert scanner.scanner_key == KEY and scanner.reported_version == "5.1.0"
         run = AnchoreScanRun.objects.get()
         assert run.scanner_key == KEY and run.selftest_verdict == "pass"
-        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 9 and run.scopes_not_read == []
+        assert run.scopes_read[:2] == ["source:images", f"image:{DIGEST}"] and len(run.scopes_read) == 10 and f"vex:{DIGEST}" in run.scopes_read and run.scopes_not_read == []
         assert run.scopes_read[-3:] == ["source:inventories", "source:ecs-containers", "create:kubernetes"]
         assert run.status == {"version": "5.1.0", "up": True} and isinstance(run.feeds, list)
         found = findings()

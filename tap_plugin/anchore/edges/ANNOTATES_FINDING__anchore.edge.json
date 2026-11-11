@@ -1,0 +1,17 @@
+{
+  "slug": "ANNOTATES_FINDING__anchore",
+  "name": "Annotates Finding",
+  "description": "An Anchore VEX annotation is the statement Anchore attached to this finding: the finding carries the annotation's uuid as Anchore returned it. Written only for a finding read in the same run, on that exact uuid; nothing is matched by vulnerability or package name.",
+  "sources": [
+    "anchore__anchore_vex_annotation"
+  ],
+  "targets": [
+    "anchore__anchore_finding"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "annotation"
+  }
+}

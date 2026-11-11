@@ -1,0 +1,17 @@
+{
+  "slug": "ABOUT_PACKAGE__anchore",
+  "name": "About Package",
+  "description": "An Anchore VEX annotation's package scope names this package. Written only when exactly one package in the scoped image's parsed inventory has the annotation's package name and version; an ambiguous or absent match gets no edge, and Anchore's package type is not translated into an ecosystem.",
+  "sources": [
+    "anchore__anchore_vex_annotation"
+  ],
+  "targets": [
+    "computing_core__package"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "annotation"
+  }
+}
