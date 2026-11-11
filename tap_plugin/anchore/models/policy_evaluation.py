@@ -18,8 +18,10 @@ class AnchorePolicyEvaluation(BaseModel):
     policy. This node is the scanner's verdict as it returned it; it is not interpreted here.
 
     Identity is ``(scanner_key, image_digest, evaluated_tag, policy_id)``. A later evaluation of
-    the same four replaces the fields. An evaluation for a tag the image no longer carries is not
-    removed: absence from a later read is not proof Anchore withdrew it.
+    the same four replaces the fields. A verdict that a later read shows to have been replaced
+    (another policy now answers for the tag, or the image no longer carries the tag) is kept and
+    marked ``superseded``, so a stale pass cannot be read as the current one. A tag whose read
+    merely failed supersedes nothing: not read is not evidence.
 
     Spec: specs/spec-anchore-v0.md (req-anchore-image-policy).
     """
@@ -43,6 +45,7 @@ class AnchorePolicyEvaluation(BaseModel):
         "image_digest": {"type": "string", "minLength": 1},
         "evaluated_tag": {"type": "string", "minLength": 1},
         "policy_id": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "enum": ["current", "superseded"]},
         "status": _STR_OR_NULL,
         "final_action": _STR_OR_NULL,
         "final_action_reason": _STR_OR_NULL,
@@ -67,6 +70,14 @@ class AnchorePolicyEvaluation(BaseModel):
         help_text="The full tag the image was evaluated under: the one asked for, which the response must not contradict. Part of the identity, so bounded to keep the key's index within what PostgreSQL can hold.",
     )
     policy_id = models.CharField(max_length=255, help_text="The id of the policy Anchore evaluated against, as returned. Part of the identity.")
+    state = models.CharField(
+        max_length=16,
+        default="current",
+        help_text=(
+            "current: the verdict Anchore last returned for this image under this tag. superseded: a later read of the image showed the tag gone "
+            "from it, or returned an evaluation against another policy for the tag. A superseded verdict is kept and is not one to rely on."
+        ),
+    )
     status = models.CharField(max_length=16, null=True, blank=True, default=None, help_text="Anchore's status as returned: pass or fail. Null when the evaluation carried none.")
     final_action = models.CharField(max_length=16, null=True, blank=True, default=None, help_text="Anchore's final_action as returned: stop, go or warn.")
     final_action_reason = models.CharField(
@@ -92,6 +103,8 @@ class AnchorePolicyEvaluation(BaseModel):
 
     def get_name(self) -> str:
         verdict = self.status or "unevaluated"
+        if self.state == "superseded":
+            verdict = f"superseded {verdict}"
         return f"{verdict} · {self.evaluated_tag}" if self.evaluated_tag else verdict
 
     def __str__(self) -> str:

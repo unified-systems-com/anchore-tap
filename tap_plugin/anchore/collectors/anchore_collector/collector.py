@@ -143,6 +143,7 @@ class _Scanner:
     policy_evaluations: int = 0
     policy_failures: int = 0
     policy_untagged: int = 0
+    policy_superseded: int = 0
     #: Content digests of the documents whose parsed inventory this scanner staged (not merely recorded).
     inventory_documents: set[str] = field(default_factory=set)
     #: SBOMs parsed into inventory, documents whose inventory was staged, rows staged, and findings joined to a package.
@@ -500,8 +501,8 @@ class AnchoreCollector(CollectorBase):
             not_read.append({"scope": f"image:{gone}", "reason": "no longer in the image list; its findings were left as they were"})
         if out.images_read:
             self.record_info(_SITE_BASE_IMAGE, "BASE_IMAGES", f"{credential.qualified}: Anchore named a base image for {out.images_with_base} of {out.images_read} image(s) read; {out.images_base_refused} were read without the base parameter; {len(out.built_on)} ancestor link(s) written, {out.ancestors_out_of_scope} ancestor(s) outside the repository prefixes not written.", message_data={"images_read": out.images_read, "with_base": out.images_with_base, "base_refused": out.images_base_refused, "ancestor_links": len(out.built_on), "ancestors_out_of_scope": out.ancestors_out_of_scope})
-        if out.policy_evaluations or out.policy_untagged:
-            self.record_info(_SITE_POLICY, "POLICY_EVALUATIONS", f"{credential.qualified}: {out.policy_evaluations} policy evaluation(s) read, {out.policy_failures} failing; {out.policy_untagged} image(s) carry no tag and so have no evaluation.", message_data={"evaluations": out.policy_evaluations, "failing": out.policy_failures, "untagged_images": out.policy_untagged})
+        if out.policy_evaluations or out.policy_untagged or out.policy_superseded:
+            self.record_info(_SITE_POLICY, "POLICY_EVALUATIONS", f"{credential.qualified}: {out.policy_evaluations} policy evaluation(s) read, {out.policy_failures} failing; {out.policy_untagged} image(s) carry no tag and so have no evaluation; {out.policy_superseded} earlier verdict(s) marked superseded.", message_data={"evaluations": out.policy_evaluations, "failing": out.policy_failures, "untagged_images": out.policy_untagged, "superseded": out.policy_superseded})
         if out.sboms_parsed:
             self.record_info(_SITE_SBOM_PARSED, "SBOMS_PARSED", f"{credential.qualified}: {out.sboms_parsed} CycloneDX SBOM(s) parsed as source-authenticated; the inventory of {out.sboms_staged} was written ({len(out.inventory_refs)} row(s)); {out.package_links} finding(s) joined to a package.", message_data={"parsed": out.sboms_parsed, "staged": out.sboms_staged, "rows": len(out.inventory_refs), "package_links": out.package_links})
         if out.hosts_created:
@@ -836,11 +837,14 @@ class AnchoreCollector(CollectorBase):
         if not decompose.OCI_DIGEST.fullmatch(digest):
             return
         tags = decompose.image_tags(image)
+        held = store.current_policy_evaluations(credential.scanner_key, digest)
+        # A verdict under a tag the image record no longer lists has been replaced: the record was read.
+        gone = [row for row in held if row.evaluated_tag not in tags]
         if not tags:
             # Anchore evaluates under a tag, so an image it lists no tag for has no evaluation to read.
             # That is nothing there, not something unread; the run's log gives the count.
             out.policy_untagged += 1
-            return
+        answered: dict[str, str] = {}
         for number, image_tag in enumerate(tags):
             scope = f"policy:{digest}:{image_tag}"
             if deadline is not None and _monotonic() >= deadline:
@@ -859,6 +863,13 @@ class AnchoreCollector(CollectorBase):
             out.edges.append(decompose.edge_to_key(f"{ref}:{number}:image", "EVALUATES_IMAGE__anchore", node["entity"]["ref"], "computing_core__host", decompose.host_key(digest)))
             out.policy_evaluations += 1
             out.policy_failures += node["node"]["status"] == "fail"
+            answered[image_tag] = node["node"]["policy_id"]
+        # A tag that was read and answered under another policy supersedes the verdict held for it. A tag
+        # whose read failed supersedes nothing (req-anchore-image-policy-5).
+        gone += [row for row in held if row.evaluated_tag in answered and row.policy_id != answered[row.evaluated_tag]]
+        for number, row in enumerate(gone):
+            out.nodes.append(decompose.superseded_policy_node(row, f"{ref}:s{number}"))
+            out.policy_superseded += 1
 
     def _image_record(self, credential: Credential, image: dict[str, Any], digest: str, ref: str, out: _Scanner, shared: _Shared) -> None:
         """Stage Anchore's record of an image, and give the image's host its name and operating system.

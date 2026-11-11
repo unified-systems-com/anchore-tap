@@ -98,7 +98,28 @@ class TestEvaluations:
         run_against(monkeypatch, instance)
         instance.policy[(DIGEST, TAG)] = evaluation(policy="policy-2")
         run_against(monkeypatch, instance)
-        assert {e.policy_id for e in AnchorePolicyEvaluation.objects.filter(evaluated_tag=TAG)} == {"policy-1", "policy-2"}
+        assert {e.policy_id: e.state for e in AnchorePolicyEvaluation.objects.filter(evaluated_tag=TAG)} == {"policy-1": "superseded", "policy-2": "current"}
+        old = AnchorePolicyEvaluation.objects.get(evaluated_tag=TAG, policy_id="policy-1")
+        # Kept whole: only the state moved.
+        assert (old.status, old.final_action, old.number_of_findings) == ("fail", "stop", 3) and old.record is not None
+        assert old.get_name().startswith("superseded fail")
+        assert AnchorePolicyEvaluation.objects.get(evaluated_tag=OTHER_TAG).state == "current"
+
+    def test_a_verdict_under_a_tag_the_image_no_longer_carries_is_superseded(self, secrets, monkeypatch):
+        instance = server()
+        run_against(monkeypatch, instance)
+        instance.images = [{**IMAGE, "image_detail": [IMAGE["image_detail"][0]]}]
+        run_against(monkeypatch, instance)
+        assert {e.evaluated_tag: e.state for e in AnchorePolicyEvaluation.objects.all()} == {TAG: "current", OTHER_TAG: "superseded"}
+
+    def test_a_tag_whose_read_fails_supersedes_nothing(self, secrets, monkeypatch):
+        """Not read is not evidence: the verdict held stays current, and the run says the tag was not read."""
+        instance = server()
+        run_against(monkeypatch, instance)
+        instance.policy[(DIGEST, TAG)] = 500
+        run_against(monkeypatch, instance)
+        assert {e.state for e in AnchorePolicyEvaluation.objects.all()} == {"current"}
+        assert f"policy:{DIGEST}:{TAG}" in not_read()
 
 
 @pytest.mark.django_db
@@ -157,7 +178,7 @@ class TestNotRead:
         assert AnchorePolicyEvaluation.objects.count() == 0
         assert not any(scope.startswith("policy:") for scope in not_read())
         (told,) = [m for m in collector.results["info"] if m["message_code"] == "POLICY_EVALUATIONS"]
-        assert told["message_data"] == {"evaluations": 0, "failing": 0, "untagged_images": 1}
+        assert told["message_data"] == {"evaluations": 0, "failing": 0, "untagged_images": 1, "superseded": 0}
 
     def test_an_instance_that_refuses_the_base_parameter_is_asked_again_without_it(self, secrets, monkeypatch):
         instance = server()

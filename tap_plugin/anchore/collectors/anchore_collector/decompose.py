@@ -235,6 +235,7 @@ def policy_evaluation_node(ref: str, scanner_key: str, digest: str, tag: str, bo
         "image_digest": digest,
         "evaluated_tag": tag,
         "policy_id": policy_id,
+        "state": CURRENT,
         "status": text("status", 16),
         "final_action": text("final_action", 16),
         "final_action_reason": text("final_action_reason", 64),
@@ -247,6 +248,17 @@ def policy_evaluation_node(ref: str, scanner_key: str, digest: str, tag: str, bo
         "record": body,
     }
     return envelope(ref, AnchorePolicyEvaluation, f"{fields['status'] or 'unevaluated'} · {tag}", fields)
+
+
+SUPERSEDED = "superseded"
+
+
+def superseded_policy_node(row: AnchorePolicyEvaluation, ref: str) -> dict[str, Any]:
+    """A verdict a later read replaced: every field re-sent as stored, with only the state changed."""
+    fields = {name: getattr(row, name) for name in AnchorePolicyEvaluation.FIELD_CRUD_SCHEMA}
+    fields["state"] = SUPERSEDED
+    fields["evaluation_time"] = row.evaluation_time.isoformat() if row.evaluation_time is not None else None
+    return envelope(ref, AnchorePolicyEvaluation, f"superseded {row.status or 'unevaluated'} · {row.evaluated_tag}", fields)
 
 
 def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, Any]:
