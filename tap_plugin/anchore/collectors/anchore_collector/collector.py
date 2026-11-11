@@ -469,7 +469,7 @@ class AnchoreCollector(CollectorBase):
             out.images_read += 1
             read.append(scope)
             self._ancestors(client, credential, extract, by_id["image_ancestors"], digest, f"{tag}:a{index}", out, shared, read, not_read)
-            self._policy(client, credential, extract, by_id["image_policy_check"], image, digest, run_id, f"{tag}:p{index}", out, read, not_read)
+            self._policy(client, credential, extract, by_id["image_policy_check"], image, digest, run_id, f"{tag}:p{index}", out, read, not_read, deadline)
             self._ensure_host(out, digest, f"{tag}:h{index}", shared)
             self._link_image(out, result.nodes, digest)
             packages = self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
@@ -826,7 +826,7 @@ class AnchoreCollector(CollectorBase):
             self._ensure_host(out, ancestor, f"{ref}:{number}:host", shared)
             out.edges.append(decompose.edge_between_keys(f"{ref}:{number}", "BUILT_ON_IMAGE__anchore", "computing_core__host", decompose.host_key(digest), "computing_core__host", decompose.host_key(ancestor)))
 
-    def _policy(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], source: Source, image: dict[str, Any], digest: str, run_id: str, ref: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]]) -> None:
+    def _policy(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], source: Source, image: dict[str, Any], digest: str, run_id: str, ref: str, out: _Scanner, read: list[str], not_read: list[dict[str, str]], deadline: float | None = None) -> None:
         """Read Anchore's policy evaluation of an image under each tag it carries (req-anchore-image-policy).
 
         Anchore evaluates under a tag, so there is one read per tag. The base image is asked for as it
@@ -843,12 +843,16 @@ class AnchoreCollector(CollectorBase):
             return
         for number, image_tag in enumerate(tags):
             scope = f"policy:{digest}:{image_tag}"
+            if deadline is not None and _monotonic() >= deadline:
+                # An image can carry many tags; the run's limit holds between them as it does between images.
+                not_read.append({"scope": scope, "reason": f"not read: the run reached its {credential.settings.max_run_minutes}-minute limit (limits.max_run_minutes)"})
+                continue
             body, failure = _get_json(client, extract, source, fill(source.path, image_digest=digest), params={"tag": image_tag, "base_digest": "auto"})
             if failure is not None and failure.refused:
                 body, failure = _get_json(client, extract, source, fill(source.path, image_digest=digest), params={"tag": image_tag})
             node = decompose.policy_evaluation_node(f"{ref}:{number}", credential.scanner_key, digest, image_tag, body, run_id) if failure is None and isinstance(body, dict) else None
             if node is None:
-                not_read.append({"scope": scope, "reason": failure.reason if failure is not None else "the response named no policy or held no evaluation"})
+                not_read.append({"scope": scope, "reason": failure.reason if failure is not None else "the response named no policy, held no evaluation, or was for another tag"})
                 continue
             read.append(scope)
             out.nodes.append(node)

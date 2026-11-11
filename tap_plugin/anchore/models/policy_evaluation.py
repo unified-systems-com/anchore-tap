@@ -62,7 +62,10 @@ class AnchorePolicyEvaluation(BaseModel):
 
     scanner_key = models.CharField(max_length=1024, db_index=True, help_text="The scanner that evaluated it (credential.scanner_key).")
     image_digest = models.CharField(max_length=512, help_text="The digest of the image evaluated. Part of the identity.")
-    evaluated_tag = models.CharField(max_length=2048, help_text="The full tag the image was evaluated under, as Anchore returned it. Part of the identity.")
+    evaluated_tag = models.CharField(
+        max_length=512,
+        help_text="The full tag the image was evaluated under: the one asked for, which the response must not contradict. Part of the identity, so bounded to keep the key's index within what PostgreSQL can hold.",
+    )
     policy_id = models.CharField(max_length=255, help_text="The id of the policy Anchore evaluated against, as returned. Part of the identity.")
     status = models.CharField(max_length=16, null=True, blank=True, default=None, help_text="Anchore's status as returned: pass or fail. Null when the evaluation carried none.")
     final_action = models.CharField(max_length=16, null=True, blank=True, default=None, help_text="Anchore's final_action as returned: stop, go or warn.")

@@ -121,6 +121,37 @@ class TestNotRead:
         assert [e.evaluated_tag for e in AnchorePolicyEvaluation.objects.all()] == [OTHER_TAG]
         assert "no policy" in not_read()[f"policy:{DIGEST}:{TAG}"]
 
+    def test_a_response_that_says_it_evaluated_another_tag_is_not_stored_under_this_one(self, secrets, monkeypatch):
+        instance = server()
+        instance.policy[(DIGEST, TAG)] = evaluation(tag=OTHER_TAG)
+        run_against(monkeypatch, instance)
+        assert [e.evaluated_tag for e in AnchorePolicyEvaluation.objects.all()] == [OTHER_TAG]
+        assert "another tag" in not_read()[f"policy:{DIGEST}:{TAG}"]
+
+    def test_a_tag_too_long_to_key_an_evaluation_is_recorded_not_written(self, secrets, monkeypatch):
+        long = "registry.example/app:" + "t" * 600
+        image = {**IMAGE, "image_detail": [{"registry": "registry.example", "repo": "app", "tag": "t" * 600, "full_tag": long}]}
+        instance = Instance(images=[image])
+        instance.policy[(DIGEST, long)] = evaluation(tag=long)
+        run_against(monkeypatch, instance)
+        assert AnchorePolicyEvaluation.objects.count() == 0 and f"policy:{DIGEST}:{long}" in not_read()
+
+    def test_the_run_limit_holds_between_the_tags_of_one_image(self, tmp_path, monkeypatch):
+        import itertools
+
+        from tap_plugin.anchore.collectors.anchore_collector import collector as collector_module
+        from tap_plugin.anchore.tests.test_collector_scope import configure
+
+        configure(tmp_path, monkeypatch, {"running_only": False}, limits={"max_run_minutes": 1})
+        # The clock is read for the deadline, once for the image, then once per tag: 25 s, 50 s, 75 s.
+        ticks = itertools.count(0, 25)
+        monkeypatch.setattr(collector_module, "_monotonic", lambda: float(next(ticks)))
+        instance = server()
+        run_against(monkeypatch, instance)
+        asked = [str(call.url) for call in instance.transport.calls if "/check" in str(call.url)]
+        assert len(asked) == 1 and AnchorePolicyEvaluation.objects.count() == 1
+        assert "1-minute limit" in not_read()[f"policy:{DIGEST}:{OTHER_TAG}"]
+
     def test_an_image_with_no_tag_has_no_evaluation_and_is_not_called_unread(self, secrets, monkeypatch):
         collector = run_against(monkeypatch, Instance())
         assert AnchorePolicyEvaluation.objects.count() == 0
