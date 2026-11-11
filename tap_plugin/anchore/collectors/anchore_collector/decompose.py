@@ -25,6 +25,7 @@ from tap_plugin.computing_core.models.sbom_document import SbomDocument
 from tap_plugin.anchore import scope
 from tap_plugin.anchore.models.finding import AnchoreFinding, package_key_for
 from tap_plugin.anchore.models.image import AnchoreImage
+from tap_plugin.anchore.models.policy_evaluation import AnchorePolicyEvaluation
 from tap_plugin.anchore.models.runtime_image import AnchoreRuntimeImage
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.models.scanner import AnchoreScanner
@@ -190,6 +191,78 @@ def image_naming(image: Any) -> tuple[str | None, str | None]:
     os = " ".join(part for part in (distro, version) if isinstance(part, str) and part) or None
     # A value the host's column cannot hold is not sent: it would fail the batch, and it is in the record.
     return name, os if os is not None and len(os) <= _MAX_HOST_OS else None
+
+
+def image_tags(image: Any) -> list[str]:
+    """Every distinct full tag reference of an image record, sorted."""
+    details = image.get("image_detail") if isinstance(image, dict) else None
+    return sorted({d["full_tag"] for d in details or [] if isinstance(d, dict) and isinstance(d.get("full_tag"), str) and d["full_tag"]})
+
+
+#: The longest tag an evaluation can be keyed by.
+MAX_EVALUATED_TAG = 512
+
+
+def policy_evaluation_node(ref: str, scanner_key: str, digest: str, tag: str, body: dict[str, Any], run_id: str) -> dict[str, Any] | None:
+    """Anchore's verdict on an image under one tag (req-anchore-image-policy-1), or None when the response names no policy, holds no evaluation, or says it evaluated another tag or another image.
+
+    The response's first evaluation is the one stored: without ``history`` Anchore returns the
+    latest. The whole response is kept in ``record``.
+    """
+    policy_id = body.get("policy_id")
+    evaluations = body.get("evaluations")
+    evaluation = evaluations[0] if isinstance(evaluations, list) and evaluations and isinstance(evaluations[0], dict) else None
+    if not isinstance(policy_id, str) or not policy_id or len(policy_id) > 255 or evaluation is None or len(tag) > MAX_EVALUATED_TAG:
+        return None
+    # The verdict is filed under the tag asked for. A response that says it evaluated some other tag
+    # is not a verdict on this one, and policy is tag-sensitive, so it is not stored under it.
+    said = body.get("evaluated_tag")
+    if isinstance(said, str) and said and said != tag:
+        return None
+    # Likewise a response that names another image is not this image's verdict.
+    about = body.get("image_digest")
+    if isinstance(about, str) and about and about != digest:
+        return None
+
+    def text(name: str, limit: int) -> str | None:
+        value = evaluation.get(name)
+        return value if isinstance(value, str) and len(value) <= limit else None
+
+    def flag(name: str) -> bool | None:
+        value = evaluation.get(name)
+        return value if isinstance(value, bool) else None
+
+    count = evaluation.get("number_of_findings")
+    when = scope.parse_time(evaluation.get("evaluation_time"))
+    fields: dict[str, Any] = {
+        "scanner_key": scanner_key,
+        "image_digest": digest,
+        "evaluated_tag": tag,
+        "policy_id": policy_id,
+        "state": CURRENT,
+        "status": text("status", 16),
+        "final_action": text("final_action", 16),
+        "final_action_reason": text("final_action_reason", 64),
+        "number_of_findings": count if isinstance(count, int) and not isinstance(count, bool) and 0 <= count <= 2147483647 else None,
+        "evaluation_time": when.isoformat() if when is not None else None,
+        "comparison_image_digest": text("comparison_image_digest", 512),
+        "image_allowlisted": flag("image_allowlisted"),
+        "image_denylisted": flag("image_denylisted"),
+        "last_seen_run_id": run_id,
+        "record": body,
+    }
+    return envelope(ref, AnchorePolicyEvaluation, f"{fields['status'] or 'unevaluated'} · {tag}", fields)
+
+
+SUPERSEDED = "superseded"
+
+
+def superseded_policy_node(row: AnchorePolicyEvaluation, ref: str) -> dict[str, Any]:
+    """A verdict a later read replaced: every field re-sent as stored, with only the state changed."""
+    fields = {name: getattr(row, name) for name in AnchorePolicyEvaluation.FIELD_CRUD_SCHEMA}
+    fields["state"] = SUPERSEDED
+    fields["evaluation_time"] = row.evaluation_time.isoformat() if row.evaluation_time is not None else None
+    return envelope(ref, AnchorePolicyEvaluation, f"superseded {row.status or 'unevaluated'} · {row.evaluated_tag}", fields)
 
 
 def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, Any]:

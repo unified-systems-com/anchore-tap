@@ -104,6 +104,21 @@
       ]
     },
     {
+      "id": "image_policy_check",
+      "path": "/images/{image_digest}/check",
+      "scope": "image",
+      "required": false,
+      "required_fields": [],
+      "optional_fields": [
+        "policy_id",
+        "evaluated_tag",
+        "evaluations[].status",
+        "evaluations[].final_action",
+        "evaluations[].number_of_findings",
+        "evaluations[].evaluation_time"
+      ]
+    },
+    {
       "id": "sbom_native",
       "path": "/images/{image_digest}/sboms/native-json",
       "scope": "image",

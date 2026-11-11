@@ -80,6 +80,10 @@ class TestRunTimeLimit:
         assert "1-minute limit" in not_read(run)["create:kubernetes"]
         assert not any("/kubernetes-" in str(call.url) for call in instance.transport.calls)
         assert run.settings["limits"] == {"max_response_mib": 64, "max_run_minutes": 1, "max_batch_rows": 5000}
+        # Anchore's record of an image comes from the list already read, so the image left unread still has one.
+        from tap_plugin.anchore.models.image import AnchoreImage
+
+        assert {image.image_digest for image in AnchoreImage.objects.all()} == {DIGEST, OTHER}
 
     def test_an_image_left_unread_keeps_its_findings_as_they_were(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": False}, limits={"max_run_minutes": 1})

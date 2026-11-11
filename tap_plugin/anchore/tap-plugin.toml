@@ -28,6 +28,7 @@ anchore__anchore_scan_run = "tap_plugin.anchore.models.scan_run.AnchoreScanRun"
 anchore__anchore_finding = "tap_plugin.anchore.models.finding.AnchoreFinding"
 anchore__anchore_runtime_image = "tap_plugin.anchore.models.runtime_image.AnchoreRuntimeImage"
 anchore__anchore_image = "tap_plugin.anchore.models.image.AnchoreImage"
+anchore__anchore_policy_evaluation = "tap_plugin.anchore.models.policy_evaluation.AnchorePolicyEvaluation"
 
 [edges]
 RUN_OF_SCANNER__anchore = "edges/RUN_OF_SCANNER__anchore.edge.json"
@@ -39,6 +40,7 @@ OBSERVES_IMAGE__anchore = "edges/OBSERVES_IMAGE__anchore.edge.json"
 BUILT_ON_IMAGE__anchore = "edges/BUILT_ON_IMAGE__anchore.edge.json"
 INDEXES_PLATFORM_IMAGE__anchore = "edges/INDEXES_PLATFORM_IMAGE__anchore.edge.json"
 RECORDS_IMAGE__anchore = "edges/RECORDS_IMAGE__anchore.edge.json"
+EVALUATES_IMAGE__anchore = "edges/EVALUATES_IMAGE__anchore.edge.json"
 
 [[boot.records]]
 name = "ci"

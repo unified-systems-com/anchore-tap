@@ -20,6 +20,7 @@ from tap_plugin.computing_core.models.sbom_document import SbomDocument
 from tap_grid.models import Edge
 from tap_grid.registry import get_model_class
 from tap_plugin.anchore.models.finding import AnchoreFinding
+from tap_plugin.anchore.models.policy_evaluation import AnchorePolicyEvaluation
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 
 
@@ -77,6 +78,11 @@ def natural_key_of(node: dict[str, Any]) -> dict[str, Any] | None:
     if any("." in name or values.get(name) is None for name in fields):
         return None
     return {"entity_type": entity_type, "key": {name: values[name] for name in fields}}
+
+
+def current_policy_evaluations(scanner_key: str, image_digest: str) -> list[AnchorePolicyEvaluation]:
+    """The policy verdicts the grid holds as current for one image of one scanner."""
+    return list(AnchorePolicyEvaluation.objects.filter(scanner_key=scanner_key, image_digest=image_digest, state="current"))
 
 
 def image_host_fields(digest: str) -> dict[str, str] | None:
