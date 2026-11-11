@@ -87,6 +87,32 @@ class TestTheHostsName:
         assert (host().name, host().os) == ("", "")
 
 
+    def test_two_scanners_that_each_know_one_field_give_the_host_both(self, tmp_path, monkeypatch):
+        """Whichever is read first: the tag comes from one instance and the distribution from the other."""
+        import types
+
+        from tap_plugin.anchore.collectors.anchore_collector import collector as collector_module
+        from tap_plugin.anchore.tests.fakes import response
+        from tap_plugin.anchore.tests.test_anchore_credential import data, write
+
+        write(tmp_path, "one", data("basic", base_url="https://one.example:8228/v2"))
+        write(tmp_path, "two", data("basic", base_url="https://two.example:8228/v2"))
+        monkeypatch.setattr(collector_module, "secrets_root", types.SimpleNamespace(resolve=lambda: tmp_path))
+        tagged = {"image_digest": DIGEST, "analysis_status": "analyzed", "image_detail": IMAGE["image_detail"]}
+        with_distro = {"image_digest": DIGEST, "analysis_status": "analyzed", "image_content": IMAGE["image_content"]}
+        server = Instance()
+        server.transport.routes["/images"] = lambda r: response(200, {"items": [tagged if "one.example" in str(r.url) else with_distro]})
+        run_against(monkeypatch, server)
+        assert (host().name, host().os) == ("registry.example/app:1.4", "debian 12")
+        assert Host.objects.filter(stable_id=DIGEST).count() == 1 and AnchoreImage.objects.count() == 2
+
+    def test_an_operating_system_too_long_for_the_host_is_not_sent_and_the_run_lands(self, secrets, monkeypatch):
+        long = {**IMAGE, "image_content": {"metadata": {"distro": "d" * 300, "distro_version": "1"}}}
+        run_against(monkeypatch, Instance(images=[long]))
+        assert (host().name, host().os) == ("registry.example/app:1.4", "")
+        assert AnchoreImage.objects.get().record["image_content"]["metadata"]["distro"] == "d" * 300
+
+
 class TestNaming:
     def test_the_reference_does_not_move_with_the_order_of_the_tags(self):
         flipped = {**IMAGE, "image_detail": list(reversed(IMAGE["image_detail"]))}

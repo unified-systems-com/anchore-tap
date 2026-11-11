@@ -169,6 +169,7 @@ def host_fill(ref: str, digest: str, display: str, name: str | None, os: str | N
 
 
 _MAX_HOST_NAME = 255
+_MAX_HOST_OS = Host._meta.get_field("os").max_length or 255
 
 
 def image_naming(image: Any) -> tuple[str | None, str | None]:
@@ -187,7 +188,8 @@ def image_naming(image: Any) -> tuple[str | None, str | None]:
     distro = metadata.get("distro") if isinstance(metadata, dict) else None
     version = metadata.get("distro_version") if isinstance(metadata, dict) else None
     os = " ".join(part for part in (distro, version) if isinstance(part, str) and part) or None
-    return name, os
+    # A value the host's column cannot hold is not sent: it would fail the batch, and it is in the record.
+    return name, os if os is not None and len(os) <= _MAX_HOST_OS else None
 
 
 def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, Any]:

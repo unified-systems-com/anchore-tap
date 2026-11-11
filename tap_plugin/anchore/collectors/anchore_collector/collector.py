@@ -134,8 +134,9 @@ class _Scanner:
     built_on: set[tuple[str, str]] = field(default_factory=set)
     #: Batch refs of the inventory rows (packages, libraries, operating systems, their edges) staged from parsed SBOMs.
     inventory_refs: set[str] = field(default_factory=set)
-    #: Image hosts on the grid this scanner staged a name or operating system for, and the image records it staged.
-    host_fills: set[str] = field(default_factory=set)
+    #: The one row this scanner staged for each image host (a new host, or a fill of one the grid holds), with
+    #: whether the host has a name and an operating system once it is written; and the image records staged.
+    staged_hosts: dict[str, dict[str, Any]] = field(default_factory=dict)
     image_records: int = 0
     #: Content digests of the documents whose parsed inventory this scanner staged (not merely recorded).
     inventory_documents: set[str] = field(default_factory=set)
@@ -175,7 +176,7 @@ class _Shared:
     platform_of: set[tuple[str, str]] = field(default_factory=set)
     inventory_refs: set[str] = field(default_factory=set)
     inventory_documents: set[str] = field(default_factory=set)
-    host_fills: set[str] = field(default_factory=set)
+    staged_hosts: dict[str, dict[str, Any]] = field(default_factory=dict)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
 
@@ -190,7 +191,7 @@ class _Shared:
         self.platform_of |= scanner.platform_of
         self.inventory_refs |= scanner.inventory_refs
         self.inventory_documents |= scanner.inventory_documents
-        self.host_fills |= scanner.host_fills
+        self.staged_hosts.update(scanner.staged_hosts)
 
 
 #: The clock the run time limit is measured on; a test replaces it.
@@ -829,20 +830,31 @@ class AnchoreCollector(CollectorBase):
         if not decompose.OCI_DIGEST.fullmatch(digest):
             return
         name, os = decompose.image_naming(image)
-        self._ensure_host(out, digest, f"{ref}:host", shared, name, os, count_unlinked=False)
+        self._ensure_host(out, digest, f"{ref}:host", shared, count_unlinked=False)
         out.edges.append(decompose.edge_to_key(f"{ref}:image", "RECORDS_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
-        if digest in out.hosts or digest in shared.hosts or digest in out.host_fills or digest in shared.host_fills or not (name or os):
+        if not (name or os):
             return
-        held = store.image_host_fields(digest)
-        if held is None:
-            return
-        # WORKAROUND(unified-systems-com/tap#1172): tap has no write that yields to a value already
-        # held, so the host is read and only the fields it lacks are sent. A collector that fills the
-        # same field between this read and the write is overwritten.
-        fill_name, fill_os = (name if not held["name"] else None), (os if not held["os"] else None)
-        if fill_name or fill_os:
-            out.host_fills.add(digest)
-            out.nodes.append(decompose.host_fill(f"{ref}:fill", digest, fill_name or held["name"] or digest, fill_name, fill_os))
+        # One staged row per host per batch, whichever scanner or step staged it: what this record
+        # adds is put on that row, so two scanners that each know one of the two fields give the host both.
+        staged = out.staged_hosts.get(digest) or shared.staged_hosts.get(digest)
+        if staged is None:
+            held = store.image_host_fields(digest)
+            if held is None:
+                return
+            # WORKAROUND(unified-systems-com/tap#1172): tap has no write that yields to a value already
+            # held, so the host is read and only the fields it lacks are sent. A collector that fills the
+            # same field between this read and the write is overwritten.
+            if (not name or held["name"]) and (not os or held["os"]):
+                return
+            staged = {"node": decompose.host_fill(f"{ref}:fill", digest, held["name"] or digest, None, None), "name": bool(held["name"]), "os": bool(held["os"])}
+            out.staged_hosts[digest] = staged
+            out.nodes.append(staged["node"])
+        if name and not staged["name"]:
+            staged["node"]["node"]["name"] = staged["node"]["entity"]["name"] = name
+            staged["name"] = True
+        if os and not staged["os"]:
+            staged["node"]["node"]["os"] = os
+            staged["os"] = True
 
     def _ensure_host(self, out: _Scanner, digest: str, host_ref: str, shared: _Shared, name: str | None = None, os: str | None = None, count_unlinked: bool = True) -> None:
         """Stage the image host for a digest only where neither this batch nor the grid has one.
@@ -854,7 +866,9 @@ class AnchoreCollector(CollectorBase):
             out.unlinked_images += count_unlinked
             return
         if digest not in shared.hosts and digest not in out.hosts and not store.image_host_exists(digest):
-            out.nodes.append(decompose.host_node(host_ref, digest, name, os))
+            node = decompose.host_node(host_ref, digest, name, os)
+            out.nodes.append(node)
+            out.staged_hosts[digest] = {"node": node, "name": bool(name), "os": bool(os)}
             out.hosts.add(digest)
             out.hosts_created += 1
 
