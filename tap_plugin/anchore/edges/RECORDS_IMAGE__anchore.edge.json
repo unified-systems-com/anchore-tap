@@ -1,0 +1,17 @@
+{
+  "slug": "RECORDS_IMAGE__anchore",
+  "name": "Records Image",
+  "description": "Anchore's record of an image concerns the image host with that digest. Written only when the digest can name an image host.",
+  "sources": [
+    "anchore__anchore_image"
+  ],
+  "targets": [
+    "computing_core__host"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "image"
+  }
+}

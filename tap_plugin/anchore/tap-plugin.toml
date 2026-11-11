@@ -27,6 +27,7 @@ anchore__anchore_scanner = "tap_plugin.anchore.models.scanner.AnchoreScanner"
 anchore__anchore_scan_run = "tap_plugin.anchore.models.scan_run.AnchoreScanRun"
 anchore__anchore_finding = "tap_plugin.anchore.models.finding.AnchoreFinding"
 anchore__anchore_runtime_image = "tap_plugin.anchore.models.runtime_image.AnchoreRuntimeImage"
+anchore__anchore_image = "tap_plugin.anchore.models.image.AnchoreImage"
 
 [edges]
 RUN_OF_SCANNER__anchore = "edges/RUN_OF_SCANNER__anchore.edge.json"
@@ -37,6 +38,7 @@ ABOUT_VULNERABILITY__anchore = "edges/ABOUT_VULNERABILITY__anchore.edge.json"
 OBSERVES_IMAGE__anchore = "edges/OBSERVES_IMAGE__anchore.edge.json"
 BUILT_ON_IMAGE__anchore = "edges/BUILT_ON_IMAGE__anchore.edge.json"
 INDEXES_PLATFORM_IMAGE__anchore = "edges/INDEXES_PLATFORM_IMAGE__anchore.edge.json"
+RECORDS_IMAGE__anchore = "edges/RECORDS_IMAGE__anchore.edge.json"
 
 [[boot.records]]
 name = "ci"
