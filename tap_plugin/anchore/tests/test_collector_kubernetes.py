@@ -22,7 +22,7 @@ TYPES = {kind: f"computing_core__kubernetes_{kind}" for kind in ("cluster", "nam
 
 
 def namespace(uid: str, name: str) -> dict:
-    return {"uid": uid, "name": name, "labels": {"team": "platform"}, "annotations": {"secret-ish": "do-not-store"}}
+    return {"uid": uid, "name": name, "labels": {"team": "platform"}, "annotations": {"owner": "platform"}}
 
 
 def node(uid: str = "node-1", name: str = "ip-10-0-1-2") -> dict:
@@ -90,13 +90,53 @@ class TestKubernetes:
         runs = {(e.from_entity.name, e.to_entity_id) for e in Edge.objects.filter(edge_type="RUNS_IMAGE__computing_core")}
         assert runs == {("web", Host.objects.get(realm="oci-digest", stable_id=DIGEST).entity_id), ("coredns", Host.objects.get(realm="oci-digest", stable_id=OTHER).entity_id)}
 
-    def test_no_annotation_is_stored_anywhere(self, tmp_path, monkeypatch):
+    def test_annotations_are_stored_as_reported(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True})
-        run_against(monkeypatch, cluster())
-        for kind in TYPES:
-            model = get_model_class(TYPES[kind])
-            assert "annotations" not in model.FIELD_CRUD_SCHEMA
+        instance = cluster()
+        wrapper, pods = instance.kubernetes["pods"]
+        pods[0]["annotations"] = {"prometheus.io/scrape": "true"}
+        run_against(monkeypatch, instance)
+        assert all(n.annotations == {"owner": "platform"} for n in all_of("namespace"))
+        assert [n.annotations for n in all_of("node")] == [{}]
+        assert get_model_class(TYPES["pod"]).objects.get(uid="p1").annotations == {"prometheus.io/scrape": "true"}
+        assert get_model_class(TYPES["pod"]).objects.get(uid="p-dns").annotations == {}
         assert all(n.labels == {"team": "platform"} for n in all_of("namespace"))
+        assert not [scope for scope in not_read(latest_run()) if "annotations" in scope]
+
+    def test_the_applied_manifest_annotation_is_left_out_and_the_run_names_the_key(self, tmp_path, monkeypatch):
+        configure(tmp_path, monkeypatch, {"running_only": True})
+        instance = cluster()
+        wrapper, pods = instance.kubernetes["pods"]
+        pods[0]["annotations"] = {"owner": "web", "kubectl.kubernetes.io/last-applied-configuration": '{"env":[{"name":"DB_PASSWORD","value":"hunter2"}]}'}
+        run_against(monkeypatch, instance)
+        assert get_model_class(TYPES["pod"]).objects.get(uid="p1").annotations == {"owner": "web"}
+        reason = not_read(latest_run())["create:kubernetes:annotations:excluded"]
+        assert "kubectl.kubernetes.io/last-applied-configuration" in reason and reason.startswith("1 annotation(s)")
+        assert "hunter2" not in json.dumps(latest_run().scopes_not_read)
+
+    def test_an_operator_can_exclude_further_keys(self, tmp_path, monkeypatch):
+        configure(tmp_path, monkeypatch, {"running_only": True}, annotation_excluded_keys=["owner"])
+        run_against(monkeypatch, cluster())
+        assert all(n.annotations == {} for n in all_of("namespace"))
+        assert not_read(latest_run())["create:kubernetes:annotations:excluded"].startswith("2 annotation(s)")
+
+    def test_a_record_with_no_annotation_map_leaves_the_stored_one(self, tmp_path, monkeypatch):
+        configure(tmp_path, monkeypatch, {"running_only": True})
+        instance = cluster()
+        run_against(monkeypatch, instance)
+        wrapper, namespaces = instance.kubernetes["namespaces"]
+        instance.kubernetes["namespaces"] = (wrapper, [{k: v for k, v in n.items() if k != "annotations"} for n in namespaces])
+        run_against(monkeypatch, instance)
+        assert all(n.annotations == {"owner": "platform"} for n in all_of("namespace"))
+
+    def test_the_old_allowlist_setting_is_refused(self, tmp_path, monkeypatch):
+        """An envelope written for the allowlist would now store every key, so it is refused, not reinterpreted."""
+        from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollectorError
+
+        configure(tmp_path, monkeypatch, {"running_only": True}, annotation_allowlist=["owner"])
+        with pytest.raises(AnchoreCollectorError, match="no usable credential"):
+            run_against(monkeypatch, cluster())
+        assert [len(all_of(kind)) for kind in TYPES] == [0, 0, 0, 0, 0]
 
     def test_without_kube_system_the_cluster_is_keyed_to_the_scanner(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True})

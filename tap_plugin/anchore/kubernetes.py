@@ -72,6 +72,21 @@ def _labels(value: Any) -> dict[str, str] | None:
     return None
 
 
+def _annotated(fields: dict[str, Any], kind: str, record: Mapping[str, Any], excluded: frozenset[str] | None, left_out: set[tuple[str, str, str]]) -> dict[str, Any]:
+    """``fields`` with the record's annotation map added, less the excluded keys (req-anchore-inventory-kubernetes-5).
+
+    Every annotation is kept except a key on ``excluded``; each key left out is noted in
+    ``left_out`` by object and key, never by value. No map is added when ``excluded`` is None (the
+    installed computing_core stores no annotation) or when the record carried no map of strings,
+    so a stored map is kept and the field is not claimed as observed.
+    """
+    value = record.get("annotations")
+    if excluded is None or not (isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())):
+        return fields
+    left_out.update((kind, fields["uid"], key) for key in value if key in excluded)
+    return {**fields, "annotations": {key: text for key, text in value.items() if key not in excluded}}
+
+
 def cluster_of(context: Any) -> str | None:
     """The cluster name in a container's context: the text before its first slash."""
     if not isinstance(context, str):
@@ -103,6 +118,8 @@ class Plan:
     unusable: int = 0
     #: Clusters whose kube-system namespace was not reported, or was ambiguous, so the fallback realm was used.
     fallback_clusters: int = 0
+    #: (kind, uid, annotation key) for each annotation left out of a written object because its key is excluded.
+    annotations_left_out: set[tuple[str, str, str]] = field(default_factory=set)
 
 
 def kube_system_uids(containers: Iterable[Mapping[str, Any]], pods: Mapping[str, Mapping[str, Any]], namespaces: Mapping[str, Mapping[str, Any]]) -> dict[str, set[str]]:
@@ -155,6 +172,7 @@ def plan(
     settings: Settings,
     now: datetime,
     scanner_key: str,
+    excluded_annotations: frozenset[str] | None = None,
 ) -> Plan:
     """The Kubernetes objects and edges to write for the containers that are in scope and running.
 
@@ -162,6 +180,8 @@ def plan(
     with a listed prefix (an AWS account selector selects no Kubernetes container). Running: the
     container's pod was seen within the window. ``repository_prefixes`` narrows both: a
     container whose image reference is outside them is out of scope and nothing is written for it.
+
+    ``excluded_annotations`` is the set of annotation keys never written; None writes no annotation.
     """
     out = Plan()
     containers = [c for c in containers if isinstance(c, Mapping)]
@@ -193,7 +213,7 @@ def plan(
         digest = container.get("image_digest")
         if isinstance(digest, str) and DIGEST.fullmatch(digest):
             out.images[key] = digest
-        out.pods[pod_uid] = {"uid": pod_uid, "name": _text(pod.get("name"), _MAX_NAME) or "", "labels": _labels(pod.get("labels"))}
+        out.pods[pod_uid] = _annotated({"uid": pod_uid, "name": _text(pod.get("name"), _MAX_NAME) or "", "labels": _labels(pod.get("labels"))}, "pod", pod, excluded_annotations, out.annotations_left_out)
         edges.add(("RUNS_CONTAINER", "pod", pod_uid, "container", key))
         cluster_id = cluster_key(cluster, system.get(cluster), scanner_key)
         if cluster_id is not None:
@@ -203,14 +223,14 @@ def plan(
         namespace_uid = _text(_ident(pod, "namespace_id", "namespace_uid"), _MAX_UID)
         if namespace_uid is not None and namespace_uid in namespace_by_uid:
             record = namespace_by_uid[namespace_uid]
-            out.namespaces[namespace_uid] = {"uid": namespace_uid, "name": _text(record.get("name"), _MAX_NAME) or "", "labels": _labels(record.get("labels"))}
+            out.namespaces[namespace_uid] = _annotated({"uid": namespace_uid, "name": _text(record.get("name"), _MAX_NAME) or "", "labels": _labels(record.get("labels"))}, "namespace", record, excluded_annotations, out.annotations_left_out)
             edges.add(("CONTAINS_POD", "namespace", namespace_uid, "pod", pod_uid))
             if cluster_id is not None:
                 edges.add(("CONTAINS_NAMESPACE", "cluster", cluster_id, "namespace", namespace_uid))
         node_uid = _text(_ident(pod, "node_id", "node_uid"), _MAX_UID)
         if node_uid is not None and node_uid in node_by_uid:
             record = node_by_uid[node_uid]
-            out.nodes[node_uid] = {"uid": node_uid, "name": _text(record.get("name"), _MAX_NAME) or "", "labels": _labels(record.get("labels"))}
+            out.nodes[node_uid] = _annotated({"uid": node_uid, "name": _text(record.get("name"), _MAX_NAME) or "", "labels": _labels(record.get("labels"))}, "node", record, excluded_annotations, out.annotations_left_out)
             edges.add(("SCHEDULED_ON_NODE", "pod", pod_uid, "node", node_uid))
             if cluster_id is not None:
                 edges.add(("REGISTERS_NODE", "cluster", cluster_id, "node", node_uid))

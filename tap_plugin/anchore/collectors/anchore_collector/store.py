@@ -186,6 +186,19 @@ def host_exists(realm: str, stable_id: str) -> bool:
     return Host.objects.filter(realm=realm, stable_id=stable_id).exists()
 
 
+def refused_annotation_keys() -> frozenset[str] | None:
+    """The annotation keys computing_core refuses on write, or None when the installed one stores no annotation.
+
+    The list is computing_core's (req-computing-core-kubernetes-10); a write carrying one of its
+    keys is refused whole, so they are left out before the write rather than sent and lost.
+    """
+    try:
+        from tap_plugin.computing_core.models.kubernetes_namespace import MANIFEST_ANNOTATION_KEYS
+    except ImportError:
+        return None
+    return frozenset(MANIFEST_ANNOTATION_KEYS)
+
+
 def types_installed(entity_types: list[str]) -> bool:
     """Whether every one of these types is registered: a computing_core older than its Kubernetes types has none."""
     try:

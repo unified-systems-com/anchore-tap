@@ -122,7 +122,7 @@ class Credential:
     account: str
     scheme: str
     ca_bundle: str | None
-    annotation_allowlist: tuple[str, ...]
+    annotation_excluded_keys: tuple[str, ...]
     scanner_key: str
     settings: Settings
     auth: Auth = field(repr=False)
@@ -234,7 +234,7 @@ def credential_from_envelope(envelope: SecretEnvelope) -> Credential:
         account=data["account"],
         scheme=scheme,
         ca_bundle=data.get("ca_bundle"),
-        annotation_allowlist=tuple(data.get("annotation_allowlist", ())),
+        annotation_excluded_keys=tuple(data.get("annotation_excluded_keys", ())),
         scanner_key=scanner_key(root, data["account"]),
         settings=Settings.from_data(data),
         auth=auth,
