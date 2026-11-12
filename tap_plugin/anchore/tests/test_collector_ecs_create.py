@@ -85,7 +85,7 @@ class TestCreate:
         run_against(monkeypatch, standard())
         for kind in TYPES:
             (made,) = nodes(kind)
-            assert Entity.objects.get(pk=made.entity_id).dimensions == {"tap.cloud": "aws", "cloud": "aws", "aws_account": ACCOUNT, "aws_region": REGION}, kind
+            assert Entity.objects.get(pk=made.entity_id).dimensions == {"tap.cloud": "aws", "aws_account": ACCOUNT, "aws_region": REGION}, kind
 
     def test_the_owners_edges_and_the_image_edge_are_drawn(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True}, **CREATE)

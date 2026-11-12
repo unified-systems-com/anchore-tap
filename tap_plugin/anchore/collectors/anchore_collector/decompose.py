@@ -151,10 +151,11 @@ def provider_node(ref: str, entity_type: str, name: str, fields: dict[str, Any],
     """A node of a provider's type, created because the grid had none (req-anchore-shared, rule 8).
 
     It carries the dimensions the provider's own collector stamps, so it does not look foreign:
-    the model's defaults, and ``cloud``, ``aws_region`` and ``aws_account`` read from the ARN.
+    the model's defaults (``tap.cloud`` among them), and ``aws_region`` and ``aws_account`` read from
+    the ARN. The older ``cloud`` key duplicated ``tap.cloud`` and is retired; it is not stamped.
     It never carries an Anchore dimension.
     """
-    dimensions = {**default_dimensions, "cloud": "aws", "aws_region": arn.region, "aws_account": arn.account}
+    dimensions = {**default_dimensions, "aws_region": arn.region, "aws_account": arn.account}
     return {"entity": {"ref": ref, "entity_type": entity_type, "name": name[:255], "dimensions": dimensions}, "node": fields}
 
 
