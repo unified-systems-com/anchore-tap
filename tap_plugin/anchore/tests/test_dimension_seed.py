@@ -109,8 +109,8 @@ class TestInstanceDimension:
 class TestDocumentGuard:
     """The check at the run's one exit: it holds whichever function built a node."""
 
-    def node(self, entity_type: str, dimensions: dict) -> dict:
-        return {"entity": {"ref": "r", "entity_type": entity_type, "name": "n", "dimensions": dimensions}, "node": {}}
+    def node(self, entity_type: str, dimensions: dict, **fields) -> dict:
+        return {"entity": {"ref": "r", "entity_type": entity_type, "name": "n", "dimensions": dimensions}, "node": fields}
 
     def document(self, *nodes):
         from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollector
@@ -118,7 +118,7 @@ class TestDocumentGuard:
         return AnchoreCollector._document([(list(nodes), [])], ["k"])
 
     def test_a_well_formed_document_passes(self):
-        doc = self.document(self.node("anchore__anchore_finding", {"anchore.area": "finding", "anchore.instance": "k"}), self.node("computing_core__host", {"tap.computing": "runtime"}))
+        doc = self.document(self.node("anchore__anchore_finding", {"anchore.area": "finding", "anchore.instance": "k"}, scanner_key="k"), self.node("computing_core__host", {"tap.computing": "runtime"}))
         assert len(doc["batches"][0]["nodes"]) == 2
 
     def test_an_own_node_built_some_other_way_without_the_instance_stops_the_run(self):
@@ -132,3 +132,16 @@ class TestDocumentGuard:
 
         with pytest.raises(AnchoreCollectorError, match="carries anchore.instance"):
             self.document(self.node("computing_core__host", {"anchore.instance": "k"}))
+
+    @pytest.mark.parametrize("dimension, fields", [("other", {"scanner_key": "k"}), ("k", {}), ("", {"scanner_key": ""})])
+    def test_an_own_node_scoped_to_anything_but_its_own_scanner_key_stops_the_run(self, dimension, fields):
+        from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollectorError
+
+        with pytest.raises(AnchoreCollectorError, match="not its own scanner key"):
+            self.document(self.node("anchore__anchore_finding", {"anchore.instance": dimension}, **fields))
+
+    def test_a_shared_node_with_the_key_present_but_empty_stops_the_run(self):
+        from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollectorError
+
+        with pytest.raises(AnchoreCollectorError, match="carries anchore.instance"):
+            self.document(self.node("computing_core__host", {"anchore.instance": ""}))
