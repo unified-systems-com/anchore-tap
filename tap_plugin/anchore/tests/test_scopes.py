@@ -103,6 +103,17 @@ class TestStamp:
         scopes.stamp(nodes, edges, scopes.ALL, lambda entity_type, values: None, host_key)
         assert all(d == {} for d in dimensions(nodes).values())
 
+    @pytest.mark.parametrize("declared, composer", [(set(), compose), (scopes.ALL, lambda entity_type, values: None)])
+    def test_a_scope_a_builder_left_behind_is_dropped_when_this_does_not_stamp_it(self, declared, composer):
+        nodes, edges = staged()
+        by_ref = {n["entity"]["ref"]: n for n in nodes}
+        by_ref["f"]["entity"]["dimensions"][scopes.HOST] = "stale"
+        by_ref["fs"]["entity"]["dimensions"][scopes.HOST] = "stale"
+        by_ref["orphan"]["entity"]["dimensions"].update({scopes.NAMESPACE: "stale", scopes.CLUSTER: "stale"})
+        scopes.stamp(nodes, edges, declared, composer, host_key)
+        got = dimensions(nodes)
+        assert got["f"] == got["fs"] == got["orphan"] == {}
+
     @pytest.mark.parametrize("value", ["latest", "sha256:not-a-digest", "sha256:" + "a" * 63, "sha256:" + "A" * 64, "sha256:" + "a" * 64 + "\n", None, 7])
     def test_anything_but_a_whole_digest_names_no_image(self, value):
         assert scopes.image_digest_of(node("f", "anchore__anchore_finding", target_kind="image", target_key=value)) is None

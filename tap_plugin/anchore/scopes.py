@@ -69,6 +69,17 @@ def stamp(nodes: Iterable[dict[str, Any]], edges: Iterable[Mapping[str, Any]], d
             node["entity"]["dimensions"][key] = value
             counts[key] += 1
 
+    # This function is the only source of these keys on the nodes it governs: whatever a builder
+    # left there is dropped first, so a scope it does not stamp is absent and never stale.
+    kubernetes_types = (NAMESPACE_TYPE, POD_TYPE, CONTAINER_TYPE)
+    for node in nodes:
+        entity_type, held = node["entity"]["entity_type"], node["entity"]["dimensions"]
+        if entity_type.startswith(OWN_TYPE_PREFIX):
+            held.pop(HOST, None)
+        elif entity_type in kubernetes_types:
+            held.pop(NAMESPACE, None)
+            held.pop(CLUSTER, None)
+
     for node in nodes:
         if node["entity"]["entity_type"].startswith(OWN_TYPE_PREFIX):
             digest = image_digest_of(node)
