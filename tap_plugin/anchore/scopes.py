@@ -12,6 +12,7 @@ it is declared on the grid, since a key with no Dimension node is refused; one t
 declared is left off, which the grid reads as unasserted.
 """
 
+import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
@@ -27,7 +28,8 @@ POD_TYPE = "computing_core__kubernetes_pod"
 CONTAINER_TYPE = "computing_core__kubernetes_container"
 
 OWN_TYPE_PREFIX = "anchore__"
-IMAGE_SCHEME = "oci-digest"
+#: A whole image digest. Anything else names no image host, so it scopes nothing.
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 #: Composes a type's natural key from field values, or None when it cannot (a hole, an older grid).
 Compose = Callable[[str, Mapping[str, Any]], str | None]
@@ -49,7 +51,7 @@ def image_digest_of(node: Mapping[str, Any]) -> str | None:
         digest = fields.get("image_digest")
     else:
         digest = None
-    return digest if isinstance(digest, str) and digest.startswith("sha256:") else None
+    return digest if isinstance(digest, str) and _DIGEST.fullmatch(digest) else None
 
 
 def stamp(nodes: Iterable[dict[str, Any]], edges: Iterable[Mapping[str, Any]], declared: frozenset[str] | set[str], compose: Compose, host_key: Callable[[str], Mapping[str, Any]]) -> dict[str, int]:

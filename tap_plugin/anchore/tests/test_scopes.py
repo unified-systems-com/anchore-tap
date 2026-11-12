@@ -103,8 +103,17 @@ class TestStamp:
         scopes.stamp(nodes, edges, scopes.ALL, lambda entity_type, values: None, host_key)
         assert all(d == {} for d in dimensions(nodes).values())
 
-    def test_a_malformed_digest_names_no_image(self):
-        assert scopes.image_digest_of(node("f", "anchore__anchore_finding", target_kind="image", target_key="latest")) is None
+    @pytest.mark.parametrize("value", ["latest", "sha256:not-a-digest", "sha256:" + "a" * 63, "sha256:" + "A" * 64, "sha256:" + "a" * 64 + "\n", None, 7])
+    def test_anything_but_a_whole_digest_names_no_image(self, value):
+        assert scopes.image_digest_of(node("f", "anchore__anchore_finding", target_kind="image", target_key=value)) is None
+
+
+def needs_spine_keys():
+    """Skip on a grid older than the spine natural key: it composes nothing, so there is nothing to compare."""
+    import tap_grid.natural_key as natural_key
+
+    if not hasattr(natural_key, "compose_natural_key"):
+        pytest.skip("this grid has no compose_natural_key; scope values cannot be composed on it")
 
 
 @pytest.mark.django_db
@@ -130,6 +139,7 @@ class TestAgainstTheGrid:
         from tap_plugin.anchore.tests.test_collector_run import DIGEST, Instance, run_against
         from tap_plugin.anchore.tests.test_collector_scope import configure
 
+        needs_spine_keys()
         self.declare(*scopes.ALL)
         configure(tmp_path, monkeypatch, {"running_only": False})
         run_against(monkeypatch, Instance())
@@ -148,6 +158,7 @@ class TestAgainstTheGrid:
         from tap_plugin.anchore.tests.test_collector_run import run_against
         from tap_plugin.anchore.tests.test_collector_scope import configure
 
+        needs_spine_keys()
         self.declare(*scopes.ALL)
         configure(tmp_path, monkeypatch, {"running_only": True})
         run_against(monkeypatch, cluster())
@@ -171,3 +182,19 @@ class TestAgainstTheGrid:
         assert not [e for e in Entity.objects.all() if scopes.ALL & set(e.dimensions)]
         (said,) = [m for m in collector.results["info"] if m["message_code"] == "SCOPE_DIMENSIONS"]
         assert said["message_data"]["not_declared"] == sorted(scopes.ALL)
+
+    def test_on_a_grid_that_cannot_compose_a_key_nothing_is_stamped_though_all_are_declared(self, tmp_path, monkeypatch):
+        """The older-grid path, forced: every dimension declared, no composer."""
+        from tap_grid.models import Entity
+        from tap_plugin.anchore import keys
+        from tap_plugin.anchore.tests.test_collector_kubernetes import cluster
+        from tap_plugin.anchore.tests.test_collector_run import run_against
+        from tap_plugin.anchore.tests.test_collector_scope import configure
+
+        self.declare(*scopes.ALL)
+        monkeypatch.setattr(keys, "spine_key", lambda model, values: None)
+        configure(tmp_path, monkeypatch, {"running_only": True})
+        collector = run_against(monkeypatch, cluster())
+        assert not [e for e in Entity.objects.exclude(entity_type="dimension") if scopes.ALL & set(e.dimensions)]
+        (said,) = [m for m in collector.results["info"] if m["message_code"] == "SCOPE_DIMENSIONS"]
+        assert set(said["message_data"]["stamped"].values()) == {0} and said["message_data"]["not_declared"] == []
