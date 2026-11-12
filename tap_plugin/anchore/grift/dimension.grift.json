@@ -30,6 +30,20 @@
             "name": "anchore.area",
             "description": "Which part of Anchore an entity belongs to: image, finding, policy, run, runtime, annotation or inventory."
           }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1d123-7220-76d4-951d-42397e4837aa",
+            "entity_type": "dimension",
+            "name": "anchore.instance",
+            "dimensions": {
+              "tap.meta": "dimension"
+            }
+          },
+          "node": {
+            "name": "anchore.instance",
+            "description": "Which Anchore instance and account an Anchore-owned entity was read from. The value is the scanner key: the instance's canonical API root and the account, as a compact JSON array. Open: one value per instance and account. Stamped only on this plugin's own node types, never on a shared one."
+          }
         }
       ],
       "edges": []

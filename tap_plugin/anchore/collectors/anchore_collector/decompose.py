@@ -80,9 +80,18 @@ def _fit(model: type[dj_models.Model], name: str, value: Any, schema: dict[str, 
     return value, None
 
 
+#: The dimension that scopes an Anchore-owned node to the instance and account it was read from
+#: (req-anchore-dimensions-2). Its value is the node's scanner key.
+INSTANCE_DIMENSION = "anchore.instance"
+
+
 def envelope(ref: str, model: Any, name: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """A node of one of this plugin's own types, with the type's dimensions and the instance it came from."""
+    dimensions = dict(model.DEFAULT_DIMENSIONS)
+    if isinstance(fields.get("scanner_key"), str) and fields["scanner_key"]:
+        dimensions[INSTANCE_DIMENSION] = fields["scanner_key"]
     return {
-        "entity": {"ref": ref, "entity_type": model.ENTITY_TYPE, "name": name[:255] or model.ENTITY_NAME, "dimensions": dict(model.DEFAULT_DIMENSIONS)},
+        "entity": {"ref": ref, "entity_type": model.ENTITY_TYPE, "name": name[:255] or model.ENTITY_NAME, "dimensions": dimensions},
         "node": fields,
     }
 

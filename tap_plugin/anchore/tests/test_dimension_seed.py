@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import tap_plugin.anchore.models as anchore
+from tap_plugin.anchore.collectors.anchore_collector.decompose import INSTANCE_DIMENSION
 
 ROOT = Path(__file__).resolve().parent.parent
 SEED = ROOT / "grift" / "dimension.grift.json"
@@ -34,14 +35,20 @@ def _declared() -> dict[str, set[str]]:
 
 
 def test_every_declared_key_has_a_dimension_node() -> None:
-    assert {n["node"]["name"] for n in _dimension_nodes()} == set(_declared()) == {"anchore.area"}
+    """The keys the types declare, and the one the collector stamps per node."""
+    assert set(_declared()) == {"anchore.area"}
+    assert {n["node"]["name"] for n in _dimension_nodes()} == set(_declared()) | {INSTANCE_DIMENSION}
 
 
 def test_the_node_has_its_fixed_id_and_names_every_value_in_use() -> None:
-    (node,) = _dimension_nodes()
+    nodes = {n["node"]["name"]: n for n in _dimension_nodes()}
+    for each in nodes.values():
+        assert each["entity"]["name"] == each["node"]["name"]
+        assert each["entity"]["dimensions"] == {"tap.meta": "dimension"}
+        assert each["entity"]["entity_id"] and each["node"]["description"].strip()
+    assert len({n["entity"]["entity_id"] for n in nodes.values()}) == len(nodes)
+    node = nodes["anchore.area"]
     assert node["entity"]["entity_id"] == AREA_ID
-    assert node["entity"]["name"] == node["node"]["name"]
-    assert node["entity"]["dimensions"] == {"tap.meta": "dimension"}
     # Whole words, so "runtime" does not stand in for "run".
     described = set(re.findall(r"[a-z_]+", node["node"]["description"]))
     assert _declared()["anchore.area"] <= described, described
@@ -52,3 +59,21 @@ def test_the_seed_is_registered_in_the_manifest() -> None:
 
     manifest = tomllib.loads((ROOT / "tap-plugin.toml").read_text(encoding="utf-8"))
     assert manifest["grift"] == {"dimension": "grift/dimension.grift.json"}
+
+
+class TestInstanceDimension:
+    """req-anchore-dimensions-2: every Anchore-owned node says which instance and account it came from."""
+
+    def test_an_own_node_carries_its_scanner_key_as_the_instance(self):
+        from tap_plugin.anchore.collectors.anchore_collector import decompose
+        from tap_plugin.anchore.models.finding import AnchoreFinding
+
+        node = decompose.envelope("r", AnchoreFinding, "n", {"scanner_key": '["https://anchore.example/v2","acct"]'})
+        assert node["entity"]["dimensions"] == {"anchore.area": "finding", "anchore.instance": '["https://anchore.example/v2","acct"]'}
+
+    def test_a_node_of_a_shared_type_never_carries_it(self):
+        from tap_plugin.anchore.collectors.anchore_collector import decompose
+
+        digest = "sha256:" + "a" * 64
+        assert INSTANCE_DIMENSION not in decompose.host_node("r", digest)["entity"]["dimensions"]
+        assert INSTANCE_DIMENSION not in decompose.typed_node("r", "computing_core__kubernetes_pod", "p", {"uid": "u"}, {"tap.computing": "runtime"})["entity"]["dimensions"]
