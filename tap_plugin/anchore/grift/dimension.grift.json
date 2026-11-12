@@ -1,0 +1,38 @@
+{
+  "metadata": {
+    "grift_version": "0"
+  },
+  "_reserved": {},
+  "batches": [
+    {
+      "batch_entity": {
+        "entity_id": "01a1d10c-73a0-74c0-a53e-6656e8ca1485",
+        "entity_type": "batch",
+        "name": "Anchore dimensions",
+        "dimensions": {}
+      },
+      "batch_node": {
+        "source": "plugins.anchore",
+        "name": "Anchore dimensions",
+        "description": "Dimension nodes for every dimension key the anchore plugin declares, so each key has a declared node before the dimension map moves to keying by node id (tap#711)."
+      },
+      "nodes": [
+        {
+          "entity": {
+            "entity_id": "01a1d10b-e806-75e5-96bd-ccb5fc917d18",
+            "entity_type": "dimension",
+            "name": "anchore.area",
+            "dimensions": {
+              "tap.meta": "dimension"
+            }
+          },
+          "node": {
+            "name": "anchore.area",
+            "description": "Which part of Anchore an entity belongs to: image, finding, policy, run, runtime, annotation or inventory."
+          }
+        }
+      ],
+      "edges": []
+    }
+  ]
+}
