@@ -6,6 +6,7 @@ definitions, so a key added to either without a node fails here.
 """
 
 import json
+import re
 from pathlib import Path
 
 import tap_plugin.anchore.models as anchore
@@ -41,8 +42,9 @@ def test_the_node_has_its_fixed_id_and_names_every_value_in_use() -> None:
     assert node["entity"]["entity_id"] == AREA_ID
     assert node["entity"]["name"] == node["node"]["name"]
     assert node["entity"]["dimensions"] == {"tap.meta": "dimension"}
-    described = node["node"]["description"]
-    assert all(value in described for value in _declared()["anchore.area"]), described
+    # Whole words, so "runtime" does not stand in for "run".
+    described = set(re.findall(r"[a-z_]+", node["node"]["description"]))
+    assert _declared()["anchore.area"] <= described, described
 
 
 def test_the_seed_is_registered_in_the_manifest() -> None:
