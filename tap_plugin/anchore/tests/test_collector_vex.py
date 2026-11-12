@@ -71,7 +71,7 @@ class TestAnnotations:
         assert got.record["annotation"]["a_key_the_model_has_no_field_for"] == {"kept": True}
         assert got.last_seen_run_id == run().run_id
         assert f"vex:{DIGEST}" in run().scopes_read
-        assert got.entity.dimensions["anchore.area"] == "annotation"
+        assert got.entity.dimensions == {"anchore.area": "annotation", "anchore.instance": KEY}
 
     def test_a_null_package_scope_stays_null(self, secrets, monkeypatch):
         run_against(monkeypatch, server(entry(package=None)))

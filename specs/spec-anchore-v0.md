@@ -15,7 +15,8 @@
 
 | Key | Value | Why |
 | --- | --- | --- |
-| `anchore.area` | `finding` on finding nodes; `run` on scanner and scan-run nodes; `inventory` on the application, version and asset nodes; `annotation` on VEX annotation nodes; `runtime` on the runtime-observation nodes | Lets a page or Search group the Anchore-specific nodes without listing types. The key is namespaced by this vocabulary, which only this plugin gives meaning. The `computing_core` nodes this plugin writes keep their owner's dimensions and receive none from here. |
+| `anchore.area` | `finding` on finding nodes; `run` on scanner and scan-run nodes; `inventory` on the application, version and asset nodes; `annotation` on VEX annotation nodes; `runtime` on the runtime-observation nodes; `image` on Anchore's image record; `policy` on policy evaluations | Lets a page or Search group the Anchore-specific nodes without listing types. The key is namespaced by this vocabulary, which only this plugin gives meaning. The `computing_core` nodes this plugin writes keep their owner's dimensions and receive none from here. |
+| `anchore.instance` | The node's scanner key: the instance's canonical API root and the account, as a compact JSON array | Scopes every Anchore-owned node to the instance and account it was read from, so a page can be cut to one account and everything from one account can later be restricted or removed together (`req-anchore-dimensions`). Stamped per node by the collector, not a type default. Never on a shared node. |
 
 ## Philosophy
 
@@ -77,6 +78,7 @@ Six consequences shape v0:
 | req-anchore-differences-ledger | [Hosted And On-Prem Differences](#hosted-and-on-prem-differences) | Proposed | The ledger of known and unknown differences, refreshed from the trial and from each run's self-test |
 | req-anchore-fips | [FIPS Posture](#fips-posture) | Proposed | `requests` over system OpenSSL, no native binary, declared in `[fips]` |
 | req-anchore-coverage | [Coverage Of Anchore's API](#coverage-of-anchores-api) | In Development | Every read in Anchore's API is landed on the grid, planned, or excluded with its reason; the table is generated and checked |
+| req-anchore-dimensions | [Dimensions](#dimensions) | Implemented | Each dimension key the plugin stamps has a declared Dimension node; `anchore.instance` on its own nodes only |
 | req-anchore-nongoals | [v0 Non-Goals](#v0-non-goals) | Proposed | What this plugin deliberately does not do, and who owns it |
 
 ### Connection And Credential
@@ -1049,6 +1051,27 @@ Anchore's API (the committed vendor file) has 247 reads. 20 are landed, 51 are p
 | req-anchore-coverage-2 | An Exclusion States Its Reason | Implemented | Every excluded read carries a non-empty reason from `contract/coverage.json`; a rule with no reason, or a status other than planned or excluded, is refused. | |
 | req-anchore-coverage-3 | The Table Is Generated | Implemented | The section between the coverage markers is what `tap_plugin.anchore.contract.coverage` prints; a test fails when it is stale, so a read cannot be added or dropped without the table moving. | |
 | req-anchore-coverage-4 | The Ruled Exclusions Hold | Implemented | No read under `/accounts`, `/user`, `/rbac-manager`, `/my-user-groups` or `/registries`, and no secret-search, retrieved-file or file-content read at any depth, is landed or planned. `/account`, the probe's read of the credential's own account name, is the one account path landed. | The families are the maintainer's ruling of record. |
+
+### Dimensions
+----
+RID: `req-anchore-dimensions`
+
+Status: `Implemented`
+
+A dimension is a declared thing on the grid: it has a Dimension node, and once the grid's dimension map is keyed by that node (`unified-systems-com/tap#711`) a key with no node is refused. Dimension nodes are never created on first sight. So this plugin declares a node for every key it stamps, in `grift/dimension.grift.json`, which install applies.
+
+It stamps two keys, both only on its own node types. `anchore.area` is a type default with a short fixed set of values. `anchore.instance` is set per node by the collector to the node's scanner key, so its values are open: one per Anchore instance and account. It repeats a fact every Anchore node already carries in its key, on purpose: a field identifies one node, and a dimension scopes many, which is what a page filter, and later an access rule or a removal by scope, works on. The maintainer ruled both the dimension and the rule that a plugin stamps its own dimensions only on its own nodes (2026-11-12).
+
+The nodes this plugin writes of another plugin's type keep that plugin's dimensions. Where it creates an `aws_core` ECS node (`req-anchore-shared`), it stamps `aws_core`'s own keys, as `aws_core`'s collector would; the maintainer confirmed that on the same date.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-dimensions-1 | Every Key Has A Node | Implemented | Every dimension key in a model's defaults, in an edge definition, or stamped by the collector has a Dimension node in the plugin's seed, each with a fixed id and a description; `anchore.area`'s description names every value in use. | `tests/test_dimension_seed.py`. A key added without a node fails the test. |
+| req-anchore-dimensions-2 | Instance On Own Nodes Only | Implemented | Every node of this plugin's own types that a run writes carries `anchore.instance` with its scanner key as the value, and no node of another plugin's type does. Ownership decides, not the presence of a field: an own node with no scanner key is refused. The rule is checked on the whole document at the one place a run produces it, whichever function built each node, and a document that breaks it is not written. | `tests/test_dimension_seed.py::TestInstanceDimension`. |
+| req-anchore-dimensions-4 | Nodes Written Before This Dimension | Backlog | A node last written before this dimension existed gains it when a run next writes it. One that no run writes again (a finding already resolved, a withdrawn annotation, a superseded verdict) has only `anchore.area` until it is restamped. No restamping pass exists yet, so until it does a consumer of `anchore.instance` must treat a node without it as unscoped, not as belonging to no instance. | Nothing consumes the dimension yet. A restamp belongs with the grid's own dimension migration (`unified-systems-com/tap#711`), which rewrites every stored map. |
+| req-anchore-dimensions-3 | Values Bounded Once The Grid Can | Backlog | `anchore.area`'s node lists its allowed values once the Dimension node has a `values` field. | The field arrives with the grid's dimension reshape. |
 
 ### v0 Non-Goals
 ----

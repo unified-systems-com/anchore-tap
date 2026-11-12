@@ -1227,7 +1227,23 @@ class AnchoreCollector(CollectorBase):
 
     @staticmethod
     def _document(batches: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]], written: list[str]) -> dict[str, Any]:
-        """One GRIFT document for the run: its batches in the order they are applied."""
+        """One GRIFT document for the run: its batches in the order they are applied.
+
+        Every node leaves through here, whichever function built it, so this is where the instance
+        scope is checked (req-anchore-dimensions-2): a node of this plugin's own types must carry
+        ``anchore.instance`` equal to its own scanner key, and a node of any other type must not
+        have the key at all. A document that breaks either rule is not produced.
+        """
+        for nodes, _edges in batches:
+            for node in nodes:
+                entity = node["entity"]
+                own = entity["entity_type"].startswith(decompose.OWN_TYPE_PREFIX)
+                present = decompose.INSTANCE_DIMENSION in entity["dimensions"]
+                if own != present:
+                    raise AnchoreCollectorError(f"a {entity['entity_type']} node {'lacks' if own else 'carries'} {decompose.INSTANCE_DIMENSION}; nothing was written")
+                scanner_key = node["node"].get("scanner_key")
+                if own and (not scanner_key or entity["dimensions"][decompose.INSTANCE_DIMENSION] != scanner_key):
+                    raise AnchoreCollectorError(f"a {entity['entity_type']} node's {decompose.INSTANCE_DIMENSION} is not its own scanner key; nothing was written")
         total = len(batches)
         out = []
         for number, (nodes, edges) in enumerate(batches, start=1):
