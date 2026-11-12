@@ -40,7 +40,7 @@ from typing import Any, ClassVar
 from tap import secrets_root
 
 from tap_cares.collectors import CeilingExceeded, CollectorBase, run_with_ceiling
-from tap_plugin.anchore import batching, kubernetes
+from tap_plugin.anchore import batching, kubernetes, scopes
 from tap_plugin.computing_core.sbom import SbomParseError, Verification, parse_cyclonedx
 from tap_plugin.anchore import scope as scoping
 from tap_cares.collectors.readiness import CollectorReadinessStatus, CollectorSelfTestResult, check_fail, check_pass
@@ -82,6 +82,7 @@ _SITE_SBOM_PARSED = "dc6c"
 _SITE_BATCHES = "c9cb"
 _SITE_POLICY = "0c47"
 _SITE_VEX = "2bfb"
+_SITE_SCOPES = "c9fe"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -316,6 +317,11 @@ class AnchoreCollector(CollectorBase):
             self.record_error(_SITE_NOTHING_WRITTEN, "NOTHING_WRITTEN", self.summary)
             raise AnchoreCollectorError(self.summary)
 
+        # Scope dimensions go on before the run is split, while every edge still names its ends by ref.
+        declared = store.declared_dimensions(scopes.ALL)
+        stamped = scopes.stamp(nodes, edges, declared, store.spine_key, decompose.host_key)
+        missing = sorted(scopes.ALL - declared)
+        self.record_info(_SITE_SCOPES, "SCOPE_DIMENSIONS", "Scope dimensions stamped: " + ", ".join(f"{count} node(s) with {key}" for key, count in stamped.items()) + (f". Not declared on this grid, so not stamped: {', '.join(missing)}." if missing else "."), message_data={"stamped": stamped, "not_declared": missing})
         # One write per batch: the smallest limit any credential of this run sets (req-anchore-limits-7).
         max_rows = min(credential.settings.max_batch_rows for credential in usable)
         batches, unsplit = batching.split(nodes, edges, max_rows, store.natural_key_of)

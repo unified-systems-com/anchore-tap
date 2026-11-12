@@ -33,6 +33,23 @@ def scheme_field(model: Any) -> str:
     return others[0]
 
 
+def spine_key(model: Any, values: Any) -> str | None:
+    """A node's natural key as the grid stores it, from field values; None when it cannot be composed.
+
+    The grid's own function does the composing, so the string is the one the grid writes for the
+    node and never a second recipe. None when a key field is missing or null, and when the
+    installed grid is older than that function.
+    """
+    try:
+        from tap_grid.natural_key import compose_natural_key
+    except ImportError:
+        return None
+    declared = _natural_key(model)
+    if any("." in name for name in declared):
+        return None
+    return compose_natural_key(model, {name: values.get(name) for name in declared})
+
+
 def sole_field(model: Any) -> str:
     """The one field of a single-field key, such as the ARN of an aws_core type."""
     key = _natural_key(model)
