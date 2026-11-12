@@ -171,6 +171,19 @@ def ecs_key(kind: str) -> str | None:
         return None
 
 
+def spine_key(entity_type: str, values: Any) -> str | None:
+    """The natural key of a node of a registered type as the grid stores it; None when it cannot be composed."""
+    try:
+        return keys.spine_key(get_model_class(entity_type), values)
+    except (KeyError, keys.KeyShapeError):
+        return None
+
+
+def declared_dimensions(names: frozenset[str]) -> frozenset[str]:
+    """Which of these dimension keys have a Dimension node on the grid. A key with none must not be stamped."""
+    return frozenset(get_model_class("dimension").objects.filter(name__in=names).values_list("name", flat=True))
+
+
 def scheme_field(entity_type: str) -> str:
     """The field beside ``stable_id`` in a computing_core type's key (a host's, a cluster's)."""
     return keys.scheme_field(get_model_class(entity_type))
