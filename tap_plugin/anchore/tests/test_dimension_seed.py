@@ -9,6 +9,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 import tap_plugin.anchore.models as anchore
 from tap_plugin.anchore.collectors.anchore_collector.decompose import INSTANCE_DIMENSION
 
@@ -16,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SEED = ROOT / "grift" / "dimension.grift.json"
 #: The id other plugins and the core migration know this key's node by; it must never change.
 AREA_ID = "01a1d10b-e806-75e5-96bd-ccb5fc917d18"
+INSTANCE_ID = "01a1d123-7220-76d4-951d-42397e4837aa"
 
 
 def _dimension_nodes() -> list[dict]:
@@ -49,6 +52,7 @@ def test_the_node_has_its_fixed_id_and_names_every_value_in_use() -> None:
     assert len({n["entity"]["entity_id"] for n in nodes.values()}) == len(nodes)
     node = nodes["anchore.area"]
     assert node["entity"]["entity_id"] == AREA_ID
+    assert nodes[INSTANCE_DIMENSION]["entity"]["entity_id"] == INSTANCE_ID
     # Whole words, so "runtime" does not stand in for "run".
     described = set(re.findall(r"[a-z_]+", node["node"]["description"]))
     assert _declared()["anchore.area"] <= described, described
@@ -70,6 +74,29 @@ class TestInstanceDimension:
 
         node = decompose.envelope("r", AnchoreFinding, "n", {"scanner_key": '["https://anchore.example/v2","acct"]'})
         assert node["entity"]["dimensions"] == {"anchore.area": "finding", "anchore.instance": '["https://anchore.example/v2","acct"]'}
+
+    @pytest.mark.parametrize("fields", [{}, {"scanner_key": ""}, {"scanner_key": None}, {"scanner_key": 7}])
+    def test_an_own_node_with_no_scanner_key_is_refused_not_written_unscoped(self, fields):
+        from tap_plugin.anchore.collectors.anchore_collector import decompose
+        from tap_plugin.anchore.models.finding import AnchoreFinding
+
+        with pytest.raises(ValueError, match="scanner_key"):
+            decompose.envelope("r", AnchoreFinding, "n", fields)
+
+    def test_every_own_type_is_keyed_under_a_scanner_key(self):
+        """What makes the refusal safe: no own type exists that could lack one."""
+        for name in anchore.__all__:
+            model = getattr(anchore, name)
+            assert model.ENTITY_TYPE.startswith("anchore__") and "scanner_key" in model.NATURAL_KEY, name
+
+    def test_a_shared_type_built_by_the_same_function_is_not_stamped_even_with_a_scanner_key(self):
+        """Ownership decides, not the presence of a field."""
+        from tap_plugin.computing_core.models.host import Host
+
+        from tap_plugin.anchore.collectors.anchore_collector import decompose
+
+        node = decompose.envelope("r", Host, "n", {"scanner_key": "x"})
+        assert INSTANCE_DIMENSION not in node["entity"]["dimensions"]
 
     def test_a_node_of_a_shared_type_never_carries_it(self):
         from tap_plugin.anchore.collectors.anchore_collector import decompose

@@ -83,13 +83,24 @@ def _fit(model: type[dj_models.Model], name: str, value: Any, schema: dict[str, 
 #: The dimension that scopes an Anchore-owned node to the instance and account it was read from
 #: (req-anchore-dimensions-2). Its value is the node's scanner key.
 INSTANCE_DIMENSION = "anchore.instance"
+#: The slug prefix of the types this plugin owns.
+OWN_TYPE_PREFIX = "anchore__"
 
 
 def envelope(ref: str, model: Any, name: str, fields: dict[str, Any]) -> dict[str, Any]:
-    """A node of one of this plugin's own types, with the type's dimensions and the instance it came from."""
+    """A node of a model this module imports, with the type's dimensions.
+
+    A node of one of this plugin's own types also says which instance it came from. Every own
+    type is keyed under a scanner key, so one without it is refused here and not written
+    unscoped: the instance dimension is what a filter or a removal by scope relies on. A node of
+    another plugin's type (an image host, an SBOM document) never carries it.
+    """
     dimensions = dict(model.DEFAULT_DIMENSIONS)
-    if isinstance(fields.get("scanner_key"), str) and fields["scanner_key"]:
-        dimensions[INSTANCE_DIMENSION] = fields["scanner_key"]
+    if model.ENTITY_TYPE.startswith(OWN_TYPE_PREFIX):
+        scanner_key = fields.get("scanner_key")
+        if not isinstance(scanner_key, str) or not scanner_key:
+            raise ValueError(f"{model.ENTITY_TYPE} node has no scanner_key; it cannot be scoped to an Anchore instance")
+        dimensions[INSTANCE_DIMENSION] = scanner_key
     return {
         "entity": {"ref": ref, "entity_type": model.ENTITY_TYPE, "name": name[:255] or model.ENTITY_NAME, "dimensions": dimensions},
         "node": fields,
