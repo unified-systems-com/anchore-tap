@@ -53,4 +53,4 @@ dimension = "grift/dimension.grift.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "b11a0766f4f7d32548185bf9fe8f4ca75f30be6ce2a598e7a5217e02559c0f3f"
+sha256 = "ea4bcac08ea8c69c9e2718fc300c5261717ea0145477ef4d722d56ec714b80e7"
