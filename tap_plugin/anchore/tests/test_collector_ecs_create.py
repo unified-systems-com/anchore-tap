@@ -317,7 +317,7 @@ class TestAwsDimensionNames:
     def test_the_new_name_wins_where_a_seed_declares_both(self):
         assert store.aws_dimension_names(self.seed("aws_account", "aws.account"))["account"] == "aws.account"
 
-    @pytest.mark.parametrize("seed", [None, {}, {"batches": []}])
+    @pytest.mark.parametrize("seed", [None, {"batches": []}])
     def test_an_aws_core_with_no_seed_keeps_the_old_names(self, seed):
         assert store.aws_dimension_names(seed) == {"account": "aws_account", "region": "aws_region"}
 
@@ -349,10 +349,24 @@ class TestSeedThatCannotBeRead:
         (tmp_path / "grift").mkdir()
         target = tmp_path / "grift" / "dimension.grift.json"
         monkeypatch.setattr(resources, "files", lambda package: tmp_path)
-        for body in ("{not json", "[]", '{"batches": {}}'):
+        for body in ("{not json", "[]", '{"batches": {}}', '{"batches": [null]}', '{"batches": [{"nodes": null}]}', '{"batches": [{"nodes": [7]}]}', '{"batches": [{"nodes": [{"entity": {"entity_type": "dimension"}, "node": null}]}]}'):
             target.write_text(body, encoding="utf-8")
             with pytest.raises(store.AwsSeedUnreadable):
                 store.aws_dimension_names()
+
+    def test_a_file_that_cannot_even_be_examined_is_an_error(self, monkeypatch):
+        from importlib import resources
+
+        class Unreadable:
+            def __truediv__(self, other):
+                return self
+
+            def is_file(self):
+                raise PermissionError("denied")
+
+        monkeypatch.setattr(resources, "files", lambda package: Unreadable())
+        with pytest.raises(store.AwsSeedUnreadable):
+            store.aws_dimension_names()
 
     def test_an_aws_core_that_ships_no_seed_file_is_no_seed(self, tmp_path, monkeypatch):
         from importlib import resources
@@ -371,3 +385,5 @@ class TestSeedThatCannotBeRead:
         assert all(not nodes(kind) for kind in TYPES)
         reasons = [entry["reason"] for entry in latest_run().scopes_not_read if entry["scope"] == "create:ecs"]
         assert reasons and "could not be read" in reasons[0] and "no ECS node was created" in reasons[0]
+        # Not read, and only that: the scope is not also claimed as read.
+        assert "create:ecs" not in latest_run().scopes_read

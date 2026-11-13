@@ -227,12 +227,7 @@ def aws_dimension_names(seed: dict[str, Any] | None | bool = False) -> dict[str,
     """
     if seed is False:
         seed = _aws_core_seed()
-    declared = {
-        node.get("node", {}).get("name")
-        for batch in (seed or {}).get("batches", [])
-        for node in batch.get("nodes", [])
-        if node.get("entity", {}).get("entity_type") == "dimension"
-    }
+    declared = set() if seed is None else _declared_dimension_names(seed)
     return {role: next((name for name in names if name in declared), names[-1]) for role, names in _AWS_DIMENSION_NAMES.items()}
 
 
@@ -240,11 +235,32 @@ class AwsSeedUnreadable(RuntimeError):
     """aws_core ships a dimension seed that could not be read or is not the document expected."""
 
 
-def _aws_core_seed() -> dict[str, Any] | None:
+def _declared_dimension_names(seed: Any) -> set[str]:
+    """The names of the dimension nodes a GRIFT seed declares; raises on any shape it does not recognise."""
+    wrong = AwsSeedUnreadable("aws_core's dimension seed is not a GRIFT document of batches holding nodes")
+    if not isinstance(seed, dict) or not isinstance(seed.get("batches"), list):
+        raise wrong
+    declared: set[str] = set()
+    for batch in seed["batches"]:
+        if not isinstance(batch, dict) or not isinstance(batch.get("nodes", []), list):
+            raise wrong
+        for node in batch.get("nodes", []):
+            if not isinstance(node, dict) or not isinstance(node.get("entity"), dict):
+                raise wrong
+            if node["entity"].get("entity_type") == "dimension":
+                body = node.get("node")
+                if not isinstance(body, dict) or not isinstance(body.get("name"), str):
+                    raise wrong
+                declared.add(body["name"])
+    return declared
+
+
+def _aws_core_seed() -> Any:
     """aws_core's dimension seed as installed; None only when aws_core is not installed or ships none.
 
     A seed that is there and cannot be read or parsed is not the same as no seed: falling back to
-    the old names then would mislabel every node created. That raises instead.
+    the old names then would mislabel every node created. That raises instead. The document's
+    shape is checked where it is read (``_declared_dimension_names``).
     """
     import json
     from importlib import resources
@@ -253,15 +269,12 @@ def _aws_core_seed() -> dict[str, Any] | None:
         path = resources.files("tap_plugin.aws_core") / "grift" / "dimension.grift.json"
     except ModuleNotFoundError:
         return None
-    if not path.is_file():
-        return None
     try:
-        seed = json.loads(path.read_text(encoding="utf-8"))
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise AwsSeedUnreadable(f"aws_core's dimension seed could not be read ({type(exc).__name__})") from None
-    if not isinstance(seed, dict) or not isinstance(seed.get("batches"), list):
-        raise AwsSeedUnreadable("aws_core's dimension seed is not a GRIFT document with batches")
-    return seed
 
 
 def default_dimensions(entity_type: str) -> dict[str, str]:
