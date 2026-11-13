@@ -14,6 +14,7 @@ from tap_plugin.anchore.models.finding import AnchoreFinding
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.models.vex_annotation import AnchoreVexAnnotation
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, Instance, no_sockets, run_against, secrets, vuln  # noqa: F401 — fixtures
+from tap_plugin.anchore.tests.conftest import dimension_view, vulnerability_dimensions_declared
 
 UUID, OTHER_UUID = "0b9e6b1e-7a55-4c0b-9d0a-000000000001", "0b9e6b1e-7a55-4c0b-9d0a-000000000002"
 
@@ -71,7 +72,10 @@ class TestAnnotations:
         assert got.record["annotation"]["a_key_the_model_has_no_field_for"] == {"kept": True}
         assert got.last_seen_run_id == run().run_id
         assert f"vex:{DIGEST}" in run().scopes_read
-        assert got.entity.dimensions == {"anchore.area": "annotation", "anchore.instance": KEY}
+        held = dimension_view(got.entity)
+        assert (held["anchore.area"], held["anchore.instance"]) == ("annotation", KEY)
+        # The image scope is there too where the grid under test declares it, and nothing else is.
+        assert set(held) <= {"anchore.area", "anchore.instance", "tap.computing.host"}
 
     def test_a_null_package_scope_stays_null(self, secrets, monkeypatch):
         run_against(monkeypatch, server(entry(package=None)))
@@ -95,6 +99,7 @@ class TestAnnotations:
         assert edges("ANNOTATES_FINDING__anchore") == []
 
     def test_the_shared_vulnerability_is_linked_only_where_it_exists_exactly(self, secrets, monkeypatch):
+        vulnerability_dimensions_declared()
         run_against(monkeypatch, server())
         assert [e for e in edges("ABOUT_VULNERABILITY__anchore") if e.from_entity.entity_type == AnchoreVexAnnotation.ENTITY_TYPE] == []
         assert create_node("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0001"}).success

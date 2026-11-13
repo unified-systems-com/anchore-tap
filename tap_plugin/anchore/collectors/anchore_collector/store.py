@@ -180,8 +180,53 @@ def spine_key(entity_type: str, values: Any) -> str | None:
 
 
 def declared_dimensions(names: frozenset[str]) -> frozenset[str]:
-    """Which of these dimension keys have a Dimension node on the grid. A key with none must not be stamped."""
-    return frozenset(get_model_class("dimension").objects.filter(name__in=names).values_list("name", flat=True))
+    """Which of these dimension keys are declared on the grid. A key that is not must not be stamped.
+
+    A grid that resolves dimension names itself is asked through its resolver, so this agrees
+    with what a write will accept. An older grid has no resolver; there a key is declared when a
+    Dimension node carries its name.
+    """
+    names = frozenset(names)
+    if _dimension_resolver() is None:
+        return frozenset(get_model_class("dimension").objects.filter(name__in=names).values_list("name", flat=True))
+    return names - frozenset(undeclared_dimensions(names))
+
+
+def _dimension_resolver() -> Any:
+    """The grid's own dimension-name resolver, or None on a grid that has none and accepts any key.
+
+    None only when the module itself does not exist. A resolver that exists and fails to import
+    is not an old grid, and treating it as one would let an unresolvable key through; that error
+    is raised.
+    """
+    import importlib
+
+    module = "tap_grid.dimension_names"
+    try:
+        return importlib.import_module(module)
+    except ModuleNotFoundError as exc:
+        if exc.name != module:
+            raise
+        return None
+
+
+def undeclared_dimensions(names: Any) -> list[str]:
+    """Which of these dimension keys a write would be refused for, on a grid that requires declared dimensions.
+
+    A grid whose dimension map is keyed by Dimension node refuses a batch that names a key it
+    cannot resolve, and refuses it whole. The grid's own resolver is asked, so the answer is the
+    one the write will get. An older grid accepts any key, so there this is always empty.
+    """
+    dimension_names = _dimension_resolver()
+    if dimension_names is None:
+        return []
+    missing = []
+    for name in sorted(set(names)):
+        try:
+            dimension_names.declared(name)
+        except LookupError:
+            missing.append(name)
+    return missing
 
 
 def scheme_field(entity_type: str) -> str:

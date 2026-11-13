@@ -756,6 +756,15 @@ class AnchoreCollector(CollectorBase):
             not_read.append({"scope": "create:ecs", "reason": f"{exc}; no ECS node was created"})
             self.record_warn(_SITE_ECS_CREATE, "ECS_CREATE_NOT_READ", f"{credential.qualified}: {exc}; no ECS node was created.")
             return
+        # A key with no Dimension node would have the grid refuse the whole batch, findings and all.
+        # So the provider's dimensions are checked first, and where one is missing only this step is given up.
+        stamped = {names["account"], names["region"]} | {key for kind in wanted for key in store.default_dimensions(store.ECS_TYPES[kind])}
+        missing = store.undeclared_dimensions(stamped)
+        if missing:
+            why = f"the grid has no Dimension node for {', '.join(missing)}, which the installed aws_core does not declare; no ECS node was created"
+            not_read.append({"scope": "create:ecs", "reason": why})
+            self.record_warn(_SITE_ECS_CREATE, "ECS_CREATE_NOT_READ", f"{credential.qualified}: {why}.")
+            return
         read.append("create:ecs")
         created = dict.fromkeys(wanted, 0)
         for kind, nodes in wanted.items():
