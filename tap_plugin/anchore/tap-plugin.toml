@@ -1,6 +1,6 @@
 manifest_version = "0"
 plugin_version = "0.1.7" # x-release-please-version
-requires_tap = ">=0.3.1"
+requires_tap = ">=0.3.4"
 slug = "anchore"
 name = "TAP Anchore"
 description = "Anchore Enterprise vulnerability findings, SBOMs, VEX statements and inventory, read from its REST API and held on the grid as Anchore returns them."
