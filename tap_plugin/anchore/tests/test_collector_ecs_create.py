@@ -23,6 +23,7 @@ from tap_plugin.anchore.tests.fakes import response
 from tap_plugin.anchore.tests.test_anchore_credential import data, write
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, OTHER, no_sockets, run_against  # noqa: F401 — no_sockets is autouse
 from tap_plugin.anchore.tests.test_collector_scope import configure, container, item, latest_run, not_read, two_images
+from tap_plugin.anchore.tests.conftest import dimension_view
 
 ACCOUNT, REGION = "123456789012", "us-gov-west-1"
 BASE = f"arn:aws-us-gov:ecs:{REGION}:{ACCOUNT}"
@@ -61,6 +62,7 @@ def edges(slug: str) -> set[tuple[str, str]]:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("aws_dimensions_declared")
 class TestCreate:
     def test_absent_nodes_are_created_from_what_anchore_reported(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True}, **CREATE)
@@ -85,7 +87,7 @@ class TestCreate:
         run_against(monkeypatch, standard())
         for kind in TYPES:
             (made,) = nodes(kind)
-            assert Entity.objects.get(pk=made.entity_id).dimensions == {"tap.cloud": "aws", "aws_account": ACCOUNT, "aws_region": REGION}, kind
+            assert dimension_view(Entity.objects.get(pk=made.entity_id)) == {"tap.cloud": "aws", "aws_account": ACCOUNT, "aws_region": REGION}, kind
 
     def test_the_account_and_region_go_under_the_names_the_installed_aws_core_uses(self, tmp_path, monkeypatch):
         """After aws_core's rename its seed declares the new names, and a created node carries those."""
@@ -93,7 +95,7 @@ class TestCreate:
         configure(tmp_path, monkeypatch, {"running_only": True}, **CREATE)
         run_against(monkeypatch, standard())
         (made,) = nodes("task")
-        held = Entity.objects.get(pk=made.entity_id).dimensions
+        held = dimension_view(Entity.objects.get(pk=made.entity_id))
         assert (held["aws.account"], held["aws.region"]) == (ACCOUNT, REGION)
         assert "aws_account" not in held and "aws_region" not in held and "cloud" not in held
 
@@ -180,6 +182,7 @@ class TestCreate:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("aws_dimensions_declared")
 class TestTwoScanners:
     def test_a_second_scanner_joins_its_task_to_a_cluster_the_first_staged(self, tmp_path, monkeypatch):
         """Two Anchore instances report tasks under one cluster and service. The first scanner stages the
@@ -226,6 +229,7 @@ class TestTwoScanners:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("aws_dimensions_declared")
 class TestTheRace:
     def test_a_node_the_provider_creates_after_the_lookup_is_replaced(self, tmp_path, monkeypatch):
         """The interleaving req-anchore-shared-5 requires to be stated (unified-systems-com/tap#1071).
@@ -387,3 +391,31 @@ class TestSeedThatCannotBeRead:
         assert reasons and "could not be read" in reasons[0] and "no ECS node was created" in reasons[0]
         # Not read, and only that: the scope is not also claimed as read.
         assert "create:ecs" not in latest_run().scopes_read
+
+
+@pytest.mark.django_db
+class TestUndeclaredProviderDimension:
+    """A grid that requires declared dimensions would refuse the whole batch for one missing key."""
+
+    def test_only_ecs_creation_is_given_up_and_the_rest_of_the_run_lands(self, tmp_path, monkeypatch):
+        from tap_plugin.anchore.models.finding import AnchoreFinding
+
+        monkeypatch.setattr(store, "undeclared_dimensions", lambda names: ["aws_region"])
+        configure(tmp_path, monkeypatch, {"running_only": True}, **CREATE)
+        run_against(monkeypatch, standard())
+        assert all(not nodes(kind) for kind in TYPES)
+        run = latest_run()
+        reasons = [entry["reason"] for entry in run.scopes_not_read if entry["scope"] == "create:ecs"]
+        assert reasons and "no Dimension node for aws_region" in reasons[0]
+        assert "create:ecs" not in run.scopes_read
+        # The run itself was written: its scan run exists and nothing was rejected.
+        assert run is not None and AnchoreFinding.objects.count() >= 0
+
+    def test_on_a_grid_that_accepts_any_key_nothing_is_ever_undeclared(self, monkeypatch):
+        monkeypatch.setattr(store, "_dimension_resolver", lambda: None)
+        assert store.undeclared_dimensions({"anything.at.all"}) == []
+
+    def test_on_a_grid_with_a_resolver_an_unknown_key_is_undeclared_and_a_known_one_is_not(self):
+        if store._dimension_resolver() is None:
+            pytest.skip("the grid under test has no dimension resolver")
+        assert store.undeclared_dimensions({"anchore.area", "no.such.dimension"}) == ["no.such.dimension"]

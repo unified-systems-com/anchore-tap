@@ -17,6 +17,7 @@ from tap_grid.registry import get_model_class
 from tap_grid.services import create_edge, create_node
 from tap_plugin.anchore.credential import canonical_root, scanner_key
 from tap_plugin.anchore.models.finding import package_key_for
+from tap_plugin.anchore.tests.conftest import dimension_view, vulnerability_dimensions_declared
 
 SCANNER_KEY = scanner_key("https://anchore.example:8228/v2", "demo")
 OTHER_ACCOUNT_KEY = scanner_key("https://anchore.example:8228/v2", "other")
@@ -51,7 +52,7 @@ class TestScanner:
         node = _create("anchore__anchore_scanner", SCANNER)
         node.entity.refresh_from_db()
         assert node.entity.name == "https://anchore.example:8228/v2 · demo"
-        assert node.entity.dimensions.get("anchore.area") == "run"
+        assert dimension_view(node.entity).get("anchore.area") == "run"
 
     def test_unread_version_is_null_not_empty(self):
         assert _create("anchore__anchore_scanner", SCANNER).reported_version is None
@@ -80,7 +81,7 @@ class TestScanRun:
         node = _create("anchore__anchore_scan_run", RUN)
         node.entity.refresh_from_db()
         assert node.entity.name == "run run-1"
-        assert node.entity.dimensions.get("anchore.area") == "run"
+        assert dimension_view(node.entity).get("anchore.area") == "run"
 
     def test_everything_unread_is_null(self):
         node = _create("anchore__anchore_scan_run", RUN)
@@ -109,7 +110,7 @@ class TestScanRun:
         run = _create("anchore__anchore_scan_run", RUN)
         scanner = _create("anchore__anchore_scanner", SCANNER)
         edge = create_edge(run.entity, scanner.entity, "RUN_OF_SCANNER__anchore")
-        assert edge.entity.dimensions.get("anchore.area") == "run"
+        assert dimension_view(edge.entity).get("anchore.area") == "run"
 
     def test_run_of_scanner_refuses_the_wrong_direction(self):
         run = _create("anchore__anchore_scan_run", RUN)
@@ -124,7 +125,7 @@ class TestFinding:
         node = _create("anchore__anchore_finding", {**FINDING, "package_name": "openssl"})
         node.entity.refresh_from_db()
         assert node.entity.name == "CVE-2024-0001 · openssl"
-        assert node.entity.dimensions.get("anchore.area") == "finding"
+        assert dimension_view(node.entity).get("anchore.area") == "finding"
 
     def test_fields_nothing_observed_are_null(self):
         node = _create("anchore__anchore_finding", FINDING)
@@ -200,21 +201,22 @@ class TestFinding:
         package = _create("computing_core__package", {"ecosystem": "deb", "name": "openssl", "version": "1.1.1"})
         for target, slug in ((host, "FOUND_ON_IMAGE__anchore"), (package, "FOUND_IN_PACKAGE__anchore")):
             edge = create_edge(finding.entity, target.entity, slug)
-            assert edge.entity.dimensions.get("anchore.area") == "finding", slug
+            assert dimension_view(edge.entity).get("anchore.area") == "finding", slug
 
     def test_a_source_finding_is_found_in_the_sbom_document_it_was_read_from(self):
         """computing_core no longer blocks every edge into a document, so the edge needs no change there."""
         finding = _create("anchore__anchore_finding", {**FINDING, "target_kind": "source", "target_key": "src-1"})
         document = _create("computing_core__sbom_document", {"content_digest": "cd" * 32})
         edge = create_edge(finding.entity, document.entity, "FOUND_IN_SBOM__anchore")
-        assert edge.entity.dimensions.get("anchore.area") == "finding"
+        assert dimension_view(edge.entity).get("anchore.area") == "finding"
 
     def test_a_finding_is_about_the_shared_vulnerability(self):
         """The edge a finding draws to compliance_core's vulnerability; this plugin never creates that node."""
+        vulnerability_dimensions_declared()
         finding = _create("anchore__anchore_finding", FINDING)
         vulnerability = _create("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0001"})
         edge = create_edge(finding.entity, vulnerability.entity, "ABOUT_VULNERABILITY__anchore")
-        assert edge.entity.dimensions.get("anchore.area") == "finding"
+        assert dimension_view(edge.entity).get("anchore.area") == "finding"
 
     def test_an_edge_to_the_wrong_type_is_refused(self):
         finding = _create("anchore__anchore_finding", FINDING)

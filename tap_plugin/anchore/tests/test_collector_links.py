@@ -26,6 +26,7 @@ from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, OTHER, Inst
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.host import Host
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
+from tap_plugin.anchore.tests.conftest import vulnerability_dimensions_declared
 
 
 def edges(slug):
@@ -74,6 +75,7 @@ class TestImageHost:
 @pytest.mark.django_db
 class TestSharedVulnerability:
     def test_only_a_vulnerability_that_exists_with_exactly_the_identifier_is_linked_and_none_is_written(self, secrets, monkeypatch):
+        vulnerability_dimensions_declared()
         make(ComplianceVulnerability.ENTITY_TYPE, {"vuln_id": "CVE-2024-0001"})
         make(ComplianceVulnerability.ENTITY_TYPE, {"vuln_id": "cve-2024-0002"})
         run_against(monkeypatch, Instance())

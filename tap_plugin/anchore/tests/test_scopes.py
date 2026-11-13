@@ -6,6 +6,7 @@ import tap_plugin.compliance_core.models as compliance  # noqa: F401 — trigger
 import tap_plugin.computing_core.models as computing  # noqa: F401 — trigger model registration
 
 from tap_plugin.anchore import scopes
+from tap_plugin.anchore.tests.conftest import dimension_view
 
 D = "sha256:" + "a" * 64
 
@@ -155,7 +156,7 @@ class TestAgainstTheGrid:
             assert rows, model
             for row in rows:
                 digest = getattr(row, "target_key", None) or row.image_digest
-                assert row.entity.dimensions[scopes.HOST] == self.spine(Host.objects.get(stable_id=digest))
+                assert dimension_view(row.entity)[scopes.HOST] == self.spine(Host.objects.get(stable_id=digest))
 
     def test_the_kubernetes_scopes_equal_the_stored_keys(self, tmp_path, monkeypatch):
         from tap_grid.registry import get_model_class
@@ -173,7 +174,7 @@ class TestAgainstTheGrid:
         expected = {scopes.CLUSTER: self.spine(made), scopes.NAMESPACE: self.spine(namespaces["ns-default"])}
         assert expected[scopes.NAMESPACE] == "ns-default"
         for row in (namespaces["ns-default"], pod, container):
-            assert {k: v for k, v in row.entity.dimensions.items() if k in scopes.ALL} == expected, row
+            assert {k: v for k, v in dimension_view(row.entity).items() if k in scopes.ALL} == expected, row
 
     def test_with_no_dimension_declared_nothing_is_stamped_and_the_run_says_so(self, tmp_path, monkeypatch):
         from tap_grid.models import Entity
@@ -181,9 +182,13 @@ class TestAgainstTheGrid:
         from tap_plugin.anchore.tests.test_collector_run import run_against
         from tap_plugin.anchore.tests.test_collector_scope import configure
 
+        from tap_plugin.anchore.collectors.anchore_collector import store
+
+        # Forced, so the test means the same on a grid whose installed seeds declare all three.
+        monkeypatch.setattr(store, "declared_dimensions", lambda names: frozenset())
         configure(tmp_path, monkeypatch, {"running_only": True})
         collector = run_against(monkeypatch, cluster())
-        assert not [e for e in Entity.objects.all() if scopes.ALL & set(e.dimensions)]
+        assert not [e for e in Entity.objects.all() if scopes.ALL & set(dimension_view(e))]
         (said,) = [m for m in collector.results["info"] if m["message_code"] == "SCOPE_DIMENSIONS"]
         assert said["message_data"]["not_declared"] == sorted(scopes.ALL)
 
@@ -199,6 +204,6 @@ class TestAgainstTheGrid:
         monkeypatch.setattr(keys, "spine_key", lambda model, values: None)
         configure(tmp_path, monkeypatch, {"running_only": True})
         collector = run_against(monkeypatch, cluster())
-        assert not [e for e in Entity.objects.exclude(entity_type="dimension") if scopes.ALL & set(e.dimensions)]
+        assert not [e for e in Entity.objects.exclude(entity_type="dimension") if scopes.ALL & set(dimension_view(e))]
         (said,) = [m for m in collector.results["info"] if m["message_code"] == "SCOPE_DIMENSIONS"]
         assert set(said["message_data"]["stamped"].values()) == {0} and said["message_data"]["not_declared"] == []

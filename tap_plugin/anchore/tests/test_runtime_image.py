@@ -11,6 +11,7 @@ from tap_grid.constraints import InvalidEdgeError
 from tap_grid.models import Entity
 from tap_grid.registry import get_model_class
 from tap_grid.services import create_edge, create_node
+from tap_plugin.anchore.tests.conftest import dimension_view
 
 PLUGIN = Path(__file__).resolve().parents[1]
 RUNTIME = "anchore__anchore_runtime_image"
@@ -32,7 +33,7 @@ class TestRuntimeImage:
         node = _create(RUNTIME, {**OBSERVED, "image_tag": "ghcr.io/o/web:1", "last_seen": "2026-11-09T11:00:00Z"})
         node.entity.refresh_from_db()
         assert node.entity.name == "ghcr.io/o/web:1 in prod/default"
-        assert node.entity.dimensions.get("anchore.area") == "runtime"
+        assert dimension_view(node.entity).get("anchore.area") == "runtime"
         assert node.last_seen is not None
         assert node.created_at is None and node.last_updated is None
 
