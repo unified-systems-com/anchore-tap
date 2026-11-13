@@ -193,12 +193,20 @@ def declared_dimensions(names: frozenset[str]) -> frozenset[str]:
 
 
 def _dimension_resolver() -> Any:
-    """The grid's own dimension-name resolver, or None on a grid that has none and accepts any key."""
+    """The grid's own dimension-name resolver, or None on a grid that has none and accepts any key.
+
+    None only when the module itself does not exist. A resolver that exists and fails to import
+    is not an old grid, and treating it as one would let an unresolvable key through; that error
+    is raised.
+    """
     import importlib
 
+    module = "tap_grid.dimension_names"
     try:
-        return importlib.import_module("tap_grid.dimension_names")
-    except ImportError:
+        return importlib.import_module(module)
+    except ModuleNotFoundError as exc:
+        if exc.name != module:
+            raise
         return None
 
 

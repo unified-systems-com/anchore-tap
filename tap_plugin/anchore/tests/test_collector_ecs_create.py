@@ -49,6 +49,10 @@ def instance_with(containers: list, tasks: list, services: list):
     return instance
 
 
+#: The findings the standard instance reports for its one running image.
+EXPECTED_FINDINGS = {"CVE-2024-0001", "CVE-2024-0002"}
+
+
 def standard():
     return instance_with([container(ACCOUNT, "ctx-a", DIGEST)], [task()], [service()])
 
@@ -408,8 +412,27 @@ class TestUndeclaredProviderDimension:
         reasons = [entry["reason"] for entry in run.scopes_not_read if entry["scope"] == "create:ecs"]
         assert reasons and "no Dimension node for aws_region" in reasons[0]
         assert "create:ecs" not in run.scopes_read
-        # The run itself was written: its scan run exists and nothing was rejected.
-        assert run is not None and AnchoreFinding.objects.count() >= 0
+        # The rest of the run was written: the same findings as a run that creates its ECS nodes.
+        assert {f.vulnerability_id for f in AnchoreFinding.objects.all()} == EXPECTED_FINDINGS
+
+    def test_a_resolver_that_exists_and_fails_to_import_is_an_error_not_an_old_grid(self, monkeypatch):
+        import importlib
+
+        def broken(name):
+            raise ModuleNotFoundError("No module named 'something_it_needs'", name="something_it_needs")
+
+        monkeypatch.setattr(importlib, "import_module", broken)
+        with pytest.raises(ModuleNotFoundError):
+            store.undeclared_dimensions({"anchore.area"})
+
+    def test_a_grid_with_no_resolver_module_is_an_old_grid(self, monkeypatch):
+        import importlib
+
+        def absent(name):
+            raise ModuleNotFoundError(f"No module named '{name}'", name=name)
+
+        monkeypatch.setattr(importlib, "import_module", absent)
+        assert store._dimension_resolver() is None
 
     def test_on_a_grid_that_accepts_any_key_nothing_is_ever_undeclared(self, monkeypatch):
         monkeypatch.setattr(store, "_dimension_resolver", lambda: None)
