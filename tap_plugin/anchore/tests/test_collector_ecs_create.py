@@ -87,6 +87,16 @@ class TestCreate:
             (made,) = nodes(kind)
             assert Entity.objects.get(pk=made.entity_id).dimensions == {"tap.cloud": "aws", "aws_account": ACCOUNT, "aws_region": REGION}, kind
 
+    def test_the_account_and_region_go_under_the_names_the_installed_aws_core_uses(self, tmp_path, monkeypatch):
+        """After aws_core's rename its seed declares the new names, and a created node carries those."""
+        monkeypatch.setattr(store, "aws_dimension_names", lambda: {"account": "aws.account", "region": "aws.region"})
+        configure(tmp_path, monkeypatch, {"running_only": True}, **CREATE)
+        run_against(monkeypatch, standard())
+        (made,) = nodes("task")
+        held = Entity.objects.get(pk=made.entity_id).dimensions
+        assert (held["aws.account"], held["aws.region"]) == (ACCOUNT, REGION)
+        assert "aws_account" not in held and "aws_region" not in held and "cloud" not in held
+
     def test_the_owners_edges_and_the_image_edge_are_drawn(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True}, **CREATE)
         run_against(monkeypatch, standard())
@@ -287,3 +297,33 @@ class TestPlan:
         plan = scope.plan_ecs_creation([{"arn": CONTAINER, "task_arn": TASK, "image_digest": DIGEST}], [task(tags={"n": 3})], [service()], scope.Settings(running_only=True))
         assert plan.tasks[TASK]["tags"] is None
         assert plan.services[SERVICE]["tags"] == {"tier": "web"}
+
+
+class TestAwsDimensionNames:
+    """Which names the installed aws_core gives its account and region dimensions (req-anchore-shared-8)."""
+
+    def seed(self, *names):
+        return {"batches": [{"nodes": [{"entity": {"entity_type": "dimension"}, "node": {"name": name}} for name in names]}]}
+
+    def test_before_the_rename(self):
+        assert store.aws_dimension_names(self.seed("tap.cloud", "cloud", "aws_account", "aws_region")) == {"account": "aws_account", "region": "aws_region"}
+
+    def test_after_the_rename(self):
+        assert store.aws_dimension_names(self.seed("tap.computing.cloud", "cloud", "aws.account", "aws.region")) == {"account": "aws.account", "region": "aws.region"}
+
+    def test_each_is_decided_on_its_own(self):
+        assert store.aws_dimension_names(self.seed("aws.account", "aws_region")) == {"account": "aws.account", "region": "aws_region"}
+
+    def test_the_new_name_wins_where_a_seed_declares_both(self):
+        assert store.aws_dimension_names(self.seed("aws_account", "aws.account"))["account"] == "aws.account"
+
+    @pytest.mark.parametrize("seed", [None, {}, {"batches": []}])
+    def test_an_aws_core_with_no_seed_keeps_the_old_names(self, seed):
+        assert store.aws_dimension_names(seed) == {"account": "aws_account", "region": "aws_region"}
+
+    def test_a_non_dimension_node_of_that_name_does_not_count(self):
+        seed = {"batches": [{"nodes": [{"entity": {"entity_type": "page"}, "node": {"name": "aws.account"}}]}]}
+        assert store.aws_dimension_names(seed)["account"] == "aws_account"
+
+    def test_the_installed_aws_core_is_read_without_error(self):
+        assert set(store.aws_dimension_names()) == {"account", "region"}

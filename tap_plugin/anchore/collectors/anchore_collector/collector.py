@@ -750,6 +750,7 @@ class AnchoreCollector(CollectorBase):
             existing[kind] = found
         read.append("create:ecs")
         created = dict.fromkeys(wanted, 0)
+        names = store.aws_dimension_names()
         for kind, nodes in wanted.items():
             entity_type, key = store.ECS_TYPES[kind], store.ecs_key(kind)
             defaults = store.default_dimensions(entity_type)
@@ -766,7 +767,7 @@ class AnchoreCollector(CollectorBase):
                 # Only what Anchore reported: a field it did not carry is omitted, never sent empty.
                 fields.update({name: value for name, value in reported.items() if value is not None})
                 ref = f"{tag}:ec:{kind}:{len(out.ecs_created)}"
-                out.nodes.append(decompose.provider_node(ref, entity_type, parts.last, fields, defaults, parts))
+                out.nodes.append(decompose.provider_node(ref, entity_type, parts.last, fields, defaults, parts, names))
                 out.ecs_created[arn] = ref
                 created[kind] += 1
 
