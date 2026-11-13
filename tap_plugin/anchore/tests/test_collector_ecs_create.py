@@ -325,5 +325,16 @@ class TestAwsDimensionNames:
         seed = {"batches": [{"nodes": [{"entity": {"entity_type": "page"}, "node": {"name": "aws.account"}}]}]}
         assert store.aws_dimension_names(seed)["account"] == "aws_account"
 
-    def test_the_installed_aws_core_is_read_without_error(self):
-        assert set(store.aws_dimension_names()) == {"account", "region"}
+    def test_the_installed_aws_core_ships_a_seed_this_reads_and_understands(self):
+        """Against the real package: the path resolves and the file has the shape the name choice parses.
+
+        A wrong path or a changed layout would otherwise fall back to the old names silently.
+        """
+        seed = store._aws_core_seed()
+        assert isinstance(seed, dict), "the installed aws_core has no grift/dimension.grift.json where this plugin looks"
+        declared = {n["node"]["name"] for batch in seed["batches"] for n in batch["nodes"] if n["entity"]["entity_type"] == "dimension"}
+        assert declared, "aws_core's seed declares no dimension node in the shape this plugin reads"
+        names = store.aws_dimension_names()
+        # Whichever names it chose, each is the newest one that seed declares, or the oldest when it declares neither.
+        for role, candidates in store._AWS_DIMENSION_NAMES.items():
+            assert names[role] == next((name for name in candidates if name in declared), candidates[-1])
