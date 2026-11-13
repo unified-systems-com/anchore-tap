@@ -147,15 +147,17 @@ def edge_ends(ref: str, slug: str, source: dict[str, Any], target: dict[str, Any
     return {"entity": {"ref": ref, "entity_type": "edge", "name": slug, "dimensions": {}}, "edge": body}
 
 
-def provider_node(ref: str, entity_type: str, name: str, fields: dict[str, Any], default_dimensions: dict[str, str], arn: Any) -> dict[str, Any]:
+def provider_node(ref: str, entity_type: str, name: str, fields: dict[str, Any], default_dimensions: dict[str, str], arn: Any, names: dict[str, str]) -> dict[str, Any]:
     """A node of a provider's type, created because the grid had none (req-anchore-shared, rule 8).
 
     It carries the dimensions the provider's own collector stamps, so it does not look foreign:
-    the model's defaults (``tap.cloud`` among them), and ``aws_region`` and ``aws_account`` read from
-    the ARN. The older ``cloud`` key duplicated ``tap.cloud`` and is retired; it is not stamped.
+    the model's defaults (the cloud dimension among them), and the region and the account read from
+    the ARN, under the names the installed aws_core gives those two dimensions (``names``). The
+    account is the one in the node's own ARN: the account that owns it, never the observer's.
+    The older ``cloud`` key is retired and is not stamped.
     It never carries an Anchore dimension.
     """
-    dimensions = {**default_dimensions, "aws_region": arn.region, "aws_account": arn.account}
+    dimensions = {**default_dimensions, names["region"]: arn.region, names["account"]: arn.account}
     return {"entity": {"ref": ref, "entity_type": entity_type, "name": name[:255], "dimensions": dimensions}, "node": fields}
 
 

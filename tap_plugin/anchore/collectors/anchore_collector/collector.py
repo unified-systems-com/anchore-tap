@@ -748,6 +748,14 @@ class AnchoreCollector(CollectorBase):
                 self.record_info(_SITE_ECS_CREATE, "ECS_CREATE_NOT_READ", f"{credential.qualified}: aws_core is not installed; no ECS node was created.")
                 return
             existing[kind] = found
+        try:
+            names = store.aws_dimension_names()
+        except store.AwsSeedUnreadable as exc:
+            # Which names aws_core uses cannot be told, and a guess would mislabel every node created.
+            # The scope is recorded as not read, and only as that: nothing of it was done.
+            not_read.append({"scope": "create:ecs", "reason": f"{exc}; no ECS node was created"})
+            self.record_warn(_SITE_ECS_CREATE, "ECS_CREATE_NOT_READ", f"{credential.qualified}: {exc}; no ECS node was created.")
+            return
         read.append("create:ecs")
         created = dict.fromkeys(wanted, 0)
         for kind, nodes in wanted.items():
@@ -766,7 +774,7 @@ class AnchoreCollector(CollectorBase):
                 # Only what Anchore reported: a field it did not carry is omitted, never sent empty.
                 fields.update({name: value for name, value in reported.items() if value is not None})
                 ref = f"{tag}:ec:{kind}:{len(out.ecs_created)}"
-                out.nodes.append(decompose.provider_node(ref, entity_type, parts.last, fields, defaults, parts))
+                out.nodes.append(decompose.provider_node(ref, entity_type, parts.last, fields, defaults, parts, names))
                 out.ecs_created[arn] = ref
                 created[kind] += 1
 

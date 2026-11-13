@@ -211,6 +211,72 @@ def ecs_containers_on_grid(arns: set[str]) -> set[str] | None:
     return aws_nodes_on_grid(ECS_CONTAINER_TYPE, ecs_key("container"), arns)
 
 
+#: aws_core's two dimensions a created ECS node carries beside its type defaults: the name each has
+#: had, newest first. aws_core renamed them and kept the nodes (``aws_account`` to ``aws.account``).
+_AWS_DIMENSION_NAMES = {"account": ("aws.account", "aws_account"), "region": ("aws.region", "aws_region")}
+
+
+def aws_dimension_names(seed: dict[str, Any] | None | bool = False) -> dict[str, str]:
+    """The names the INSTALLED aws_core gives its account and region dimensions (req-anchore-shared-8).
+
+    Read from aws_core's own dimension seed, not from the grid's Dimension table: the package is
+    the code a run executes against, while the table lags it between a migrate and the next boot.
+    A name is the newest one the seed declares; where the seed declares neither, or aws_core
+    ships no seed, the oldest name stands, which is what such an aws_core stamps itself. So one
+    release of this plugin is right before and after the rename. ``seed`` is for tests.
+    """
+    if seed is False:
+        seed = _aws_core_seed()
+    declared = set() if seed is None else _declared_dimension_names(seed)
+    return {role: next((name for name in names if name in declared), names[-1]) for role, names in _AWS_DIMENSION_NAMES.items()}
+
+
+class AwsSeedUnreadable(RuntimeError):
+    """aws_core ships a dimension seed that could not be read or is not the document expected."""
+
+
+def _declared_dimension_names(seed: Any) -> set[str]:
+    """The names of the dimension nodes a GRIFT seed declares; raises on any shape it does not recognise."""
+    wrong = AwsSeedUnreadable("aws_core's dimension seed is not a GRIFT document of batches holding nodes")
+    if not isinstance(seed, dict) or not isinstance(seed.get("batches"), list):
+        raise wrong
+    declared: set[str] = set()
+    for batch in seed["batches"]:
+        if not isinstance(batch, dict) or not isinstance(batch.get("nodes", []), list):
+            raise wrong
+        for node in batch.get("nodes", []):
+            if not isinstance(node, dict) or not isinstance(node.get("entity"), dict):
+                raise wrong
+            if node["entity"].get("entity_type") == "dimension":
+                body = node.get("node")
+                if not isinstance(body, dict) or not isinstance(body.get("name"), str):
+                    raise wrong
+                declared.add(body["name"])
+    return declared
+
+
+def _aws_core_seed() -> Any:
+    """aws_core's dimension seed as installed; None only when aws_core is not installed or ships none.
+
+    A seed that is there and cannot be read or parsed is not the same as no seed: falling back to
+    the old names then would mislabel every node created. That raises instead. The document's
+    shape is checked where it is read (``_declared_dimension_names``).
+    """
+    import json
+    from importlib import resources
+
+    try:
+        path = resources.files("tap_plugin.aws_core") / "grift" / "dimension.grift.json"
+    except ModuleNotFoundError:
+        return None
+    try:
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AwsSeedUnreadable(f"aws_core's dimension seed could not be read ({type(exc).__name__})") from None
+
+
 def default_dimensions(entity_type: str) -> dict[str, str]:
     """The registered model's default dimensions for a type this plugin does not import."""
     return dict(get_model_class(entity_type).DEFAULT_DIMENSIONS)
