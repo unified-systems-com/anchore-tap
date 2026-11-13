@@ -750,7 +750,13 @@ class AnchoreCollector(CollectorBase):
             existing[kind] = found
         read.append("create:ecs")
         created = dict.fromkeys(wanted, 0)
-        names = store.aws_dimension_names()
+        try:
+            names = store.aws_dimension_names()
+        except store.AwsSeedUnreadable as exc:
+            # Which names aws_core uses cannot be told, and a guess would mislabel every node created.
+            not_read.append({"scope": "create:ecs", "reason": f"{exc}; no ECS node was created"})
+            self.record_warn(_SITE_ECS_CREATE, "ECS_CREATE_NOT_READ", f"{credential.qualified}: {exc}; no ECS node was created.")
+            return
         for kind, nodes in wanted.items():
             entity_type, key = store.ECS_TYPES[kind], store.ecs_key(kind)
             defaults = store.default_dimensions(entity_type)

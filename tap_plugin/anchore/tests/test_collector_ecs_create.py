@@ -338,3 +338,36 @@ class TestAwsDimensionNames:
         # Whichever names it chose, each is the newest one that seed declares, or the oldest when it declares neither.
         for role, candidates in store._AWS_DIMENSION_NAMES.items():
             assert names[role] == next((name for name in candidates if name in declared), candidates[-1])
+
+
+class TestSeedThatCannotBeRead:
+    """A seed that is there but unreadable is not "no seed": nothing is created under guessed names."""
+
+    def test_an_unreadable_or_malformed_seed_is_an_error_not_the_old_names(self, tmp_path, monkeypatch):
+        from importlib import resources
+
+        (tmp_path / "grift").mkdir()
+        target = tmp_path / "grift" / "dimension.grift.json"
+        monkeypatch.setattr(resources, "files", lambda package: tmp_path)
+        for body in ("{not json", "[]", '{"batches": {}}'):
+            target.write_text(body, encoding="utf-8")
+            with pytest.raises(store.AwsSeedUnreadable):
+                store.aws_dimension_names()
+
+    def test_an_aws_core_that_ships_no_seed_file_is_no_seed(self, tmp_path, monkeypatch):
+        from importlib import resources
+
+        monkeypatch.setattr(resources, "files", lambda package: tmp_path)
+        assert store._aws_core_seed() is None
+
+    @pytest.mark.django_db
+    def test_no_ecs_node_is_created_and_the_run_says_why(self, tmp_path, monkeypatch):
+        def unreadable():
+            raise store.AwsSeedUnreadable("aws_core's dimension seed could not be read (JSONDecodeError)")
+
+        monkeypatch.setattr(store, "aws_dimension_names", unreadable)
+        configure(tmp_path, monkeypatch, {"running_only": True}, **CREATE)
+        run_against(monkeypatch, standard())
+        assert all(not nodes(kind) for kind in TYPES)
+        reasons = [entry["reason"] for entry in latest_run().scopes_not_read if entry["scope"] == "create:ecs"]
+        assert reasons and "could not be read" in reasons[0] and "no ECS node was created" in reasons[0]

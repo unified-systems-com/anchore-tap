@@ -236,16 +236,32 @@ def aws_dimension_names(seed: dict[str, Any] | None | bool = False) -> dict[str,
     return {role: next((name for name in names if name in declared), names[-1]) for role, names in _AWS_DIMENSION_NAMES.items()}
 
 
+class AwsSeedUnreadable(RuntimeError):
+    """aws_core ships a dimension seed that could not be read or is not the document expected."""
+
+
 def _aws_core_seed() -> dict[str, Any] | None:
-    """aws_core's dimension seed as installed, or None when it has none or is not installed."""
+    """aws_core's dimension seed as installed; None only when aws_core is not installed or ships none.
+
+    A seed that is there and cannot be read or parsed is not the same as no seed: falling back to
+    the old names then would mislabel every node created. That raises instead.
+    """
     import json
     from importlib import resources
 
     try:
         path = resources.files("tap_plugin.aws_core") / "grift" / "dimension.grift.json"
-        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
-    except (ModuleNotFoundError, OSError, ValueError):
+    except ModuleNotFoundError:
         return None
+    if not path.is_file():
+        return None
+    try:
+        seed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AwsSeedUnreadable(f"aws_core's dimension seed could not be read ({type(exc).__name__})") from None
+    if not isinstance(seed, dict) or not isinstance(seed.get("batches"), list):
+        raise AwsSeedUnreadable("aws_core's dimension seed is not a GRIFT document with batches")
+    return seed
 
 
 def default_dimensions(entity_type: str) -> dict[str, str]:
