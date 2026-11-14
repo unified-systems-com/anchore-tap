@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.1.8](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.7...v0.1.8) (2026-11-14)
+
+
+### Features
+
+* **coverage:** account for every Anchore read, and write a large run as several batches ([6479f0a](https://github.com/unified-systems-com/anchore-tap/commit/6479f0a1edb99f85c74c0671e0e6f5cdd1240e38))
+* **coverage:** account for every Anchore read, and write a large run as several batches ([613cbf1](https://github.com/unified-systems-com/anchore-tap/commit/613cbf100a37729849e30d1b9365f56af170459b))
+* **dimensions:** declare the Dimension node for anchore.area ([0c25199](https://github.com/unified-systems-com/anchore-tap/commit/0c2519936b82cfc7ed00c0544b363fd0d14d44b4))
+* **dimensions:** declare the Dimension node for anchore.area ([1a32163](https://github.com/unified-systems-com/anchore-tap/commit/1a32163aab0e5f14a6238075aad96994b12061c6))
+* **dimensions:** scope every Anchore-owned node to its instance and account ([8ebc67b](https://github.com/unified-systems-com/anchore-tap/commit/8ebc67b40ffee14f0eb5316c413cb497d92d309c))
+* **dimensions:** scope every Anchore-owned node to its instance and account ([98722df](https://github.com/unified-systems-com/anchore-tap/commit/98722df26037be4c2bc96581feb49443c2731b3e))
+* **dimensions:** scope nodes to their image, cluster and namespace ([31522d6](https://github.com/unified-systems-com/anchore-tap/commit/31522d64297d0904166fc5453701dca368a8676b))
+* **dimensions:** scope nodes to their image, cluster and namespace ([be9a741](https://github.com/unified-systems-com/anchore-tap/commit/be9a741ffd9a5e16920e2921965e97bdce8f1566))
+* **image:** Anchore's record of each image, the host's name and operating system, and records kept as returned ([e8fd582](https://github.com/unified-systems-com/anchore-tap/commit/e8fd5826d5788ed541ffe66179db43bfebab6d9e))
+* **image:** Anchore's record of each image, the host's name and OS, and records kept as returned ([efeaf7c](https://github.com/unified-systems-com/anchore-tap/commit/efeaf7cbe58fba3f12a7bdc6aefb1fa86ca4a77d))
+* **image:** write the image's architecture, size, layers and tags into computing_core's types ([941ecf6](https://github.com/unified-systems-com/anchore-tap/commit/941ecf6b96ae370070bc9a8455db46b58f001ba2))
+* **image:** write the image's architecture, size, layers and tags into computing_core's types ([31c9916](https://github.com/unified-systems-com/anchore-tap/commit/31c9916ab53f99abc0c5f6679386d38b97670503))
+* **kubernetes:** store annotations, less a short list of excluded keys ([2648af1](https://github.com/unified-systems-com/anchore-tap/commit/2648af115b31ae7837fb0028f498f95e564d1f93))
+* **kubernetes:** store annotations, less a short list of excluded keys ([c420a43](https://github.com/unified-systems-com/anchore-tap/commit/c420a431123030bd4c36d1b3e45d14ca30144461))
+* **policy:** Anchore's policy evaluation of each image, per tag and policy ([9ea9506](https://github.com/unified-systems-com/anchore-tap/commit/9ea95062c4dc21a63bb66e8c7978e855bbec60ed))
+* **policy:** Anchore's policy evaluation of each image, per tag and policy ([096266d](https://github.com/unified-systems-com/anchore-tap/commit/096266d760bbce2665e143d78ac353e24ab09890))
+* **vex:** read the VEX annotations Anchore holds on each image ([2f1685a](https://github.com/unified-systems-com/anchore-tap/commit/2f1685a41c56eb05341a1e09667519ba522ba5be))
+* **vex:** read the VEX annotations Anchore holds on each image ([3d0395f](https://github.com/unified-systems-com/anchore-tap/commit/3d0395f5ba249a78fe697e4801457bbb90e57111))
+
+
+### Bug Fixes
+
+* **batching:** a run that fits one batch describes itself exactly as before ([dc18836](https://github.com/unified-systems-com/anchore-tap/commit/dc188367fea44b161352e7a9db9522a6e6f88aba))
+* **coverage:** the ruled-out families are named exactly, and the guard covers what sits beneath them ([7132c75](https://github.com/unified-systems-com/anchore-tap/commit/7132c758086618e58885b85e98625a0d681a257b))
+* **dimensions:** a resolver that exists but fails to import is an error; the test proves the findings land ([3c626c5](https://github.com/unified-systems-com/anchore-tap/commit/3c626c57e43695adc618ab80e4b0aab68d0b3cb6))
+* **dimensions:** an undeclared provider dimension gives up ECS creation, not the whole run ([c691b5e](https://github.com/unified-systems-com/anchore-tap/commit/c691b5e90bc57cdf7f4feadb993a7f56684957cc))
+* **dimensions:** an undeclared provider dimension gives up ECS creation, not the whole run ([18abdf6](https://github.com/unified-systems-com/anchore-tap/commit/18abdf67c9961895ba7e930ca19ec09c7e3af837))
+* **dimensions:** check the instance scope on the whole document; say what legacy nodes lack ([c39410f](https://github.com/unified-systems-com/anchore-tap/commit/c39410fa9f65228380d26e1124e481531c15e4c6))
+* **dimensions:** ownership decides the instance stamp, and an own node without a scanner key is refused ([b9f50b7](https://github.com/unified-systems-com/anchore-tap/commit/b9f50b7ace0264d96af9c5d23da03465d4907063))
+* **dimensions:** the document check compares the instance to the node's own scanner key ([0e924d0](https://github.com/unified-systems-com/anchore-tap/commit/0e924d0026bee619bd26d626dc283bbfcbb73968))
+* **ecs:** a seed that is present but unreadable stops ECS creation; only an absent one falls back ([559f78b](https://github.com/unified-systems-com/anchore-tap/commit/559f78b4bead6a95ea8620ad89719861e5114fe1))
+* **ecs:** every malformed seed shape is the one refusal; the scope is not claimed as read ([955bac1](https://github.com/unified-systems-com/anchore-tap/commit/955bac11a75c74978ec7cc0bdc6815ac9ced1bf2))
+* **ecs:** stamp the account and region under the names the installed aws_core declares ([3dd51bb](https://github.com/unified-systems-com/anchore-tap/commit/3dd51bb9f173df1f135c5d10581f83c2cb13032f))
+* **ecs:** stamp the account and region under the names the installed aws_core declares ([6f7fcd7](https://github.com/unified-systems-com/anchore-tap/commit/6f7fcd77184c497f0308aece238c6d46020b2e47))
+* **ecs:** stop stamping the retired cloud dimension on created ECS nodes ([af32956](https://github.com/unified-systems-com/anchore-tap/commit/af329566812656ad7604e5f62284d43cdc4cdab7))
+* **ecs:** stop stamping the retired cloud dimension on created ECS nodes ([ae77001](https://github.com/unified-systems-com/anchore-tap/commit/ae7700118cc7ca18d356ddd9df2538b7e1bca944))
+* **image:** one staged row per host per batch, so two scanners can each add a field; an over-long os is not sent ([2637ab5](https://github.com/unified-systems-com/anchore-tap/commit/2637ab535cdfe303fe61af272cac77288bed188e))
+* **keys:** read foreign key field names from the owning type ([23ac4e1](https://github.com/unified-systems-com/anchore-tap/commit/23ac4e1d5ee67b86c42df11bde5c90d78bbdb81e))
+* **keys:** read foreign key field names from the owning type ([4942ad0](https://github.com/unified-systems-com/anchore-tap/commit/4942ad0440f8f6f20c99ce975e9472ec5e75d94c))
+* **policy:** a response that names another image is not stored as this image's verdict ([c31d579](https://github.com/unified-systems-com/anchore-tap/commit/c31d579ca4b576244ae77f42ee4817a344198ffa))
+* **policy:** a verdict a later read replaced is marked superseded, not left current ([03bcec9](https://github.com/unified-systems-com/anchore-tap/commit/03bcec9a3ad614f8a03333b96f3d5a273f22134f))
+* **policy:** a verdict for another tag is not stored; the run limit holds between tags; the tag in the key is bounded ([d1e8a0c](https://github.com/unified-systems-com/anchore-tap/commit/d1e8a0c8bebb1bf07be66d2575f451ecfd48973f))
+* **scopes:** only a whole digest names an image; grid-comparison tests skip where the grid stores no spine key ([ce6b6fa](https://github.com/unified-systems-com/anchore-tap/commit/ce6b6fa4a6b9ada2c4358092cc8edc13db210f4e))
+* **scopes:** the stamp is the only source of the scope keys on the nodes it governs ([b11307a](https://github.com/unified-systems-com/anchore-tap/commit/b11307ada1c966a46c4040746b5f08edc60767b8))
+
 ## [0.1.7](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.6...v0.1.7) (2026-11-10)
 
 
