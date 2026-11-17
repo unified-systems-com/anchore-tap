@@ -40,7 +40,7 @@
           "type": "git",
           "url": "https://github.com/unified-systems-com/anchore-tap",
           "rev": "v0.1.8",
-          "commit": "54ecda04d81148262bbf41dbf7a9a4a4040accb8"
+          "commit": "4c5e8ba169c75779ba3f08625694242d84383a1b"
         }
       }
     ]
