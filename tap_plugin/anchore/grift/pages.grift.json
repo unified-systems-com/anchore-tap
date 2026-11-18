@@ -1,0 +1,3505 @@
+{
+  "metadata": {
+    "grift_version": "0"
+  },
+  "_reserved": {},
+  "batches": [
+    {
+      "batch_entity": {
+        "entity_id": "01a1ec85-1845-715b-99d6-9278861d6824",
+        "entity_type": "batch",
+        "name": "Anchore Pages v0.1.0",
+        "dimensions": {}
+      },
+      "batch_node": {
+        "source": "tap_plugin.anchore.grift.pages",
+        "name": "Anchore Pages v0.1.0",
+        "description": "The standard Anchore pages: vulnerabilities, images, one image, its SBOM, and collection health. Standard table, stat card and text panels over Gryphon searches; no custom panel type."
+      },
+      "nodes": [
+        {
+          "entity": {
+            "entity_id": "01a1ec80-ede5-7cb3-8847-f6a1c78b7408",
+            "entity_type": "panel",
+            "name": "Anchore Pages",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Anchore Pages",
+            "slug": "anchore-nav",
+            "description": "Links between the Anchore pages.",
+            "view": "tap_web/panels/html.html",
+            "config": {
+              "html": "<p><a href=\"/anchore\">Vulnerabilities</a> &middot; <a href=\"/anchore/images\">Images</a> &middot; <a href=\"/anchore/health\">Collection health</a></p>",
+              "hide_header": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-d9ff-7011-a440-703de4520f70",
+            "entity_type": "search",
+            "name": "anchore — card-open",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-open",
+            "description": "Findings Anchore currently reports.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding) WHERE f.data.state = \"current\"",
+                "RETURN COUNT(f) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-da22-7cbf-bfe0-735602f136b5",
+            "entity_type": "search",
+            "name": "anchore — card-severe",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-severe",
+            "description": "Current findings Anchore rates Critical or High.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding) WHERE f.data.state = \"current\" AND f.data.severity IN [\"Critical\", \"High\"]",
+                "RETURN COUNT(f) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-da49-76ee-a5c3-57c5554673f8",
+            "entity_type": "search",
+            "name": "anchore — card-fixable",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-fixable",
+            "description": "Current findings for which Anchore names a fixed version.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding) WHERE f.data.state = \"current\" AND f.data.fix != \"None\"",
+                "RETURN COUNT(f) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-da71-794b-af59-a0f3daa5adf5",
+            "entity_type": "search",
+            "name": "anchore — card-kev",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-kev",
+            "description": "Current findings Anchore marks as on CISA's Known Exploited Vulnerabilities list.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding) WHERE f.data.state = \"current\" AND f.data.is_kev = true",
+                "RETURN COUNT(f) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-da96-77b7-920c-f5661d678501",
+            "entity_type": "search",
+            "name": "anchore — card-resolved",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-resolved",
+            "description": "Findings Anchore reported earlier and no longer reports.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding) WHERE f.data.state = \"resolved\"",
+                "RETURN COUNT(f) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dabe-78d5-b0a3-c6f9fa9b2e91",
+            "entity_type": "search",
+            "name": "anchore — by-vulnerability",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — by-vulnerability",
+            "description": "One row per vulnerability and package with a current finding, and how many images carry it.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE f.data.state = \"current\"",
+                "RETURN f.data.vulnerability_id AS vuln, f.data.severity AS severity, f.data.package_name AS package, f.data.package_version AS version, f.data.fix AS fix, f.data.is_kev AS kev, COUNT(h) AS images"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dae2-7030-881b-6beff7624ea5",
+            "entity_type": "search",
+            "name": "anchore — open-findings",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — open-findings",
+            "description": "Every current finding with the image it was found on.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE f.data.state = \"current\"",
+                "RETURN f.data.vulnerability_id AS vuln, f.data.severity AS severity, f.data.package_name AS package, f.data.package_version AS version, f.data.fix AS fix, f.data.is_kev AS kev, f.data.detected_at AS detected, h.name AS image, h.data.stable_id AS digest"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-db08-78af-8101-d655a44bd6ff",
+            "entity_type": "panel",
+            "name": "Open Findings",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Open Findings",
+            "slug": "anchore-card-open",
+            "description": "Findings Anchore currently reports.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "warn",
+              "hide_header": true,
+              "title": "Open Findings",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-db55-7f51-9b77-f94e3cc48c75",
+            "entity_type": "panel",
+            "name": "Critical Or High",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Critical Or High",
+            "slug": "anchore-card-severe",
+            "description": "Current findings Anchore rates Critical or High.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "bad",
+              "hide_header": true,
+              "title": "Critical Or High",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dba4-7292-8269-063e877a6cbf",
+            "entity_type": "panel",
+            "name": "Known Exploited",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Known Exploited",
+            "slug": "anchore-card-kev",
+            "description": "Current findings Anchore marks as on CISA's Known Exploited Vulnerabilities list.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "bad",
+              "hide_header": true,
+              "title": "Known Exploited",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dbf2-78ce-8a9d-9a4b1aead57a",
+            "entity_type": "panel",
+            "name": "With A Fix",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "With A Fix",
+            "slug": "anchore-card-fixable",
+            "description": "Current findings for which Anchore names a fixed version.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "good",
+              "hide_header": true,
+              "title": "With A Fix",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dc47-7bb9-988b-a9bd5213482a",
+            "entity_type": "panel",
+            "name": "Resolved",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Resolved",
+            "slug": "anchore-card-resolved",
+            "description": "Findings Anchore reported earlier and no longer reports.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "good",
+              "hide_header": true,
+              "title": "Resolved",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dca3-714c-81ee-412a8049fa38",
+            "entity_type": "panel",
+            "name": "What To Fix",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "What To Fix",
+            "slug": "anchore-h-by-vulnerability",
+            "description": "Section heading: One row per vulnerability and package: the severity Anchore reported, the version that fixes it and how many images carry it. Counts are of findings Anchore currently reports on images it has analyzed; an image Anchore has not analyzed contributes nothing here, which is not the same as having no findings. See Images for those.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "One row per vulnerability and package: the severity Anchore reported, the version that fixes it and how many images carry it. Counts are of findings Anchore currently reports on images it has analyzed; an image Anchore has not analyzed contributes nothing here, which is not the same as having no findings. See Images for those.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dccd-79f5-adcc-02cfa636827d",
+            "entity_type": "panel",
+            "name": "Open Vulnerabilities",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Open Vulnerabilities",
+            "slug": "anchore-by-vulnerability",
+            "description": "Every vulnerability and package with a current finding, and how many images carry it.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": true,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "vuln",
+                  "title": "Vulnerability",
+                  "width": 170
+                },
+                {
+                  "field": "severity",
+                  "title": "Severity",
+                  "width": 120,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "Critical": "bad",
+                      "High": "bad",
+                      "Medium": "warn",
+                      "Low": "good",
+                      "Negligible": "good",
+                      "Unknown": "muted"
+                    }
+                  },
+                  "header_tooltip": "The severity Anchore reported, as returned."
+                },
+                {
+                  "field": "package",
+                  "title": "Package",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "version",
+                  "title": "Installed",
+                  "width": 130
+                },
+                {
+                  "field": "fix",
+                  "title": "Fixed In",
+                  "width": 150,
+                  "header_tooltip": "The version Anchore says fixes it. None means Anchore reports no fix; blank means its record carried no fix field."
+                },
+                {
+                  "field": "kev",
+                  "title": "CISA KEV",
+                  "width": 110,
+                  "align": "center",
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "true": "bad"
+                    },
+                    "labels": {
+                      "true": "KEV",
+                      "false": "no"
+                    }
+                  },
+                  "header_tooltip": "Whether Anchore marked it as on CISA's Known Exploited Vulnerabilities list. Blank means Anchore's record did not say."
+                },
+                {
+                  "field": "images",
+                  "title": "Images",
+                  "width": 100,
+                  "align": "right",
+                  "sorter": "number",
+                  "header_tooltip": "How many images carry a current finding for it in this package."
+                }
+              ],
+              "empty_text": "Anchore reports no current findings."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dd1c-7ac4-b2d7-55eb96e78e55",
+            "entity_type": "panel",
+            "name": "Where It Is",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Where It Is",
+            "slug": "anchore-h-open-findings",
+            "description": "Section heading: One row per finding: the vulnerability, the package and the image it was found on. Click an image for everything Anchore holds about it.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "One row per finding: the vulnerability, the package and the image it was found on. Click an image for everything Anchore holds about it.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dd43-71d7-8d55-ede58135203e",
+            "entity_type": "panel",
+            "name": "Open Findings",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Open Findings",
+            "slug": "anchore-open-findings",
+            "description": "Every current finding with its image.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": true,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "vuln",
+                  "title": "Vulnerability",
+                  "width": 170
+                },
+                {
+                  "field": "severity",
+                  "title": "Severity",
+                  "width": 120,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "Critical": "bad",
+                      "High": "bad",
+                      "Medium": "warn",
+                      "Low": "good",
+                      "Negligible": "good",
+                      "Unknown": "muted"
+                    }
+                  },
+                  "header_tooltip": "The severity Anchore reported, as returned."
+                },
+                {
+                  "field": "package",
+                  "title": "Package",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "fix",
+                  "title": "Fixed In",
+                  "width": 150,
+                  "header_tooltip": "The version Anchore says fixes it. None means Anchore reports no fix; blank means its record carried no fix field."
+                },
+                {
+                  "field": "image",
+                  "title": "Image",
+                  "widthGrow": 3,
+                  "formatter": "link",
+                  "formatter_params": {
+                    "href_template": "/anchore/image?digest={digest}",
+                    "external": false,
+                    "style": "plain"
+                  }
+                },
+                {
+                  "field": "detected",
+                  "title": "Detected",
+                  "width": 190,
+                  "formatter": "datetime",
+                  "header_tooltip": "When Anchore says it first detected it."
+                }
+              ],
+              "empty_text": "Anchore reports no current findings."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "entity_type": "page",
+            "name": "Anchore Vulnerabilities",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Anchore Vulnerabilities",
+            "slug": "/anchore",
+            "description": "What Anchore currently reports: five counts, then every open vulnerability by package and every finding by image. Click an image for its findings and packages.",
+            "layout": {
+              "columns": {
+                "col-1": {
+                  "width": "12fr",
+                  "band": 1,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-nav",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-2": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-open",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-3": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-severe",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-4": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-kev",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-5": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-fixable",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-6": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-resolved",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-7": {
+                  "width": "12fr",
+                  "band": 3,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-by-vulnerability",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-8": {
+                  "width": "12fr",
+                  "band": 4,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-by-vulnerability",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-9": {
+                  "width": "12fr",
+                  "band": 5,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-open-findings",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-10": {
+                  "width": "12fr",
+                  "band": 6,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-open-findings",
+                      "height": "auto"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-df1a-7252-8b3b-ef67dc537131",
+            "entity_type": "search",
+            "name": "anchore — images",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — images",
+            "description": "Every image record Anchore holds, with its analysis state.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (i:anchore__anchore_image)",
+                "RETURN i.data.reference AS image, i.data.image_digest AS digest, i.data.analysis_status AS status, i.data.image_status AS image_status, i.data.created_at AS created, i.data.last_updated AS updated",
+                "ORDER BY image ASC"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-df41-70fa-a931-8b6175cbfccf",
+            "entity_type": "search",
+            "name": "anchore — image-counts",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — image-counts",
+            "description": "Images with at least one current finding, and how many.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE f.data.state = \"current\"",
+                "RETURN h.name AS image, h.data.stable_id AS digest, COUNT(f) AS findings"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-df68-77e1-b82c-9000c46a5ca9",
+            "entity_type": "search",
+            "name": "anchore — card-images",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-images",
+            "description": "Image records Anchore holds.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (i:anchore__anchore_image)",
+                "RETURN COUNT(i) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-df91-7fdd-ab63-04acb3c7e06f",
+            "entity_type": "search",
+            "name": "anchore — card-images-analyzed",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-images-analyzed",
+            "description": "Image records whose analysis Anchore reports as finished.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (i:anchore__anchore_image) WHERE i.data.analysis_status = \"analyzed\"",
+                "RETURN COUNT(i) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dfb7-7cd3-9d54-6f36ac3871f9",
+            "entity_type": "search",
+            "name": "anchore — card-images-pending",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-images-pending",
+            "description": "Image records whose analysis Anchore does not report as finished.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (i:anchore__anchore_image) WHERE i.data.analysis_status != \"analyzed\"",
+                "RETURN COUNT(i) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dfdd-72c6-834b-37f1074e4655",
+            "entity_type": "panel",
+            "name": "Images",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Images",
+            "slug": "anchore-card-images",
+            "description": "Image records Anchore holds.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "warn",
+              "hide_header": true,
+              "title": "Images",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e02b-799b-a25c-ba6a0e993612",
+            "entity_type": "panel",
+            "name": "Analyzed",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Analyzed",
+            "slug": "anchore-card-images-analyzed",
+            "description": "Image records whose analysis Anchore reports as finished.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "good",
+              "hide_header": true,
+              "title": "Analyzed",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e07b-7a82-88f6-33d2573ca758",
+            "entity_type": "panel",
+            "name": "Not Analyzed",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Not Analyzed",
+            "slug": "anchore-card-images-pending",
+            "description": "Image records whose analysis Anchore does not report as finished; their findings were not read.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "warn",
+              "hide_header": true,
+              "title": "Not Analyzed",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e0c9-74db-ba25-ab52a42b1924",
+            "entity_type": "panel",
+            "name": "Every Image",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Every Image",
+            "slug": "anchore-h-images",
+            "description": "Section heading: Every image record Anchore holds within this collection's scope. Analysis says whether Anchore finished analyzing it: findings and packages exist here only for analyzed images.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "Every image record Anchore holds within this collection's scope. Analysis says whether Anchore finished analyzing it: findings and packages exist here only for analyzed images.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e0f6-75b9-8e5b-908b3f3f62ab",
+            "entity_type": "panel",
+            "name": "Images",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Images",
+            "slug": "anchore-images",
+            "description": "Every image record Anchore holds.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": true,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "image",
+                  "title": "Image",
+                  "widthGrow": 3,
+                  "formatter": "link",
+                  "formatter_params": {
+                    "href_template": "/anchore/image?digest={digest}",
+                    "external": false,
+                    "style": "plain"
+                  }
+                },
+                {
+                  "field": "status",
+                  "title": "Analysis",
+                  "width": 140,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "analyzed": "good",
+                      "analyzing": "warn",
+                      "not_analyzed": "warn",
+                      "analysis_failed": "bad"
+                    }
+                  },
+                  "header_tooltip": "Anchore's analysis state. Findings and packages are read only for an analyzed image; any other state means they were not read, not that there are none."
+                },
+                {
+                  "field": "image_status",
+                  "title": "Status",
+                  "width": 120
+                },
+                {
+                  "field": "created",
+                  "title": "Added To Anchore",
+                  "width": 190,
+                  "formatter": "datetime"
+                },
+                {
+                  "field": "updated",
+                  "title": "Last Updated",
+                  "width": 190,
+                  "formatter": "datetime"
+                }
+              ],
+              "empty_text": "Anchore holds no image in scope."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e154-7abb-b1ba-53e316f43817",
+            "entity_type": "panel",
+            "name": "Images With Open Findings",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Images With Open Findings",
+            "slug": "anchore-h-image-counts",
+            "description": "Section heading: Images with at least one current finding, and how many. An image missing from this table has no current finding or was not analyzed; the table above says which.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "Images with at least one current finding, and how many. An image missing from this table has no current finding or was not analyzed; the table above says which.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e17c-777d-a607-3b230a23b194",
+            "entity_type": "panel",
+            "name": "Open Findings By Image",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Open Findings By Image",
+            "slug": "anchore-image-counts",
+            "description": "Images with at least one current finding.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": true,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "image",
+                  "title": "Image",
+                  "widthGrow": 3,
+                  "formatter": "link",
+                  "formatter_params": {
+                    "href_template": "/anchore/image?digest={digest}",
+                    "external": false,
+                    "style": "plain"
+                  }
+                },
+                {
+                  "field": "findings",
+                  "title": "Open Findings",
+                  "width": 160,
+                  "align": "right",
+                  "sorter": "number"
+                }
+              ],
+              "empty_text": "No image has a current finding."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "entity_type": "page",
+            "name": "Anchore Images",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Anchore Images",
+            "slug": "/anchore/images",
+            "description": "Every image Anchore holds, whether it finished analyzing it, and which carry open findings. Click an image for its detail.",
+            "layout": {
+              "columns": {
+                "col-1": {
+                  "width": "12fr",
+                  "band": 1,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-nav",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-2": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-images",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-3": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-images-analyzed",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-4": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-images-pending",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-5": {
+                  "width": "12fr",
+                  "band": 3,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-images",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-6": {
+                  "width": "12fr",
+                  "band": 4,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-images",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-7": {
+                  "width": "12fr",
+                  "band": 5,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-image-counts",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-8": {
+                  "width": "12fr",
+                  "band": 6,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-image-counts",
+                      "height": "auto"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e30c-744c-b44d-81c29578838f",
+            "entity_type": "search",
+            "name": "anchore — image-identity",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — image-identity",
+            "description": "The selected image as Anchore records it.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (i:anchore__anchore_image) WHERE i.data.image_digest = $digest",
+                "RETURN i.data.reference AS image, i.data.image_digest AS digest, i.data.image_digest AS digest_text, i.data.analysis_status AS status, i.data.image_status AS image_status, i.data.parent_digest AS parent, i.data.created_at AS created, i.data.last_updated AS updated"
+              ]
+            },
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image digest, such as sha256:ab12…"
+                }
+              },
+              "required": [
+                "digest"
+              ],
+              "description": "Selects one image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e335-7679-a959-1b57b6728002",
+            "entity_type": "search",
+            "name": "anchore — image-tags",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — image-tags",
+            "description": "The tags that name the selected image.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (t:computing_core__image_tag)-[:TAGS_IMAGE__computing_core]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "RETURN t.data.registry AS registry, t.data.repository AS repository, t.data.tag AS tag"
+              ]
+            },
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image digest, such as sha256:ab12…"
+                }
+              },
+              "required": [
+                "digest"
+              ],
+              "description": "Selects one image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e35b-78a0-9c71-9301bee2812f",
+            "entity_type": "search",
+            "name": "anchore — image-findings",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — image-findings",
+            "description": "Every finding on the selected image, current and resolved.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "RETURN f.data.vulnerability_id AS vuln, f.data.severity AS severity, f.data.state AS state, f.data.package_name AS package, f.data.package_version AS version, f.data.package_type AS type, f.data.fix AS fix, f.data.is_kev AS kev, f.data.detected_at AS detected"
+              ]
+            },
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image digest, such as sha256:ab12…"
+                }
+              },
+              "required": [
+                "digest"
+              ],
+              "description": "Selects one image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e3fd-7a4a-9649-dc0da0c2493d",
+            "entity_type": "panel",
+            "name": "Image",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Image",
+            "slug": "anchore-image-identity",
+            "description": "The selected image as Anchore records it.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": false,
+              "default_page_size": 1,
+              "columns": [
+                {
+                  "field": "image",
+                  "title": "Image",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "status",
+                  "title": "Analysis",
+                  "width": 140,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "analyzed": "good",
+                      "analyzing": "warn",
+                      "not_analyzed": "warn",
+                      "analysis_failed": "bad"
+                    }
+                  },
+                  "header_tooltip": "Anchore's analysis state. Findings and packages are read only for an analyzed image; any other state means they were not read, not that there are none."
+                },
+                {
+                  "field": "digest_text",
+                  "title": "Digest",
+                  "widthGrow": 3,
+                  "wrap": true
+                },
+                {
+                  "field": "created",
+                  "title": "Added To Anchore",
+                  "width": 190,
+                  "formatter": "datetime"
+                },
+                {
+                  "field": "updated",
+                  "title": "Last Updated",
+                  "width": 190,
+                  "formatter": "datetime"
+                },
+                {
+                  "field": "digest",
+                  "title": "Packages",
+                  "width": 130,
+                  "formatter": "link",
+                  "formatter_params": {
+                    "href_template": "/anchore/image/sbom?digest={digest}",
+                    "text": "Open SBOM",
+                    "external": false
+                  },
+                  "header_tooltip": "The packages this image's SBOM lists."
+                }
+              ],
+              "empty_text": "Anchore holds no image record with this digest. Open an image from the Images page."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e53b-77c8-939c-0260de0a93a7",
+            "entity_type": "panel",
+            "name": "Findings",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Findings",
+            "slug": "anchore-h-image-findings",
+            "description": "Section heading: Every finding Anchore has reported on this image. Current means the latest read still reports it; resolved means an earlier read did and the latest does not. An image Anchore has not analyzed has no rows here because nothing was read, not because it is clean.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "Every finding Anchore has reported on this image. Current means the latest read still reports it; resolved means an earlier read did and the latest does not. An image Anchore has not analyzed has no rows here because nothing was read, not because it is clean.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e561-7eeb-9d1d-3bca80d84a46",
+            "entity_type": "panel",
+            "name": "Findings On This Image",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Findings On This Image",
+            "slug": "anchore-image-findings",
+            "description": "Current and resolved findings.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": true,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "vuln",
+                  "title": "Vulnerability",
+                  "width": 170
+                },
+                {
+                  "field": "state",
+                  "title": "State",
+                  "width": 120,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "current": "warn",
+                      "resolved": "good"
+                    }
+                  }
+                },
+                {
+                  "field": "severity",
+                  "title": "Severity",
+                  "width": 120,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "Critical": "bad",
+                      "High": "bad",
+                      "Medium": "warn",
+                      "Low": "good",
+                      "Negligible": "good",
+                      "Unknown": "muted"
+                    }
+                  },
+                  "header_tooltip": "The severity Anchore reported, as returned."
+                },
+                {
+                  "field": "package",
+                  "title": "Package",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "version",
+                  "title": "Installed",
+                  "width": 130
+                },
+                {
+                  "field": "fix",
+                  "title": "Fixed In",
+                  "width": 150,
+                  "header_tooltip": "The version Anchore says fixes it. None means Anchore reports no fix; blank means its record carried no fix field."
+                }
+              ],
+              "empty_text": "No finding is recorded for this image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e5b2-7540-8838-60fd9345945a",
+            "entity_type": "panel",
+            "name": "Tags",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Tags",
+            "slug": "anchore-h-image-tags",
+            "description": "Section heading: The registry, repository and tag names Anchore reports for this digest.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "The registry, repository and tag names Anchore reports for this digest.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e5d8-7ce8-9866-ee03eb6aa818",
+            "entity_type": "panel",
+            "name": "Tags",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Tags",
+            "slug": "anchore-image-tags",
+            "description": "Names for this digest.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": false,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "registry",
+                  "title": "Registry",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "repository",
+                  "title": "Repository",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "tag",
+                  "title": "Tag",
+                  "widthGrow": 1
+                }
+              ],
+              "empty_text": "No tag is recorded for this image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e64e-7742-8234-32d7faa2bfc0",
+            "entity_type": "page",
+            "name": "Anchore Image",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Anchore Image",
+            "slug": "/anchore/image",
+            "description": "One image: what Anchore records about it, its findings and its tags. Open it from the Images or Vulnerabilities page.",
+            "layout": {
+              "columns": {
+                "col-1": {
+                  "width": "12fr",
+                  "band": 1,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-nav",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-2": {
+                  "width": "12fr",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-image-identity",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-3": {
+                  "width": "12fr",
+                  "band": 3,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-image-findings",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-4": {
+                  "width": "12fr",
+                  "band": 4,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-image-findings",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-5": {
+                  "width": "12fr",
+                  "band": 5,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-image-tags",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-6": {
+                  "width": "12fr",
+                  "band": 6,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-image-tags",
+                      "height": "auto"
+                    }
+                  }
+                }
+              }
+            },
+            "discoverable": false
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e784-7bff-98be-f267e0347c7f",
+            "entity_type": "search",
+            "name": "anchore — sbom-header",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — sbom-header",
+            "description": "The selected image, for the SBOM page's heading row.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (i:anchore__anchore_image) WHERE i.data.image_digest = $digest",
+                "RETURN i.data.reference AS image, i.data.image_digest AS digest, i.data.analysis_status AS status"
+              ]
+            },
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image digest, such as sha256:ab12…"
+                }
+              },
+              "required": [
+                "digest"
+              ],
+              "description": "Selects one image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e7ab-71bf-8e64-d1a164e01c2b",
+            "entity_type": "search",
+            "name": "anchore — sbom-packages",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — sbom-packages",
+            "description": "The packages the selected image's SBOM lists.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (h:computing_core__host)-[:INSTALLS_PACKAGE__computing_core]->(p:computing_core__package) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "RETURN p.data.name AS package, p.data.version AS version, p.data.ecosystem AS ecosystem, p.data.license AS license, p.data.purl AS purl"
+              ]
+            },
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image digest, such as sha256:ab12…"
+                }
+              },
+              "required": [
+                "digest"
+              ],
+              "description": "Selects one image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e7ce-703b-8740-772d5b464dd2",
+            "entity_type": "search",
+            "name": "anchore — sbom-vulnerable",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — sbom-vulnerable",
+            "description": "Packages of the selected image with a current finding, and how many.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\" AND f.data.state = \"current\"",
+                "RETURN f.data.package_name AS package, f.data.package_version AS version, COUNT(f) AS findings"
+              ]
+            },
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image digest, such as sha256:ab12…"
+                }
+              },
+              "required": [
+                "digest"
+              ],
+              "description": "Selects one image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e7f8-7631-b97b-a502025a3641",
+            "entity_type": "search",
+            "name": "anchore — sbom-documents",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — sbom-documents",
+            "description": "The SBOM documents recorded for the selected image.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (d:computing_core__sbom_document)-[:DESCRIBES_HOST__computing_core]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "RETURN d.data.format AS format, d.data.spec_version AS spec, d.data.component_count AS components, d.data.produced_at AS produced, d.data.generator AS generator, d.data.verified AS verified, d.data.verification_note AS note, d.data.content_digest AS content"
+              ]
+            },
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image digest, such as sha256:ab12…"
+                }
+              },
+              "required": [
+                "digest"
+              ],
+              "description": "Selects one image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e81c-79b6-aec0-4db3f20ad306",
+            "entity_type": "panel",
+            "name": "Image",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Image",
+            "slug": "anchore-sbom-header",
+            "description": "The image this SBOM describes.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": false,
+              "default_page_size": 1,
+              "columns": [
+                {
+                  "field": "image",
+                  "title": "Image",
+                  "widthGrow": 3,
+                  "formatter": "link",
+                  "formatter_params": {
+                    "href_template": "/anchore/image?digest={digest}",
+                    "external": false
+                  }
+                },
+                {
+                  "field": "status",
+                  "title": "Analysis",
+                  "width": 140,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "analyzed": "good",
+                      "analyzing": "warn",
+                      "not_analyzed": "warn",
+                      "analysis_failed": "bad"
+                    }
+                  },
+                  "header_tooltip": "Anchore's analysis state. Findings and packages are read only for an analyzed image; any other state means they were not read, not that there are none."
+                },
+                {
+                  "field": "digest",
+                  "title": "Digest",
+                  "widthGrow": 3
+                }
+              ],
+              "empty_text": "Anchore holds no image record with this digest. Open an image from the Images page."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e869-7c05-84c1-d566c45e56de",
+            "entity_type": "panel",
+            "name": "What Needs Fixing Here",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "What Needs Fixing Here",
+            "slug": "anchore-h-sbom-vulnerable",
+            "description": "Section heading: Packages in this image for which Anchore currently reports a finding, by the name and version on the finding.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "Packages in this image for which Anchore currently reports a finding, by the name and version on the finding.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e891-755e-aa25-330876105ed5",
+            "entity_type": "panel",
+            "name": "Packages With Open Findings",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Packages With Open Findings",
+            "slug": "anchore-sbom-vulnerable",
+            "description": "Packages with a current finding.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": true,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "package",
+                  "title": "Package",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "version",
+                  "title": "Installed",
+                  "width": 160
+                },
+                {
+                  "field": "findings",
+                  "title": "Open Findings",
+                  "width": 160,
+                  "align": "right",
+                  "sorter": "number"
+                }
+              ],
+              "empty_text": "No package of this image has a current finding."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e8de-7953-9488-88e1dc8a17d6",
+            "entity_type": "panel",
+            "name": "Every Package",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Every Package",
+            "slug": "anchore-h-sbom-packages",
+            "description": "Section heading: Every package the image's CycloneDX SBOM lists, as Anchore returned it. Only that document is parsed into packages; the others are recorded below and not parsed.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "Every package the image's CycloneDX SBOM lists, as Anchore returned it. Only that document is parsed into packages; the others are recorded below and not parsed.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e904-725a-8354-c4879b0b256f",
+            "entity_type": "panel",
+            "name": "Packages",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Packages",
+            "slug": "anchore-sbom-packages",
+            "description": "Every package the SBOM lists.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": true,
+              "default_page_size": 50,
+              "columns": [
+                {
+                  "field": "package",
+                  "title": "Package",
+                  "widthGrow": 2
+                },
+                {
+                  "field": "version",
+                  "title": "Version",
+                  "width": 160
+                },
+                {
+                  "field": "ecosystem",
+                  "title": "Ecosystem",
+                  "width": 130
+                },
+                {
+                  "field": "license",
+                  "title": "License",
+                  "width": 160
+                },
+                {
+                  "field": "purl",
+                  "title": "Package URL",
+                  "widthGrow": 3
+                }
+              ],
+              "empty_text": "No package is recorded for this image: its SBOM was not read, or listed none."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e952-7860-b88a-7be388c2033a",
+            "entity_type": "panel",
+            "name": "Documents",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Documents",
+            "slug": "anchore-h-sbom-documents",
+            "description": "Section heading: The SBOM documents read from Anchore for this image, each identified by the digest of its content. Only the CycloneDX document is parsed, so a component count of 0 on the others means not counted, not empty. Anchore's documents are unsigned; the note says where each was read from.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "The SBOM documents read from Anchore for this image, each identified by the digest of its content. Only the CycloneDX document is parsed, so a component count of 0 on the others means not counted, not empty. Anchore's documents are unsigned; the note says where each was read from.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e978-7cf1-b3f6-67947b801794",
+            "entity_type": "panel",
+            "name": "SBOM Documents",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "SBOM Documents",
+            "slug": "anchore-sbom-documents",
+            "description": "Documents recorded for this image.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": false,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "format",
+                  "title": "Format",
+                  "width": 150
+                },
+                {
+                  "field": "spec",
+                  "title": "Spec",
+                  "width": 90
+                },
+                {
+                  "field": "components",
+                  "title": "Components",
+                  "width": 130,
+                  "align": "right",
+                  "sorter": "number"
+                },
+                {
+                  "field": "produced",
+                  "title": "Produced",
+                  "width": 190,
+                  "formatter": "datetime"
+                },
+                {
+                  "field": "note",
+                  "title": "Verification",
+                  "widthGrow": 3
+                },
+                {
+                  "field": "content",
+                  "title": "Content Digest",
+                  "widthGrow": 2
+                }
+              ],
+              "empty_text": "No SBOM document is recorded for this image."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "entity_type": "page",
+            "name": "Anchore Image SBOM",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Anchore Image SBOM",
+            "slug": "/anchore/image/sbom",
+            "description": "One image's software bill of materials: the packages with open findings, every package, and the documents they came from. Open it from an image page.",
+            "layout": {
+              "columns": {
+                "col-1": {
+                  "width": "12fr",
+                  "band": 1,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-nav",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-2": {
+                  "width": "12fr",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-sbom-header",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-3": {
+                  "width": "12fr",
+                  "band": 3,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-sbom-vulnerable",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-4": {
+                  "width": "12fr",
+                  "band": 4,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-sbom-vulnerable",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-5": {
+                  "width": "12fr",
+                  "band": 5,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-sbom-packages",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-6": {
+                  "width": "12fr",
+                  "band": 6,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-sbom-packages",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-7": {
+                  "width": "12fr",
+                  "band": 7,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-sbom-documents",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-8": {
+                  "width": "12fr",
+                  "band": 8,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-sbom-documents",
+                      "height": "auto"
+                    }
+                  }
+                }
+              }
+            },
+            "discoverable": false
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eb0e-7a16-bee7-a441d0a1ee25",
+            "entity_type": "search",
+            "name": "anchore — runs",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — runs",
+            "description": "Every collection run, newest first.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (r:anchore__anchore_scan_run)",
+                "RETURN r.entity_id AS id, r.data.run_id AS run, r.data.started_at AS started, r.data.finished_at AS finished, r.data.selftest_verdict AS selftest, r.data.reported_version AS version, r.data.images_listed AS listed, r.data.images_selected AS selected, r.data.images_out_of_scope AS out_of_scope, r.data.scopes_read AS read, r.data.scopes_not_read AS not_read, r.data.inventory_stale AS stale",
+                "ORDER BY started DESC"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eb3a-7dac-8e77-bcf6dc9a19be",
+            "entity_type": "search",
+            "name": "anchore — scanners",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — scanners",
+            "description": "Every Anchore instance and account this grid has collected from.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (s:anchore__anchore_scanner)",
+                "RETURN s.data.api_root AS api_root, s.data.account AS account, s.data.reported_version AS version"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eb61-7156-a765-d8833e6eb69d",
+            "entity_type": "search",
+            "name": "anchore — card-runs",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-runs",
+            "description": "Collection runs recorded.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (r:anchore__anchore_scan_run)",
+                "RETURN COUNT(r) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eb89-73c7-8512-a93456c8b909",
+            "entity_type": "search",
+            "name": "anchore — card-selftest-failed",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "anchore — card-selftest-failed",
+            "description": "Collection runs whose self-test did not pass.",
+            "search_type": "gryphon",
+            "root": "node",
+            "definition": {
+              "query": [
+                "MATCH (r:anchore__anchore_scan_run) WHERE r.data.selftest_verdict != \"pass\"",
+                "RETURN COUNT(r) AS n"
+              ]
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ebb1-7571-be2c-5b0bb76e29bd",
+            "entity_type": "panel",
+            "name": "Runs",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Runs",
+            "slug": "anchore-card-runs",
+            "description": "Collection runs recorded.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "good",
+              "hide_header": true,
+              "title": "Runs",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ec01-7ea6-94eb-f23c30c82573",
+            "entity_type": "panel",
+            "name": "Self-Test Not Passed",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Self-Test Not Passed",
+            "slug": "anchore-card-selftest-failed",
+            "description": "Runs whose self-test did not pass.",
+            "view": "tap_web/panels/stat_card_panel.html",
+            "config": {
+              "value_field": "n",
+              "value_formatter": "integer",
+              "tone": "bad",
+              "hide_header": true,
+              "title": "Self-Test Not Passed",
+              "tone_labels": {
+                "good": "",
+                "warn": "",
+                "bad": ""
+              },
+              "null_text": "not observed",
+              "tone_text": true
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ec4f-706d-b303-f0bc7565c3ec",
+            "entity_type": "panel",
+            "name": "Runs",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Runs",
+            "slug": "anchore-h-runs",
+            "description": "Section heading: One row per collection run, newest first. Self-test is the collector's check that the instance answers as its published interface says. Read and Not Read count the scopes the run covered and the ones it could not: a scope not read means its data here is from an earlier run or absent, never that Anchore reported nothing. Open a run for the list of scopes it could not read and the reason for each.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "One row per collection run, newest first. Self-test is the collector's check that the instance answers as its published interface says. Read and Not Read count the scopes the run covered and the ones it could not: a scope not read means its data here is from an earlier run or absent, never that Anchore reported nothing. Open a run for the list of scopes it could not read and the reason for each.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ec78-73d9-a5e9-dd53eecb8e9a",
+            "entity_type": "panel",
+            "name": "Collection Runs",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Collection Runs",
+            "slug": "anchore-runs",
+            "description": "Every run, newest first.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": false,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "started",
+                  "title": "Started",
+                  "width": 190,
+                  "formatter": "datetime"
+                },
+                {
+                  "field": "finished",
+                  "title": "Finished",
+                  "width": 190,
+                  "formatter": "datetime"
+                },
+                {
+                  "field": "selftest",
+                  "title": "Self-Test",
+                  "width": 120,
+                  "formatter": "toneBadge",
+                  "formatter_params": {
+                    "tones": {
+                      "pass": "good",
+                      "fail": "bad",
+                      "skipped": "muted"
+                    }
+                  }
+                },
+                {
+                  "field": "listed",
+                  "title": "Images Listed",
+                  "width": 140,
+                  "align": "right",
+                  "sorter": "number"
+                },
+                {
+                  "field": "selected",
+                  "title": "In Scope",
+                  "width": 110,
+                  "align": "right",
+                  "sorter": "number"
+                },
+                {
+                  "field": "read",
+                  "title": "Scopes Read",
+                  "width": 130,
+                  "align": "right",
+                  "formatter": "arrayCount"
+                },
+                {
+                  "field": "not_read",
+                  "title": "Not Read",
+                  "width": 110,
+                  "align": "right",
+                  "formatter": "arrayCount",
+                  "header_tooltip": "Scopes this run could not read. The table below lists them with the reason."
+                },
+                {
+                  "field": "version",
+                  "title": "Anchore Version",
+                  "width": 150
+                },
+                {
+                  "field": "id",
+                  "title": "Record",
+                  "width": 130,
+                  "formatter": "link",
+                  "formatter_params": {
+                    "href_template": "/object/anchore__anchore_scan_run/run--{id}/",
+                    "text": "Open run",
+                    "external": false
+                  },
+                  "header_tooltip": "The run's full record, with each scope it could not read and the reason."
+                }
+              ],
+              "empty_text": "No collection run is recorded. Nothing has been read from Anchore."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ed3a-78bc-be3f-83d192e70f7e",
+            "entity_type": "panel",
+            "name": "Instances",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Instances",
+            "slug": "anchore-h-scanners",
+            "description": "Section heading: Each Anchore instance and account collected from, and the version it last reported.",
+            "view": "tap_web/panels/text_panel.html",
+            "config": {
+              "text": "Each Anchore instance and account collected from, and the version it last reported.",
+              "hide_header": false
+            },
+            "editor_view": "tap_web/panels/text_panel_editor.html"
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ed61-7032-9d99-92d7107cddda",
+            "entity_type": "panel",
+            "name": "Anchore Instances",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Anchore Instances",
+            "slug": "anchore-scanners",
+            "description": "Instances and accounts collected from.",
+            "view": "tap_web/panels/table_panel.html",
+            "config": {
+              "quick_filter": false,
+              "default_page_size": 25,
+              "columns": [
+                {
+                  "field": "api_root",
+                  "title": "API Root",
+                  "widthGrow": 3
+                },
+                {
+                  "field": "account",
+                  "title": "Account",
+                  "widthGrow": 1
+                },
+                {
+                  "field": "version",
+                  "title": "Version",
+                  "width": 140
+                }
+              ],
+              "empty_text": "No Anchore instance is recorded."
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "entity_type": "page",
+            "name": "Anchore Collection Health",
+            "dimensions": {
+              "tap.graph": "web"
+            }
+          },
+          "node": {
+            "name": "Anchore Collection Health",
+            "slug": "/anchore/health",
+            "description": "Whether the data here can be trusted: every collection run, its self-test, what it read and what it could not, and the instances collected from.",
+            "layout": {
+              "columns": {
+                "col-1": {
+                  "width": "12fr",
+                  "band": 1,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-nav",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-2": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-runs",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-3": {
+                  "width": "compact",
+                  "band": 2,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-card-selftest-failed",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-4": {
+                  "width": "12fr",
+                  "band": 3,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-runs",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-5": {
+                  "width": "12fr",
+                  "band": 4,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-runs",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-6": {
+                  "width": "12fr",
+                  "band": 5,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-h-scanners",
+                      "height": "auto"
+                    }
+                  }
+                },
+                "col-7": {
+                  "width": "12fr",
+                  "band": 6,
+                  "rows": {
+                    "row-1": {
+                      "panel-id": "anchore-scanners",
+                      "height": "auto"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-db2f-78fa-9ff9-f185b60b1067",
+            "entity_type": "edge",
+            "name": "Open Findings USES_SEARCH card-open",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-db08-78af-8101-d655a44bd6ff",
+            "to_entity_id": "01a1ec7d-d9ff-7011-a440-703de4520f70",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-db7d-7f4e-b07f-e6db42654f0b",
+            "entity_type": "edge",
+            "name": "Critical Or High USES_SEARCH card-severe",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-db55-7f51-9b77-f94e3cc48c75",
+            "to_entity_id": "01a1ec7d-da22-7cbf-bfe0-735602f136b5",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dbca-7505-9cd4-8fbe70286a9a",
+            "entity_type": "edge",
+            "name": "Known Exploited USES_SEARCH card-kev",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-dba4-7292-8269-063e877a6cbf",
+            "to_entity_id": "01a1ec7d-da71-794b-af59-a0f3daa5adf5",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dc18-7612-9351-3778a9681812",
+            "entity_type": "edge",
+            "name": "With A Fix USES_SEARCH card-fixable",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-dbf2-78ce-8a9d-9a4b1aead57a",
+            "to_entity_id": "01a1ec7d-da49-76ee-a5c3-57c5554673f8",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dc7b-723f-9bac-3b0918fd5402",
+            "entity_type": "edge",
+            "name": "Resolved USES_SEARCH card-resolved",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-dc47-7bb9-988b-a9bd5213482a",
+            "to_entity_id": "01a1ec7d-da96-77b7-920c-f5661d678501",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dcf3-7874-8021-a3a309e60ce5",
+            "entity_type": "edge",
+            "name": "Open Vulnerabilities USES_SEARCH by-vulnerability",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-dccd-79f5-adcc-02cfa636827d",
+            "to_entity_id": "01a1ec7d-dabe-78d5-b0a3-c6f9fa9b2e91",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dd6a-752c-8bde-76419cfeaa10",
+            "entity_type": "edge",
+            "name": "Open Findings USES_SEARCH open-findings",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-dd43-71d7-8d55-ede58135203e",
+            "to_entity_id": "01a1ec7d-dae2-7030-881b-6beff7624ea5",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec80-ee09-71db-ab64-fe30cdef4c08",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL nav",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec80-ede5-7cb3-8847-f6a1c78b7408",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-nav"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dd94-734e-b68f-79ecbd8ec89a",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL card-open",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-db08-78af-8101-d655a44bd6ff",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-open"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dde3-7cdb-9a66-3d9fbba3419d",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL card-severe",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-db55-7f51-9b77-f94e3cc48c75",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-severe"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-de0a-704a-a046-ed3c766fc4fc",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL card-kev",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-dba4-7292-8269-063e877a6cbf",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-kev"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-de31-723b-9cfa-ddf7ad46603d",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL card-fixable",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-dbf2-78ce-8a9d-9a4b1aead57a",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-fixable"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-de58-7688-98e3-20f2fe1558d1",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL card-resolved",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-dc47-7bb9-988b-a9bd5213482a",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-resolved"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-de7f-7124-8054-a449bd98b2eb",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL h-by-vulnerability",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-dca3-714c-81ee-412a8049fa38",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-by-vulnerability"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-dea5-774d-92ca-9daccb3bf213",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL by-vulnerability",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-dccd-79f5-adcc-02cfa636827d",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-by-vulnerability"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-decc-7de4-947b-7849f3f58c74",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL h-open-findings",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-dd1c-7ac4-b2d7-55eb96e78e55",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-open-findings"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-def3-7b1c-a492-32d0d7d8ae3b",
+            "entity_type": "edge",
+            "name": "Anchore Vulnerabilities USES_PANEL open-findings",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ddbb-72bc-8a0c-057c1e738387",
+            "to_entity_id": "01a1ec7d-dd43-71d7-8d55-ede58135203e",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-open-findings"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e004-7b61-94ff-dc01ccd7d32b",
+            "entity_type": "edge",
+            "name": "Images USES_SEARCH card-images",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-dfdd-72c6-834b-37f1074e4655",
+            "to_entity_id": "01a1ec7d-df68-77e1-b82c-9000c46a5ca9",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e053-702e-8da0-960636b45075",
+            "entity_type": "edge",
+            "name": "Analyzed USES_SEARCH card-images-analyzed",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e02b-799b-a25c-ba6a0e993612",
+            "to_entity_id": "01a1ec7d-df91-7fdd-ab63-04acb3c7e06f",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e0a1-7a86-9726-ebf19aab851b",
+            "entity_type": "edge",
+            "name": "Not Analyzed USES_SEARCH card-images-pending",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e07b-7a82-88f6-33d2573ca758",
+            "to_entity_id": "01a1ec7d-dfb7-7cd3-9d54-6f36ac3871f9",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e12a-72be-9fd4-4b79485f5a09",
+            "entity_type": "edge",
+            "name": "Images USES_SEARCH images",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e0f6-75b9-8e5b-908b3f3f62ab",
+            "to_entity_id": "01a1ec7d-df1a-7252-8b3b-ef67dc537131",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e1a6-770e-a609-06fd52e3a88d",
+            "entity_type": "edge",
+            "name": "Open Findings By Image USES_SEARCH image-counts",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e17c-777d-a607-3b230a23b194",
+            "to_entity_id": "01a1ec7d-df41-70fa-a931-8b6175cbfccf",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec80-ee2e-7ae5-9610-40248da3cf5e",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL nav",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec80-ede5-7cb3-8847-f6a1c78b7408",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-nav"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e1cc-76d5-b539-ad544b019d83",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL card-images",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec7d-dfdd-72c6-834b-37f1074e4655",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-images"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e21c-7dae-a11b-b441e67aecc3",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL card-images-analyzed",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec7d-e02b-799b-a25c-ba6a0e993612",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-images-analyzed"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e243-799d-8f73-eab7e3cc0b2f",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL card-images-pending",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec7d-e07b-7a82-88f6-33d2573ca758",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-images-pending"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e26b-7ea7-98f3-d5f13d3f9aca",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL h-images",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec7d-e0c9-74db-ba25-ab52a42b1924",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-images"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e290-7631-a9a4-cc24e576bf0a",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL images",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec7d-e0f6-75b9-8e5b-908b3f3f62ab",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-images"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e2b7-7a64-854f-f53b20251af5",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL h-image-counts",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec7d-e154-7abb-b1ba-53e316f43817",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-image-counts"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e2e0-77fc-8c2d-a7bed32f33c2",
+            "entity_type": "edge",
+            "name": "Anchore Images USES_PANEL image-counts",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e1f6-7041-9a1b-04ffb379a96f",
+            "to_entity_id": "01a1ec7d-e17c-777d-a607-3b230a23b194",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-image-counts"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e423-76e3-bf08-b546ee10347a",
+            "entity_type": "edge",
+            "name": "Image USES_SEARCH image-identity",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e3fd-7a4a-9649-dc0da0c2493d",
+            "to_entity_id": "01a1ec7d-e30c-744c-b44d-81c29578838f",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e588-762c-9c5d-68d925065a52",
+            "entity_type": "edge",
+            "name": "Findings On This Image USES_SEARCH image-findings",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e561-7eeb-9d1d-3bca80d84a46",
+            "to_entity_id": "01a1ec7d-e35b-78a0-9c71-9301bee2812f",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e601-778a-9acc-11614cacdd13",
+            "entity_type": "edge",
+            "name": "Tags USES_SEARCH image-tags",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e5d8-7ce8-9866-ee03eb6aa818",
+            "to_entity_id": "01a1ec7d-e335-7679-a959-1b57b6728002",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec80-ee53-764c-b907-8c78a2cdbdb6",
+            "entity_type": "edge",
+            "name": "Anchore Image USES_PANEL nav",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e64e-7742-8234-32d7faa2bfc0",
+            "to_entity_id": "01a1ec80-ede5-7cb3-8847-f6a1c78b7408",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-nav"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e628-7fd4-8b9c-ff4d95d54c87",
+            "entity_type": "edge",
+            "name": "Anchore Image USES_PANEL image-identity",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e64e-7742-8234-32d7faa2bfc0",
+            "to_entity_id": "01a1ec7d-e3fd-7a4a-9649-dc0da0c2493d",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-image-identity"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e6ef-7162-89ec-2ddb307348cc",
+            "entity_type": "edge",
+            "name": "Anchore Image USES_PANEL h-image-findings",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e64e-7742-8234-32d7faa2bfc0",
+            "to_entity_id": "01a1ec7d-e53b-77c8-939c-0260de0a93a7",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-image-findings"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e714-7979-9b50-93a0223feeea",
+            "entity_type": "edge",
+            "name": "Anchore Image USES_PANEL image-findings",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e64e-7742-8234-32d7faa2bfc0",
+            "to_entity_id": "01a1ec7d-e561-7eeb-9d1d-3bca80d84a46",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-image-findings"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e73b-7b01-9f83-8d76242465b2",
+            "entity_type": "edge",
+            "name": "Anchore Image USES_PANEL h-image-tags",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e64e-7742-8234-32d7faa2bfc0",
+            "to_entity_id": "01a1ec7d-e5b2-7540-8838-60fd9345945a",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-image-tags"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e760-7d1c-b5bc-701e28e01851",
+            "entity_type": "edge",
+            "name": "Anchore Image USES_PANEL image-tags",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e64e-7742-8234-32d7faa2bfc0",
+            "to_entity_id": "01a1ec7d-e5d8-7ce8-9866-ee03eb6aa818",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-image-tags"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e844-7afa-b9a0-10210313835d",
+            "entity_type": "edge",
+            "name": "Image USES_SEARCH sbom-header",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e81c-79b6-aec0-4db3f20ad306",
+            "to_entity_id": "01a1ec7d-e784-7bff-98be-f267e0347c7f",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e8b7-7e40-baa0-387ef79b6590",
+            "entity_type": "edge",
+            "name": "Packages With Open Findings USES_SEARCH sbom-vulnerable",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e891-755e-aa25-330876105ed5",
+            "to_entity_id": "01a1ec7d-e7ce-703b-8740-772d5b464dd2",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e92c-748f-b746-bf47a2fab6df",
+            "entity_type": "edge",
+            "name": "Packages USES_SEARCH sbom-packages",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e904-725a-8354-c4879b0b256f",
+            "to_entity_id": "01a1ec7d-e7ab-71bf-8e64-d1a164e01c2b",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e9a2-7fd8-b7fb-ad1aeb3d7a3d",
+            "entity_type": "edge",
+            "name": "SBOM Documents USES_SEARCH sbom-documents",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e978-7cf1-b3f6-67947b801794",
+            "to_entity_id": "01a1ec7d-e7f8-7631-b97b-a502025a3641",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec80-ee76-75e1-9d22-d55d6b0bf3da",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL nav",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec80-ede5-7cb3-8847-f6a1c78b7408",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-nav"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-e9c9-7767-9d12-4171db378ea7",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL sbom-header",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec7d-e81c-79b6-aec0-4db3f20ad306",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-sbom-header"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ea19-7eb7-a915-928cad2dfeaf",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL h-sbom-vulnerable",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec7d-e869-7c05-84c1-d566c45e56de",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-sbom-vulnerable"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ea40-73c2-b528-135a8b46a85b",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL sbom-vulnerable",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec7d-e891-755e-aa25-330876105ed5",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-sbom-vulnerable"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ea6d-7699-8a6a-286f22f74806",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL h-sbom-packages",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec7d-e8de-7953-9488-88e1dc8a17d6",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-sbom-packages"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ea95-78f8-91fe-4028de2e07b7",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL sbom-packages",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec7d-e904-725a-8354-c4879b0b256f",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-sbom-packages"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eabe-74ca-8bfa-c2b1f318ee64",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL h-sbom-documents",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec7d-e952-7860-b88a-7be388c2033a",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-sbom-documents"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eae8-7c90-9af0-5a816d25bbce",
+            "entity_type": "edge",
+            "name": "Anchore Image SBOM USES_PANEL sbom-documents",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-e9f0-7404-8ab6-14048192e200",
+            "to_entity_id": "01a1ec7d-e978-7cf1-b3f6-67947b801794",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-sbom-documents"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ebd9-7e37-a9a2-366cf993b610",
+            "entity_type": "edge",
+            "name": "Runs USES_SEARCH card-runs",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ebb1-7571-be2c-5b0bb76e29bd",
+            "to_entity_id": "01a1ec7d-eb61-7156-a765-d8833e6eb69d",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ec28-7fd4-bbd7-6b5bc1ea621a",
+            "entity_type": "edge",
+            "name": "Self-Test Not Passed USES_SEARCH card-selftest-failed",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ec01-7ea6-94eb-f23c30c82573",
+            "to_entity_id": "01a1ec7d-eb89-73c7-8512-a93456c8b909",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ec9d-7e9b-9dcb-026bc52d34dc",
+            "entity_type": "edge",
+            "name": "Collection Runs USES_SEARCH runs",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ec78-73d9-a5e9-dd53eecb8e9a",
+            "to_entity_id": "01a1ec7d-eb0e-7a16-bee7-a441d0a1ee25",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ed87-7043-8c9f-fd559b68c106",
+            "entity_type": "edge",
+            "name": "Anchore Instances USES_SEARCH scanners",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-ed61-7032-9d99-92d7107cddda",
+            "to_entity_id": "01a1ec7d-eb3a-7dac-8e77-bcf6dc9a19be",
+            "edge_type": "USES_SEARCH",
+            "properties": {}
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec80-ee9a-7a2e-be21-c4983ad82728",
+            "entity_type": "edge",
+            "name": "Anchore Collection Health USES_PANEL nav",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "to_entity_id": "01a1ec80-ede5-7cb3-8847-f6a1c78b7408",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-nav"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-edb1-79c7-860e-7c1f4b05bd62",
+            "entity_type": "edge",
+            "name": "Anchore Collection Health USES_PANEL card-runs",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "to_entity_id": "01a1ec7d-ebb1-7571-be2c-5b0bb76e29bd",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-runs"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ee01-7086-b6d4-361c4ea3f233",
+            "entity_type": "edge",
+            "name": "Anchore Collection Health USES_PANEL card-selftest-failed",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "to_entity_id": "01a1ec7d-ec01-7ea6-94eb-f23c30c82573",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-card-selftest-failed"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ee26-75b2-9b58-d98c72633981",
+            "entity_type": "edge",
+            "name": "Anchore Collection Health USES_PANEL h-runs",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "to_entity_id": "01a1ec7d-ec4f-706d-b303-f0bc7565c3ec",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-runs"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-ee4c-7748-88b9-3ed9d42cd088",
+            "entity_type": "edge",
+            "name": "Anchore Collection Health USES_PANEL runs",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "to_entity_id": "01a1ec7d-ec78-73d9-a5e9-dd53eecb8e9a",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-runs"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eeba-79c8-89e3-a39102ce05fe",
+            "entity_type": "edge",
+            "name": "Anchore Collection Health USES_PANEL h-scanners",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "to_entity_id": "01a1ec7d-ed3a-78bc-be3f-83d192e70f7e",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-h-scanners"
+              }
+            }
+          }
+        },
+        {
+          "entity": {
+            "entity_id": "01a1ec7d-eee0-7be5-a74a-523ac83250c5",
+            "entity_type": "edge",
+            "name": "Anchore Collection Health USES_PANEL scanners",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a1ec7d-edd9-7565-b885-971186b36484",
+            "to_entity_id": "01a1ec7d-ed61-7032-9d99-92d7107cddda",
+            "edge_type": "USES_PANEL",
+            "properties": {
+              "hotlink": {
+                "model": "page",
+                "spec": "page-panels",
+                "value": "anchore-scanners"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -62,7 +62,7 @@ def test_the_seed_is_registered_in_the_manifest() -> None:
     import tomllib
 
     manifest = tomllib.loads((ROOT / "tap-plugin.toml").read_text(encoding="utf-8"))
-    assert manifest["grift"] == {"dimension": "grift/dimension.grift.json"}
+    assert manifest["grift"]["dimension"] == "grift/dimension.grift.json"
 
 
 class TestInstanceDimension:
