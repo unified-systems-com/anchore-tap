@@ -85,13 +85,14 @@ def concerns_properties(fields: dict[str, Any]) -> dict[str, Any]:
 def cvss_of(fields: dict[str, Any]) -> dict[str, Any]:
     """The CVSS base score Anchore returned with a finding, from NVD's data, or nothing.
 
-    The primary NVD entry is preferred, and version 3 over version 2. Anchore writes a negative
-    number where it has no score; that is not a score.
+    Version 3 is preferred to version 2 wherever it is found, and within a version the primary
+    NVD entry to a secondary: a secondary entry's version 3 score is used before a primary
+    entry's version 2. Anchore writes a negative number where it has no score; that is not a score.
     """
     entries = [e for e in fields.get("nvd_data") or [] if isinstance(e, dict)]
     entries.sort(key=lambda e: e.get("type") != "Primary")
-    for entry in entries:
-        for version, label in (("cvss_v3", "3"), ("cvss_v2", "2")):
+    for version, label in (("cvss_v3", "3"), ("cvss_v2", "2")):
+        for entry in entries:
             scores = entry.get(version)
             score = scores.get("base_score") if isinstance(scores, dict) else None
             if isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 10:
@@ -100,9 +101,15 @@ def cvss_of(fields: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def vulnerability_node(ref: str, vuln_id: str, dimensions: dict[str, str], scores: dict[str, Any]) -> dict[str, Any]:
-    """The shared vulnerability record: its identifier, and Anchore's CVSS where there is one to give."""
-    return {"entity": {"ref": ref, "entity_type": VULNERABILITY_TYPE, "name": vuln_id, "dimensions": dict(dimensions)}, "node": {"vuln_id": vuln_id, **scores}}
+def vulnerability_node(ref: str, vuln_id: str, dimensions: dict[str, str] | None, scores: dict[str, Any]) -> dict[str, Any]:
+    """The shared vulnerability record: its identifier, and Anchore's CVSS where there is one to give.
+
+    ``dimensions`` are the type's defaults for a record being created, and the record's own
+    dimensions, as the grid holds them, for a record being given a score. A fill must send the
+    held ones back unchanged: the importer requires a map on every node, and this plugin has no
+    business restamping a record another producer wrote.
+    """
+    return {"entity": {"ref": ref, "entity_type": VULNERABILITY_TYPE, "name": vuln_id, "dimensions": dict(dimensions or {})}, "node": {"vuln_id": vuln_id, **scores}}
 
 
 def usable_vuln_id(vuln_id: Any) -> bool:

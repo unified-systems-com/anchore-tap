@@ -75,6 +75,14 @@ class TestPure:
     def test_a_missing_or_negative_score_is_no_score(self, nvd):
         assert neutral.cvss_of({"nvd_data": nvd}) == {}
 
+    def test_a_secondary_version_three_is_used_before_a_primary_version_two(self):
+        mixed = [{"type": "Primary", "source": "p", "cvss_v2": {"base_score": 5.0}}, {"type": "Secondary", "source": "s", "cvss_v3": {"base_score": 8.1}}]
+        assert neutral.cvss_of({"nvd_data": mixed}) == {"cvss_score": 8.1, "cvss_version": "3", "cvss_source": "s, as returned by Anchore"}
+
+    def test_the_record_carries_exactly_the_dimensions_it_is_given(self):
+        assert neutral.vulnerability_node("r", "CVE-1", {"compliance": "vulnerability"}, {})["entity"]["dimensions"] == {"compliance": "vulnerability"}
+        assert neutral.vulnerability_node("r", "CVE-1", {"x": "held"}, {"cvss_score": 1.0})["entity"]["dimensions"] == {"x": "held"}
+
     def test_version_two_is_used_where_there_is_no_version_three(self):
         assert neutral.cvss_of({"nvd_data": [{"cvss_v3": {"base_score": -1.0}, "cvss_v2": {"base_score": 5.0}}]})["cvss_version"] == "2"
 
@@ -135,6 +143,40 @@ class TestWritten:
 
 
 @pytest.mark.django_db
+class TestStoredBeforeTheNeutralShape:
+    """A finding the grid held before this plugin wrote neutral findings, resolving on its first run after."""
+
+    def test_it_gets_its_neutral_finding_resolved_with_the_carrier_and_the_vulnerability(self, secrets, monkeypatch):
+        instance = Instance()
+        run_against(monkeypatch, instance)
+        # Put the grid back to how an older release left it: Anchore's findings, nothing neutral.
+        from tap_grid.services import delete_node
+
+        for row in list(ComplianceFinding.objects.all()):
+            assert delete_node(row.entity_id).success
+        assert ComplianceFinding.objects.count() == 0
+        instance.vulns[DIGEST] = [vuln()]
+        run_against(monkeypatch, instance)
+        closed = ComplianceFinding.objects.get(name__startswith="CVE-2024-0002")
+        assert closed.status == "resolved"
+        carriers = [e for e in edges("CARRIES_COMPLIANCE_FINDING__compliance_core") if e.to_entity_id == closed.entity_id]
+        assert [e.from_entity.entity_type for e in carriers] == ["computing_core__host"]
+        concerns = [e for e in edges("CONCERNS_COMPLIANCE_VULNERABILITY__compliance_core") if e.from_entity_id == closed.entity_id]
+        assert [e.to_entity.name for e in concerns] == ["CVE-2024-0002"]
+
+    def test_a_resolving_finding_a_package_carries_gains_no_second_carrier(self, secrets, monkeypatch):
+        from tap_plugin.anchore.tests.test_collector_sbom_inventory import instance as with_inventory
+
+        server = with_inventory()
+        run_against(monkeypatch, server)
+        server.vulns[DIGEST] = []
+        run_against(monkeypatch, server)
+        closed = ComplianceFinding.objects.get(name__startswith="CVE-2024-0001")
+        carriers = [e.from_entity.entity_type for e in edges("CARRIES_COMPLIANCE_FINDING__compliance_core") if e.to_entity_id == closed.entity_id]
+        assert closed.status == "resolved" and carriers == ["computing_core__package"]
+
+
+@pytest.mark.django_db
 class TestVulnerabilityRecord:
     def test_an_absent_record_is_created_with_anchores_score(self, secrets, monkeypatch):
         run_against(monkeypatch, Instance(vulns=[vuln(nvd_data=NVD), vuln("CVE-2024-0002")]))
@@ -144,9 +186,13 @@ class TestVulnerabilityRecord:
 
     def test_a_record_with_no_score_gains_anchores_and_keeps_its_other_fields(self, secrets, monkeypatch):
         assert create_node("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0001", "title": "A title another source wrote", "kev": True}).success
+        held = ComplianceVulnerability.objects.get(vuln_id="CVE-2024-0001")
+        before = (held.entity.name, dimension_view(held.entity))
         run_against(monkeypatch, Instance(vulns=[vuln(nvd_data=NVD)]))
         record = ComplianceVulnerability.objects.get(vuln_id="CVE-2024-0001")
         assert (record.cvss_score, record.title, record.kev) == (9.8, "A title another source wrote", True)
+        # The fill changed the score and nothing about the record's identity on the spine.
+        assert (record.entity.name, dimension_view(record.entity)) == before
 
     def test_a_record_that_already_has_a_score_is_not_touched(self, secrets, monkeypatch):
         assert create_node("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0001", "cvss_score": 7.5, "cvss_source": "another source"}).success

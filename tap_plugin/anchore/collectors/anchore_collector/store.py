@@ -74,6 +74,15 @@ def entity_id_of(entity_type: str, key: dict[str, Any]) -> Any:
         return None
 
 
+def vulnerability_dimensions(vuln_id: str) -> dict[str, Any]:
+    """The dimensions the grid holds on a vulnerability record, by name, so a write can send them back unchanged."""
+    row = ComplianceVulnerability.objects.filter(vuln_id=vuln_id).select_related("entity").first()
+    if row is None:
+        return {}
+    resolver = _dimension_resolver()
+    return dict(resolver.view(row.entity.dimensions)) if resolver is not None else dict(row.entity.dimensions or {})
+
+
 def vulnerabilities_without_cvss(ids: set[str]) -> set[str]:
     """Which of these vulnerability records the grid holds with no CVSS score."""
     if not ids:

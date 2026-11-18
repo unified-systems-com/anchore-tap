@@ -496,8 +496,10 @@ class AnchoreCollector(CollectorBase):
                     if (row.vulnerability_id, row.package_key) not in result.seen_keys:
                         gone = decompose.resolved_node(row, run_id, f"{tag}:r{index}:{out.resolved}")
                         out.nodes.append(gone)
-                        # The neutral finding closes with it: the same key, now resolved.
-                        self._neutral_resolved(out, gone)
+                        # The neutral finding closes with it: the same key, now resolved. Its record and
+                        # edges are written too, for a finding stored before the neutral shape existed.
+                        self._vulnerabilities(out, [gone], shared)
+                        self._neutral(out, [gone], digest, {}, shared, only_uncarried=True)
                         out.resolved += 1
             out.images_read += 1
             read.append(scope)
@@ -1110,16 +1112,18 @@ class AnchoreCollector(CollectorBase):
         dimensions = store.default_dimensions(neutral.VULNERABILITY_TYPE)
         for vuln_id in sorted(wanted):
             if vuln_id not in held or (vuln_id in unscored and scores[vuln_id]):
-                out.nodes.append(neutral.vulnerability_node(f"vuln:{vuln_id}", vuln_id, dimensions, scores[vuln_id]))
+                out.nodes.append(neutral.vulnerability_node(f"vuln:{vuln_id}", vuln_id, dimensions if vuln_id not in held else store.vulnerability_dimensions(vuln_id), scores[vuln_id]))
                 out.vulnerabilities_created += vuln_id not in held
                 out.vulnerabilities_scored += bool(scores[vuln_id])
             out.vulnerabilities.add(vuln_id)
 
-    def _neutral(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, packages: dict[str, tuple[str, str, str]], shared: _Shared) -> None:
+    def _neutral(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, packages: dict[str, tuple[str, str, str]], shared: _Shared, only_uncarried: bool = False) -> None:
         """Write the neutral finding beside each Anchore finding, with the edges that shape needs (req-anchore-neutral-1, -2).
 
         The component that carries it is the package the finding's purl names, where the image's
-        parsed inventory holds it, and otherwise the image itself.
+        parsed inventory holds it, and otherwise the image itself. ``only_uncarried`` is for a
+        finding that has resolved: its packages are not read again, so a carrier is added only
+        where the neutral finding has none, never a second one beside the package that carries it.
         """
         dimensions = store.default_dimensions(neutral.FINDING_TYPE)
         image = decompose.OCI_DIGEST.fullmatch(digest) is not None
@@ -1139,19 +1143,14 @@ class AnchoreCollector(CollectorBase):
                 carrier = {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}
             else:
                 carrier = None
-            if carrier is not None and store.entity_id_of(carrier["entity_type"], carrier["key"]) not in carried.get(neutral.source_key(fields), ()):
+            held = carried.get(neutral.source_key(fields), set())
+            if carrier is not None and not (held if only_uncarried else store.entity_id_of(carrier["entity_type"], carrier["key"]) in held):
                 out.edges.append(decompose.edge_ends(f"{ref}:carries", neutral.CARRIES, carrier, {"ref": ref}))
             vuln_id = fields["vulnerability_id"]
             if vuln_id in out.vulnerabilities or vuln_id in shared.vulnerabilities:
                 target = {"entity_type": neutral.VULNERABILITY_TYPE, "key": {"vuln_id": vuln_id}}
                 out.edges.append(decompose.edge_ends(f"{ref}:concerns", neutral.CONCERNS, {"ref": ref}, target, neutral.concerns_properties(fields)))
             out.neutral_findings += 1
-
-    def _neutral_resolved(self, out: _Scanner, resolved: dict[str, Any]) -> None:
-        """The neutral finding of an Anchore finding that has resolved: found by its key and marked resolved."""
-        ref = f"{resolved['entity']['ref']}:n"
-        out.nodes.append(neutral.finding_node(ref, resolved["node"], store.default_dimensions(neutral.FINDING_TYPE)))
-        out.edges.append(decompose.edge(f"{ref}:details", neutral.DETAILS, resolved["entity"]["ref"], ref))
 
     def _link_image(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, shared: _Shared) -> None:
         """Edges from this image's findings to its host and to the shared vulnerability record."""
@@ -1345,7 +1344,7 @@ class AnchoreCollector(CollectorBase):
             for node in nodes:
                 entity = node["entity"]
                 own = entity["entity_type"].startswith(decompose.OWN_TYPE_PREFIX)
-                present = decompose.INSTANCE_DIMENSION in entity["dimensions"]
+                present = decompose.INSTANCE_DIMENSION in entity.get("dimensions", {})
                 if own != present:
                     raise AnchoreCollectorError(f"a {entity['entity_type']} node {'lacks' if own else 'carries'} {decompose.INSTANCE_DIMENSION}; nothing was written")
                 scanner_key = node["node"].get("scanner_key")
