@@ -63,6 +63,7 @@ class AnchoreFinding(BaseModel):
             "nodes": [{"type": "compliance_core__compliance_vulnerability"}],
             "edges": [{"type": "ABOUT_VULNERABILITY__anchore"}],
         },
+        {"nodes": [{"type": "compliance_core__compliance_finding"}], "edges": [{"type": "DETAILS_COMPLIANCE_FINDING__anchore"}]},
     ]
 
     # A finding is reached by traversal and nothing in v0 points at it (req-anchore-findings-4).

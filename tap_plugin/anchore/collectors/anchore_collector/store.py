@@ -53,6 +53,34 @@ def image_host_exists(digest: str) -> bool:
     return _hosts("oci-digest", digest).exists()
 
 
+def carriers_of(source: str, source_keys: set[str]) -> dict[str, set[Any]]:
+    """For each neutral finding of this producer the grid holds, the entities that already carry it."""
+    if not source_keys:
+        return {}
+    from tap_plugin.compliance_core.models.compliance_finding import ComplianceFinding
+
+    by_entity = dict(ComplianceFinding.objects.filter(source=source, source_key__in=source_keys).values_list("entity_id", "source_key"))
+    held: dict[str, set[Any]] = {}
+    for carrier, finding in Edge.objects.filter(edge_type="CARRIES_COMPLIANCE_FINDING__compliance_core", to_entity_id__in=list(by_entity)).values_list("from_entity_id", "to_entity_id"):
+        held.setdefault(by_entity[finding], set()).add(carrier)
+    return held
+
+
+def entity_id_of(entity_type: str, key: dict[str, Any]) -> Any:
+    """The entity id of the live node of a type with this natural key, or None when the grid holds none."""
+    try:
+        return get_model_class(entity_type).objects.filter(**key).values_list("entity_id", flat=True).first()
+    except KeyError:
+        return None
+
+
+def vulnerabilities_without_cvss(ids: set[str]) -> set[str]:
+    """Which of these vulnerability records the grid holds with no CVSS score."""
+    if not ids:
+        return set()
+    return set(ComplianceVulnerability.objects.filter(vuln_id__in=ids, cvss_score__isnull=True).values_list("vuln_id", flat=True))
+
+
 def known_vulnerabilities(ids: set[str]) -> set[str]:
     """Which of these identifiers the shared compliance_core vulnerability already holds, by exact match.
 

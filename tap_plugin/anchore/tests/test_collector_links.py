@@ -74,19 +74,24 @@ class TestImageHost:
 
 @pytest.mark.django_db
 class TestSharedVulnerability:
-    def test_only_a_vulnerability_that_exists_with_exactly_the_identifier_is_linked_and_none_is_written(self, secrets, monkeypatch):
+    def test_a_record_the_grid_holds_is_linked_by_its_exact_identifier_and_one_it_lacks_is_created(self, secrets, monkeypatch):
+        """Identifiers are compared exactly: a record under another spelling is a different record."""
         vulnerability_dimensions_declared()
         make(ComplianceVulnerability.ENTITY_TYPE, {"vuln_id": "CVE-2024-0001"})
         make(ComplianceVulnerability.ENTITY_TYPE, {"vuln_id": "cve-2024-0002"})
         run_against(monkeypatch, Instance())
-        linked = edges("ABOUT_VULNERABILITY__anchore")
-        assert len(linked) == 1 and linked[0].from_entity.name.startswith("CVE-2024-0001")
-        assert ComplianceVulnerability.objects.count() == 2
-        assert ComplianceVulnerability.objects.get(vuln_id="CVE-2024-0001").entity_id == linked[0].to_entity_id
+        linked = {e.from_entity.name.split(" ")[0]: e.to_entity_id for e in edges("ABOUT_VULNERABILITY__anchore")}
+        assert set(linked) == {"CVE-2024-0001", "CVE-2024-0002"}
+        assert ComplianceVulnerability.objects.get(vuln_id="CVE-2024-0001").entity_id == linked["CVE-2024-0001"]
+        # The lower-case record was not taken for CVE-2024-0002; the exact one was created beside it.
+        assert sorted(ComplianceVulnerability.objects.values_list("vuln_id", flat=True)) == ["CVE-2024-0001", "CVE-2024-0002", "cve-2024-0002"]
+        assert ComplianceVulnerability.objects.get(vuln_id="CVE-2024-0002").entity_id == linked["CVE-2024-0002"]
 
-    def test_no_vulnerability_on_the_grid_means_no_edge_and_no_node(self, secrets, monkeypatch):
+    def test_with_none_on_the_grid_each_finding_gets_its_record_and_its_edge(self, secrets, monkeypatch):
+        vulnerability_dimensions_declared()
         run_against(monkeypatch, Instance())
-        assert not edges("ABOUT_VULNERABILITY__anchore") and ComplianceVulnerability.objects.count() == 0
+        assert sorted(ComplianceVulnerability.objects.values_list("vuln_id", flat=True)) == ["CVE-2024-0001", "CVE-2024-0002"]
+        assert len(edges("ABOUT_VULNERABILITY__anchore")) == 2
 
 
 @pytest.mark.django_db

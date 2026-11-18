@@ -1,0 +1,17 @@
+{
+  "slug": "DETAILS_COMPLIANCE_FINDING__anchore",
+  "name": "Details Compliance Finding",
+  "description": "An Anchore finding is the scanner's own record behind a neutral compliance finding: the same assertion, once in Anchore's shape with everything Anchore returned, once in the shape every scanner shares. One Anchore finding details exactly one compliance finding, keyed by the producer anchore and a digest of the Anchore finding's own key.",
+  "sources": [
+    "anchore__anchore_finding"
+  ],
+  "targets": [
+    "compliance_core__compliance_finding"
+  ],
+  "identity": {
+    "discriminators": []
+  },
+  "default_dimensions": {
+    "anchore.area": "finding"
+  }
+}

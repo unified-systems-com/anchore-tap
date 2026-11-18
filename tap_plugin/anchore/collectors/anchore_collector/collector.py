@@ -40,7 +40,7 @@ from typing import Any, ClassVar
 from tap import secrets_root
 
 from tap_cares.collectors import CeilingExceeded, CollectorBase, run_with_ceiling
-from tap_plugin.anchore import batching, kubernetes, scopes
+from tap_plugin.anchore import batching, kubernetes, neutral, scopes
 from tap_plugin.computing_core.sbom import SbomParseError, Verification, parse_cyclonedx
 from tap_plugin.anchore import scope as scoping
 from tap_cares.collectors.readiness import CollectorReadinessStatus, CollectorSelfTestResult, check_fail, check_pass
@@ -83,6 +83,7 @@ _SITE_BATCHES = "c9cb"
 _SITE_POLICY = "0c47"
 _SITE_VEX = "2bfb"
 _SITE_SCOPES = "c9fe"
+_SITE_NEUTRAL = "6251"
 
 #: A read's own budget is TOTAL_BUDGET_SECONDS; the ceiling sits above it so the client's
 #: retry accounting ends the call first and the ceiling only catches what that cannot (DNS, a trickle).
@@ -150,6 +151,12 @@ class _Scanner:
     policy_failures: int = 0
     policy_untagged: int = 0
     policy_superseded: int = 0
+    #: The shared vulnerability records this scanner's findings name and the batch will hold; how many
+    #: of them it created and how many it gave a CVSS score; and the neutral findings it wrote.
+    vulnerabilities: set[str] = field(default_factory=set)
+    vulnerabilities_created: int = 0
+    vulnerabilities_scored: int = 0
+    neutral_findings: int = 0
     #: VEX annotations read, those that could not be stored, those joined to a finding, and earlier ones marked withdrawn.
     vex_annotations: int = 0
     vex_unusable: int = 0
@@ -198,8 +205,10 @@ class _Shared:
     tag_edges: set[tuple[tuple[str, str, str], str]] = field(default_factory=set)
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
+    vulnerabilities: set[str] = field(default_factory=set)
 
     def absorb(self, scanner: _Scanner) -> None:
+        self.vulnerabilities |= scanner.vulnerabilities
         self.ecs_created.update(scanner.ecs_created)
         self.kubernetes.update(scanner.kubernetes)
         self.hosts |= scanner.hosts
@@ -485,17 +494,22 @@ class AnchoreCollector(CollectorBase):
             else:
                 for row in store.current_findings(credential.scanner_key, digest):
                     if (row.vulnerability_id, row.package_key) not in result.seen_keys:
-                        out.nodes.append(decompose.resolved_node(row, run_id, f"{tag}:r{index}:{out.resolved}"))
+                        gone = decompose.resolved_node(row, run_id, f"{tag}:r{index}:{out.resolved}")
+                        out.nodes.append(gone)
+                        # The neutral finding closes with it: the same key, now resolved.
+                        self._neutral_resolved(out, gone)
                         out.resolved += 1
             out.images_read += 1
             read.append(scope)
             self._ancestors(client, credential, extract, by_id["image_ancestors"], digest, f"{tag}:a{index}", out, shared, read, not_read)
             self._policy(client, credential, extract, by_id["image_policy_check"], image, digest, run_id, f"{tag}:p{index}", out, read, not_read, deadline)
             self._ensure_host(out, digest, f"{tag}:h{index}", shared)
-            self._link_image(out, result.nodes, digest)
+            self._vulnerabilities(out, result.nodes, shared)
+            self._link_image(out, result.nodes, digest, shared)
             packages = self._sboms(client, credential, by_id, digest, f"{tag}:d{index}", out, read, not_read, shared)
             self._link_packages(out, result.nodes, packages)
-            self._vex(client, credential, extract, by_id["image_vuln_annotations"], digest, run_id, f"{tag}:x{index}", out, result.nodes, packages, read, not_read)
+            self._neutral(out, result.nodes, digest, packages, shared)
+            self._vex(client, credential, extract, by_id["image_vuln_annotations"], digest, run_id, f"{tag}:x{index}", out, result.nodes, packages, read, not_read, shared)
             dropped.extend(result.dropped_fields)
             skipped += result.skipped_entries
             duplicates += result.duplicate_entries
@@ -524,6 +538,8 @@ class AnchoreCollector(CollectorBase):
             self.record_info(_SITE_BASE_IMAGE, "BASE_IMAGES", f"{credential.qualified}: Anchore named a base image for {out.images_with_base} of {out.images_read} image(s) read; {out.images_base_refused} were read without the base parameter; {len(out.built_on)} ancestor link(s) written, {out.ancestors_out_of_scope} ancestor(s) outside the repository prefixes not written.", message_data={"images_read": out.images_read, "with_base": out.images_with_base, "base_refused": out.images_base_refused, "ancestor_links": len(out.built_on), "ancestors_out_of_scope": out.ancestors_out_of_scope})
         if out.policy_evaluations or out.policy_untagged or out.policy_superseded:
             self.record_info(_SITE_POLICY, "POLICY_EVALUATIONS", f"{credential.qualified}: {out.policy_evaluations} policy evaluation(s) read, {out.policy_failures} failing; {out.policy_untagged} image(s) carry no tag and so have no evaluation; {out.policy_superseded} earlier verdict(s) marked superseded.", message_data={"evaluations": out.policy_evaluations, "failing": out.policy_failures, "untagged_images": out.policy_untagged, "superseded": out.policy_superseded})
+        if out.neutral_findings:
+            self.record_info(_SITE_NEUTRAL, "NEUTRAL_FINDINGS", f"{credential.qualified}: {out.neutral_findings} neutral finding(s) written beside Anchore's own; {out.vulnerabilities_created} shared vulnerability record(s) created, {out.vulnerabilities_scored} given Anchore's CVSS score.", message_data={"findings": out.neutral_findings, "vulnerabilities_created": out.vulnerabilities_created, "vulnerabilities_scored": out.vulnerabilities_scored})
         if out.vex_annotations or out.vex_unusable or out.vex_withdrawn:
             self.record_info(_SITE_VEX, "VEX_ANNOTATIONS", f"{credential.qualified}: {out.vex_annotations} VEX annotation(s) read, {out.vex_finding_links} joined to a finding; {out.vex_unusable} could not be stored; {out.vex_withdrawn} earlier annotation(s) marked withdrawn.", message_data={"read": out.vex_annotations, "finding_links": out.vex_finding_links, "unusable": out.vex_unusable, "withdrawn": out.vex_withdrawn})
         if out.sboms_parsed:
@@ -925,7 +941,7 @@ class AnchoreCollector(CollectorBase):
             out.nodes.append(decompose.superseded_policy_node(row, f"{ref}:s{number}"))
             out.policy_superseded += 1
 
-    def _vex(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], source: Source, digest: str, run_id: str, ref: str, out: _Scanner, findings: list[dict[str, Any]], packages: dict[str, tuple[str, str, str]], read: list[str], not_read: list[dict[str, str]]) -> None:
+    def _vex(self, client: ReadOnlyClient, credential: Credential, extract: dict[str, Any], source: Source, digest: str, run_id: str, ref: str, out: _Scanner, findings: list[dict[str, Any]], packages: dict[str, tuple[str, str, str]], read: list[str], not_read: list[dict[str, str]], shared: _Shared) -> None:
         """Read the VEX annotations Anchore holds on an image and link each to what it is about (req-anchore-vex).
 
         One read per image. Each annotation is joined to the findings of this read that carry its
@@ -957,7 +973,10 @@ class AnchoreCollector(CollectorBase):
         by_name: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
         for key in packages.values():
             by_name.setdefault((key[1], key[2]), []).append(key)
-        known = store.known_vulnerabilities({node["node"]["vulnerability_id"] for node in staged.values()})
+        # A record this run's findings created is as linkable as one the grid held. An annotation about a
+        # vulnerability no finding names creates none: it links only where the record exists.
+        named = {node["node"]["vulnerability_id"] for node in staged.values()}
+        known = store.known_vulnerabilities(named) | (named & (out.vulnerabilities | shared.vulnerabilities))
         for uuid_, node in staged.items():
             node_ref = node["entity"]["ref"]
             out.nodes.append(node)
@@ -1069,13 +1088,78 @@ class AnchoreCollector(CollectorBase):
             out.hosts.add(digest)
             out.hosts_created += 1
 
-    def _link_image(self, out: _Scanner, findings: list[dict[str, Any]], digest: str) -> None:
-        """Edges from this image's findings to its host and, where it already exists exactly, to the shared vulnerability."""
+    def _vulnerabilities(self, out: _Scanner, findings: list[dict[str, Any]], shared: _Shared) -> None:
+        """Make sure the shared vulnerability record each finding names exists, and give it Anchore's CVSS where it has none (req-anchore-neutral-3, -4).
+
+        A record the grid does not hold is created with its identifier. Anchore's NVD score is
+        written when the record is created, and onto a record the grid holds with no score. A
+        record that already has a score is never touched: another source scored it.
+        """
+        scores: dict[str, dict[str, Any]] = {}
+        for node in findings:
+            vuln_id = node["node"]["vulnerability_id"]
+            if neutral.usable_vuln_id(vuln_id) and not scores.get(vuln_id):
+                scores[vuln_id] = neutral.cvss_of(node["node"])
+        wanted = set(scores) - out.vulnerabilities - shared.vulnerabilities
+        if not wanted:
+            return
+        held = store.known_vulnerabilities(wanted)
+        # WORKAROUND(unified-systems-com/tap#1172): read, then write. tap has no write that yields to a
+        # held value, so a score another source writes between this read and the import is replaced.
+        unscored = store.vulnerabilities_without_cvss(held)
+        dimensions = store.default_dimensions(neutral.VULNERABILITY_TYPE)
+        for vuln_id in sorted(wanted):
+            if vuln_id not in held or (vuln_id in unscored and scores[vuln_id]):
+                out.nodes.append(neutral.vulnerability_node(f"vuln:{vuln_id}", vuln_id, dimensions, scores[vuln_id]))
+                out.vulnerabilities_created += vuln_id not in held
+                out.vulnerabilities_scored += bool(scores[vuln_id])
+            out.vulnerabilities.add(vuln_id)
+
+    def _neutral(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, packages: dict[str, tuple[str, str, str]], shared: _Shared) -> None:
+        """Write the neutral finding beside each Anchore finding, with the edges that shape needs (req-anchore-neutral-1, -2).
+
+        The component that carries it is the package the finding's purl names, where the image's
+        parsed inventory holds it, and otherwise the image itself.
+        """
+        dimensions = store.default_dimensions(neutral.FINDING_TYPE)
+        image = decompose.OCI_DIGEST.fullmatch(digest) is not None
+        # WORKAROUND(unified-systems-com/compliance-core-tap#91): the carries edge declares no identity, so
+        # sending it again makes a second edge. It is sent only from a carrier that does not already carry the finding.
+        carried = store.carriers_of(neutral.SOURCE, {neutral.source_key(node["node"]) for node in findings})
+        for node in findings:
+            fields = node["node"]
+            own_ref = node["entity"]["ref"]
+            ref = f"{own_ref}:n"
+            out.nodes.append(neutral.finding_node(ref, fields, dimensions))
+            out.edges.append(decompose.edge(f"{ref}:details", neutral.DETAILS, own_ref, ref))
+            package = packages.get(fields.get("purl") or "")
+            if package is not None:
+                carrier = {"entity_type": "computing_core__package", "key": {"ecosystem": package[0], "name": package[1], "version": package[2]}}
+            elif image:
+                carrier = {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}
+            else:
+                carrier = None
+            if carrier is not None and store.entity_id_of(carrier["entity_type"], carrier["key"]) not in carried.get(neutral.source_key(fields), ()):
+                out.edges.append(decompose.edge_ends(f"{ref}:carries", neutral.CARRIES, carrier, {"ref": ref}))
+            vuln_id = fields["vulnerability_id"]
+            if vuln_id in out.vulnerabilities or vuln_id in shared.vulnerabilities:
+                target = {"entity_type": neutral.VULNERABILITY_TYPE, "key": {"vuln_id": vuln_id}}
+                out.edges.append(decompose.edge_ends(f"{ref}:concerns", neutral.CONCERNS, {"ref": ref}, target, neutral.concerns_properties(fields)))
+            out.neutral_findings += 1
+
+    def _neutral_resolved(self, out: _Scanner, resolved: dict[str, Any]) -> None:
+        """The neutral finding of an Anchore finding that has resolved: found by its key and marked resolved."""
+        ref = f"{resolved['entity']['ref']}:n"
+        out.nodes.append(neutral.finding_node(ref, resolved["node"], store.default_dimensions(neutral.FINDING_TYPE)))
+        out.edges.append(decompose.edge(f"{ref}:details", neutral.DETAILS, resolved["entity"]["ref"], ref))
+
+    def _link_image(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, shared: _Shared) -> None:
+        """Edges from this image's findings to its host and to the shared vulnerability record."""
         if decompose.OCI_DIGEST.fullmatch(digest):
             for node in findings:
                 ref = node["entity"]["ref"]
                 out.edges.append(decompose.edge_to_key(f"{ref}:image", "FOUND_ON_IMAGE__anchore", ref, "computing_core__host", decompose.host_key(digest)))
-        known = store.known_vulnerabilities({n["node"]["vulnerability_id"] for n in findings})
+        known = out.vulnerabilities | shared.vulnerabilities
         for node in findings:
             if node["node"]["vulnerability_id"] in known:
                 ref = node["entity"]["ref"]
