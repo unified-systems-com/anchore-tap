@@ -1147,6 +1147,7 @@ A stack with this plugin and no other page plugin had nowhere to see what was co
 
 - **Summary tiles.** Vulnerabilities: open findings, Critical or High, known exploited, with a fix, resolved. Images: images, analyzed, not analyzed. Health: runs, self-test not passed. The two profile pages have no tiles on purpose: a count of 0 for an image Anchore has not analyzed would read as clean.
 - **Three states.** Analysis state is a badge on every image row, and each findings section says that an image not analyzed has no rows because nothing was read. "Fixed In" shows Anchore's `None` as returned (Anchore says there is no fix) and blank where its record carried no fix field. A digest Anchore holds no record for renders the identity table's empty text with a pointer back, and empty tables below it.
+- **Counts and unobserved values.** Gryphon's `!=` is true of a null. So "With A Fix" rules out a finding whose record carried no fix field, and "Not Analyzed" and "Self-Test Not Passed" name the null case in the query, so that a missing state is counted as not done and never as done.
 - **Meaning line.** Each table sits under a text panel that says what a row is and what absence means.
 - **Links.** An image name opens the image page by digest; the image page links to its SBOM; a run links to its full record in the object viewer. An `html` panel at the top of every page links the three boards.
 - **Loud element.** None beyond the red tiles.

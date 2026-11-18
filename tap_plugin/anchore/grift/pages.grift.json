@@ -6,7 +6,7 @@
   "batches": [
     {
       "batch_entity": {
-        "entity_id": "01a1ec85-1845-715b-99d6-9278861d6824",
+        "entity_id": "01a1eca7-305e-743b-9a0d-e0febb50bd0b",
         "entity_type": "batch",
         "name": "Anchore Pages v0.1.0",
         "dimensions": {}
@@ -86,12 +86,12 @@
           },
           "node": {
             "name": "anchore — card-fixable",
-            "description": "Current findings for which Anchore names a fixed version.",
+            "description": "Current findings for which Anchore names a fixed version; a finding whose record carried no fix field is not counted.",
             "search_type": "gryphon",
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (f:anchore__anchore_finding) WHERE f.data.state = \"current\" AND f.data.fix != \"None\"",
+                "MATCH (f:anchore__anchore_finding) WHERE f.data.state = \"current\" AND f.data.fix IS NOT NULL AND f.data.fix != \"None\"",
                 "RETURN COUNT(f) AS n"
               ]
             }
@@ -279,7 +279,7 @@
           "node": {
             "name": "With A Fix",
             "slug": "anchore-card-fixable",
-            "description": "Current findings for which Anchore names a fixed version.",
+            "description": "Current findings for which Anchore names a fixed version; a finding whose record carried no fix field is not counted.",
             "view": "tap_web/panels/stat_card_panel.html",
             "config": {
               "value_field": "n",
@@ -743,7 +743,7 @@
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (i:anchore__anchore_image) WHERE i.data.analysis_status != \"analyzed\"",
+                "MATCH (i:anchore__anchore_image) WHERE i.data.analysis_status != \"analyzed\" OR i.data.analysis_status IS NULL",
                 "RETURN COUNT(i) AS n"
               ]
             }
@@ -2066,7 +2066,7 @@
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (r:anchore__anchore_scan_run) WHERE r.data.selftest_verdict != \"pass\"",
+                "MATCH (r:anchore__anchore_scan_run) WHERE r.data.selftest_verdict != \"pass\" OR r.data.selftest_verdict IS NULL",
                 "RETURN COUNT(r) AS n"
               ]
             }

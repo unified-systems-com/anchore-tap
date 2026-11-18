@@ -127,6 +127,17 @@ class TestSearchesOnACollectedGrid:
     def test_the_cards_count_current_and_resolved_apart(self, rows):
         assert rows("card-open") == [{"n": 1}] and rows("card-resolved") == [{"n": 1}]
 
+    def test_a_finding_with_no_fix_field_is_not_counted_as_fixable(self, secrets, monkeypatch):  # noqa: F811
+        """Gryphon's != is true of a null, so the fixable count must rule a missing fix out itself."""
+        run_against(monkeypatch, Instance())  # one finding names a fix, the other's record carries no fix field
+        query = next("\n".join(s["node"]["definition"]["query"]) for s in of("search") if s["node"]["name"] == "anchore — card-fixable")
+        assert execute_gryphon_raw(query, {}, db_alias="default")["rows"] == [{"n": 1}]
+
+    def test_an_image_with_no_analysis_state_counts_as_not_analyzed(self, secrets, monkeypatch):  # noqa: F811
+        run_against(monkeypatch, Instance(images=[{"image_digest": DIGEST, "analysis_status": "analyzed"}, {"image_digest": "sha256:" + "cd" * 32}]))
+        query = next("\n".join(s["node"]["definition"]["query"]) for s in of("search") if s["node"]["name"] == "anchore — card-images-pending")
+        assert execute_gryphon_raw(query, {}, db_alias="default")["rows"] == [{"n": 1}]
+
     def test_an_open_finding_names_its_image_by_digest(self, rows):
         (row,) = rows("open-findings")
         assert (row["vuln"], row["digest"]) == ("CVE-2024-0001", DIGEST)
