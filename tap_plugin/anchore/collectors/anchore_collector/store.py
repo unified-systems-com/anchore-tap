@@ -66,14 +66,6 @@ def carriers_of(source: str, source_keys: set[str]) -> dict[str, set[Any]]:
     return held
 
 
-def entity_id_of(entity_type: str, key: dict[str, Any]) -> Any:
-    """The entity id of the live node of a type with this natural key, or None when the grid holds none."""
-    try:
-        return get_model_class(entity_type).objects.filter(**key).values_list("entity_id", flat=True).first()
-    except KeyError:
-        return None
-
-
 def vulnerability_dimensions(vuln_id: str) -> dict[str, Any]:
     """The dimensions the grid holds on a vulnerability record, by name, so a write can send them back unchanged."""
     row = ComplianceVulnerability.objects.filter(vuln_id=vuln_id).select_related("entity").first()

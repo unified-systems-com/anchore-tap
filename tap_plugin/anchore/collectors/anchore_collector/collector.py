@@ -154,6 +154,9 @@ class _Scanner:
     #: The shared vulnerability records this scanner's findings name and the batch will hold; how many
     #: of them it created and how many it gave a CVSS score; and the neutral findings it wrote.
     vulnerabilities: set[str] = field(default_factory=set)
+    #: Of those, the ones still without a CVSS score: the record this run will create, or None for a
+    #: record the grid holds. A later finding that carries a score fills it.
+    unscored: dict[str, dict[str, Any] | None] = field(default_factory=dict)
     vulnerabilities_created: int = 0
     vulnerabilities_scored: int = 0
     neutral_findings: int = 0
@@ -206,9 +209,11 @@ class _Shared:
     ecs_created: dict[str, str] = field(default_factory=dict)
     kubernetes: dict[tuple[str, Any], str] = field(default_factory=dict)
     vulnerabilities: set[str] = field(default_factory=set)
+    unscored: dict[str, dict[str, Any] | None] = field(default_factory=dict)
 
     def absorb(self, scanner: _Scanner) -> None:
         self.vulnerabilities |= scanner.vulnerabilities
+        self.unscored.update(scanner.unscored)
         self.ecs_created.update(scanner.ecs_created)
         self.kubernetes.update(scanner.kubernetes)
         self.hosts |= scanner.hosts
@@ -499,7 +504,7 @@ class AnchoreCollector(CollectorBase):
                         # The neutral finding closes with it: the same key, now resolved. Its record and
                         # edges are written too, for a finding stored before the neutral shape existed.
                         self._vulnerabilities(out, [gone], shared)
-                        self._neutral(out, [gone], digest, {}, shared, only_uncarried=True)
+                        self._neutral(out, [gone], digest, {}, shared)
                         out.resolved += 1
             out.images_read += 1
             read.append(scope)
@@ -1102,6 +1107,17 @@ class AnchoreCollector(CollectorBase):
             vuln_id = node["node"]["vulnerability_id"]
             if neutral.usable_vuln_id(vuln_id) and not scores.get(vuln_id):
                 scores[vuln_id] = neutral.cvss_of(node["node"])
+        dimensions = store.default_dimensions(neutral.VULNERABILITY_TYPE)
+        # A record met earlier in the run with no score takes the first score a later finding carries,
+        # so what a record ends with does not depend on the order images and scanners were read in.
+        for pending in (out.unscored, shared.unscored):
+            for vuln_id in sorted(v for v in pending if scores.get(v)):
+                staged = pending.pop(vuln_id)
+                if staged is not None:
+                    staged["node"].update(scores[vuln_id])
+                else:
+                    out.nodes.append(neutral.vulnerability_node(f"vuln:{vuln_id}", vuln_id, store.vulnerability_dimensions(vuln_id), scores[vuln_id]))
+                out.vulnerabilities_scored += 1
         wanted = set(scores) - out.vulnerabilities - shared.vulnerabilities
         if not wanted:
             return
@@ -1109,26 +1125,29 @@ class AnchoreCollector(CollectorBase):
         # WORKAROUND(unified-systems-com/tap#1172): read, then write. tap has no write that yields to a
         # held value, so a score another source writes between this read and the import is replaced.
         unscored = store.vulnerabilities_without_cvss(held)
-        dimensions = store.default_dimensions(neutral.VULNERABILITY_TYPE)
         for vuln_id in sorted(wanted):
+            staged = None
             if vuln_id not in held or (vuln_id in unscored and scores[vuln_id]):
-                out.nodes.append(neutral.vulnerability_node(f"vuln:{vuln_id}", vuln_id, dimensions if vuln_id not in held else store.vulnerability_dimensions(vuln_id), scores[vuln_id]))
+                staged = neutral.vulnerability_node(f"vuln:{vuln_id}", vuln_id, dimensions if vuln_id not in held else store.vulnerability_dimensions(vuln_id), scores[vuln_id])
+                out.nodes.append(staged)
                 out.vulnerabilities_created += vuln_id not in held
                 out.vulnerabilities_scored += bool(scores[vuln_id])
+            if not scores[vuln_id] and (vuln_id not in held or vuln_id in unscored):
+                out.unscored[vuln_id] = staged
             out.vulnerabilities.add(vuln_id)
 
-    def _neutral(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, packages: dict[str, tuple[str, str, str]], shared: _Shared, only_uncarried: bool = False) -> None:
+    def _neutral(self, out: _Scanner, findings: list[dict[str, Any]], digest: str, packages: dict[str, tuple[str, str, str]], shared: _Shared) -> None:
         """Write the neutral finding beside each Anchore finding, with the edges that shape needs (req-anchore-neutral-1, -2).
 
         The component that carries it is the package the finding's purl names, where the image's
-        parsed inventory holds it, and otherwise the image itself. ``only_uncarried`` is for a
-        finding that has resolved: its packages are not read again, so a carrier is added only
-        where the neutral finding has none, never a second one beside the package that carries it.
+        parsed inventory holds it, and otherwise the image itself. A finding has one carrier: the
+        choice is made when the neutral finding is first written and a finding that has a carrier
+        gains no second, so one finding is never counted under both its image and its package.
         """
         dimensions = store.default_dimensions(neutral.FINDING_TYPE)
         image = decompose.OCI_DIGEST.fullmatch(digest) is not None
         # WORKAROUND(unified-systems-com/compliance-core-tap#91): the carries edge declares no identity, so
-        # sending it again makes a second edge. It is sent only from a carrier that does not already carry the finding.
+        # sending it again makes a second edge. It is sent only for a finding nothing carries yet.
         carried = store.carriers_of(neutral.SOURCE, {neutral.source_key(node["node"]) for node in findings})
         for node in findings:
             fields = node["node"]
@@ -1143,8 +1162,7 @@ class AnchoreCollector(CollectorBase):
                 carrier = {"entity_type": "computing_core__host", "key": decompose.host_key(digest)}
             else:
                 carrier = None
-            held = carried.get(neutral.source_key(fields), set())
-            if carrier is not None and not (held if only_uncarried else store.entity_id_of(carrier["entity_type"], carrier["key"]) in held):
+            if carrier is not None and not carried.get(neutral.source_key(fields)):
                 out.edges.append(decompose.edge_ends(f"{ref}:carries", neutral.CARRIES, carrier, {"ref": ref}))
             vuln_id = fields["vulnerability_id"]
             if vuln_id in out.vulnerabilities or vuln_id in shared.vulnerabilities:

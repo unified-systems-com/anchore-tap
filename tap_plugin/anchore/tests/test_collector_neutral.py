@@ -164,6 +164,22 @@ class TestStoredBeforeTheNeutralShape:
         concerns = [e for e in edges("CONCERNS_COMPLIANCE_VULNERABILITY__compliance_core") if e.from_entity_id == closed.entity_id]
         assert [e.to_entity.name for e in concerns] == ["CVE-2024-0002"]
 
+    def test_a_finding_the_image_carries_gains_no_second_carrier_when_the_inventory_arrives(self, secrets, monkeypatch):
+        from tap_plugin.anchore.tests.test_collector_sbom_inventory import CDX
+        from tap_plugin.anchore.tests.test_collector_sbom_inventory import instance as with_inventory
+
+        # First the SBOM lists no package, so nothing says which one the finding is in.
+        server = with_inventory()
+        server.sboms[(DIGEST, "cyclonedx-json")] = {**CDX, "components": []}
+        run_against(monkeypatch, server)
+        finding = ComplianceFinding.objects.get(name__startswith="CVE-2024-0001")
+        assert [e.from_entity.entity_type for e in edges("CARRIES_COMPLIANCE_FINDING__compliance_core") if e.to_entity_id == finding.entity_id] == ["computing_core__host"]
+        server.sboms[(DIGEST, "cyclonedx-json")] = CDX
+        run_against(monkeypatch, server)
+        finding = ComplianceFinding.objects.get(name__startswith="CVE-2024-0001")
+        carriers = [e.from_entity.entity_type for e in edges("CARRIES_COMPLIANCE_FINDING__compliance_core") if e.to_entity_id == finding.entity_id]
+        assert carriers == ["computing_core__host"]
+
     def test_a_resolving_finding_a_package_carries_gains_no_second_carrier(self, secrets, monkeypatch):
         from tap_plugin.anchore.tests.test_collector_sbom_inventory import instance as with_inventory
 
@@ -183,6 +199,29 @@ class TestVulnerabilityRecord:
         scored, bare = ComplianceVulnerability.objects.get(vuln_id="CVE-2024-0001"), ComplianceVulnerability.objects.get(vuln_id="CVE-2024-0002")
         assert (scored.cvss_score, scored.cvss_version, scored.cvss_source) == (9.8, "3", "nvd@nist.gov, as returned by Anchore")
         assert bare.cvss_score is None
+
+    def test_a_score_a_later_finding_carries_reaches_a_record_met_first_without_one(self):
+        """Order of reading must not decide the score: across images, and across scanners."""
+        from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollector, _Scanner, _Shared
+
+        def finding(vuln_id, **fields):
+            return {"entity": {"ref": "f"}, "node": {"vulnerability_id": vuln_id, **fields}}
+
+        assert create_node("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0009"}).success
+        collector, first, shared = object.__new__(AnchoreCollector), _Scanner(), _Shared()
+        collector._vulnerabilities(first, [finding("CVE-2024-0008"), finding("CVE-2024-0009")], shared)
+        # A later image of the same scanner scores the record being created, in place.
+        collector._vulnerabilities(first, [finding("CVE-2024-0008", nvd_data=NVD)], shared)
+        created = [n for n in first.nodes if n["node"]["vuln_id"] == "CVE-2024-0008"]
+        assert len(created) == 1 and created[0]["node"]["cvss_score"] == 9.8
+        # A later scanner scores the record the grid held without one.
+        shared.absorb(first)
+        second = _Scanner()
+        collector._vulnerabilities(second, [finding("CVE-2024-0009", nvd_data=NVD)], shared)
+        assert [n["node"].get("cvss_score") for n in second.nodes] == [9.8]
+        # And once scored, a further score is not staged again.
+        collector._vulnerabilities(second, [finding("CVE-2024-0009", nvd_data=NVD)], shared)
+        assert len(second.nodes) == 1
 
     def test_a_record_with_no_score_gains_anchores_and_keeps_its_other_fields(self, secrets, monkeypatch):
         assert create_node("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0001", "title": "A title another source wrote", "kev": True}).success
