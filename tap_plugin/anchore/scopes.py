@@ -73,7 +73,8 @@ def stamp(nodes: Iterable[dict[str, Any]], edges: Iterable[Mapping[str, Any]], d
     # left there is dropped first, so a scope it does not stamp is absent and never stale.
     kubernetes_types = (NAMESPACE_TYPE, POD_TYPE, CONTAINER_TYPE)
     for node in nodes:
-        entity_type, held = node["entity"]["entity_type"], node["entity"]["dimensions"]
+        # A node sent with no dimension map (a fill of another producer's record) is not governed here.
+        entity_type, held = node["entity"]["entity_type"], node["entity"].get("dimensions", {})
         if entity_type.startswith(OWN_TYPE_PREFIX):
             held.pop(HOST, None)
         elif entity_type in kubernetes_types:

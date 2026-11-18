@@ -45,6 +45,7 @@ EVALUATES_IMAGE__anchore = "edges/EVALUATES_IMAGE__anchore.edge.json"
 ANNOTATES_IMAGE__anchore = "edges/ANNOTATES_IMAGE__anchore.edge.json"
 ANNOTATES_FINDING__anchore = "edges/ANNOTATES_FINDING__anchore.edge.json"
 ABOUT_PACKAGE__anchore = "edges/ABOUT_PACKAGE__anchore.edge.json"
+DETAILS_COMPLIANCE_FINDING__anchore = "edges/DETAILS_COMPLIANCE_FINDING__anchore.edge.json"
 
 # The Dimension node for each dimension key this plugin declares (tap#711). No instance data.
 [grift]
@@ -53,4 +54,4 @@ dimension = "grift/dimension.grift.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "c9c0a01316215fc12c2bd54f4a57e737838688c2223cc60501919409649b8443"
+sha256 = "aabfb7bd00dd8683165e89de10f4f172abad65fb591d98dc7a1fe784485b8459"

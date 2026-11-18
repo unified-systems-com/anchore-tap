@@ -8,6 +8,8 @@ import tap_plugin.anchore.models as anchore  # noqa: F401 — trigger model regi
 import tap_plugin.compliance_core.models as compliance  # noqa: F401 — trigger model registration
 import tap_plugin.computing_core.models as computing  # noqa: F401 — trigger model registration
 
+from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
+
 from tap_grid.models import Edge
 from tap_grid.services import create_node
 from tap_plugin.anchore.models.finding import AnchoreFinding
@@ -99,12 +101,15 @@ class TestAnnotations:
         assert edges("ANNOTATES_FINDING__anchore") == []
 
     def test_the_shared_vulnerability_is_linked_only_where_it_exists_exactly(self, secrets, monkeypatch):
+        """An annotation links to a record a finding of the run created, and creates none itself."""
         vulnerability_dimensions_declared()
+        about = lambda: [e for e in edges("ABOUT_VULNERABILITY__anchore") if e.from_entity.entity_type == AnchoreVexAnnotation.ENTITY_TYPE]  # noqa: E731
+        # An annotation about a vulnerability no finding names: no record exists, and it makes none.
+        run_against(monkeypatch, server(entry(vulnerability="CVE-2099-9999"), vulns=[]))
+        assert about() == [] and not ComplianceVulnerability.objects.filter(vuln_id="CVE-2099-9999").exists()
+        # One about a vulnerability a finding names: the finding's record is linked.
         run_against(monkeypatch, server())
-        assert [e for e in edges("ABOUT_VULNERABILITY__anchore") if e.from_entity.entity_type == AnchoreVexAnnotation.ENTITY_TYPE] == []
-        assert create_node("compliance_core__compliance_vulnerability", {"vuln_id": "CVE-2024-0001"}).success
-        run_against(monkeypatch, server())
-        (link,) = [e for e in edges("ABOUT_VULNERABILITY__anchore") if e.from_entity.entity_type == AnchoreVexAnnotation.ENTITY_TYPE]
+        (link,) = [e for e in about() if e.to_entity.name == "CVE-2024-0001"]
         assert link.to_entity.entity_type == "compliance_core__compliance_vulnerability"
 
     def test_one_uuid_returned_twice_is_one_annotation(self, secrets, monkeypatch):

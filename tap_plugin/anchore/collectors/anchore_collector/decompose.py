@@ -135,10 +135,10 @@ def edge_between_keys(ref: str, slug: str, from_type: str, from_key: dict[str, s
     }
 
 
-def edge_ends(ref: str, slug: str, source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+def edge_ends(ref: str, slug: str, source: dict[str, Any], target: dict[str, Any], properties: dict[str, Any] | None = None) -> dict[str, Any]:
     """An edge whose ends are each a node of this batch (``{"ref": ...}``) or one named by type and natural key
     (``{"entity_type": ..., "key": {...}}``), which must already be on the grid."""
-    body: dict[str, Any] = {"edge_type": slug, "properties": {}}
+    body: dict[str, Any] = {"edge_type": slug, "properties": dict(properties or {})}
     for side, end in (("from", source), ("to", target)):
         if "ref" in end:
             body[f"{side}_ref"] = end["ref"]
