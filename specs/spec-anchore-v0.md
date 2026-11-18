@@ -45,7 +45,7 @@ Six consequences shape v0:
 | 4 | Hosted And On-Prem | One client and one set of nodes serve both, with every difference between them kept in a ledger and observed before it is asserted. |
 | 5 | Detect API Drift | Offline contract tests, a scheduled comparison with the vendor's file, and a per-run self-test against the configured instance catch a changed API before bad data lands. |
 | 6 | Anchore's Shape, Linked | Anchore's data is stored as Anchore returns it, in Anchore-owned nodes linked to the `computing_core` and shared vulnerability nodes it concerns; no interpretation is applied. |
-| 7 | Backend Only | No page or panel ships; the outputs are nodes and edges other surfaces read. |
+| 7 | Standard Pages, No Custom Surface | The plugin ships five pages built only from tap_web's standard panels over Gryphon searches (`req-anchore-pages`); no panel type, template, stylesheet or script of its own. Until 2026-11-18 this goal read "backend only, no page or panel ships"; the maintainer asked for the standard pages on that date. |
 
 ## Requirements
 
@@ -80,6 +80,7 @@ Six consequences shape v0:
 | req-anchore-coverage | [Coverage Of Anchore's API](#coverage-of-anchores-api) | In Development | Every read in Anchore's API is landed on the grid, planned, or excluded with its reason; the table is generated and checked |
 | req-anchore-dimensions | [Dimensions](#dimensions) | Implemented | Each dimension key the plugin stamps has a declared Dimension node; `anchore.instance` on its own nodes only |
 | req-anchore-neutral | [The Neutral Finding](#the-neutral-finding) | Implemented | Beside each Anchore finding, `compliance_core`'s neutral finding with its carrier and vulnerability edges; the shared vulnerability record is created when absent and given Anchore's CVSS where it has none |
+| req-anchore-pages | [The Standard Pages](#the-standard-pages) | Implemented | Five pages over the plugin's own data: vulnerabilities, images, one image, its SBOM, collection health |
 | req-anchore-nongoals | [v0 Non-Goals](#v0-non-goals) | Proposed | What this plugin deliberately does not do, and who owns it |
 
 ### Connection And Credential
@@ -1123,6 +1124,53 @@ Two limits. Anchore names some vulnerabilities by a vendor's identifier (an advi
 | req-anchore-neutral-6 | A Finding Stored Before This Shape | Implemented | A finding the grid held before neutral findings were written, and that resolves on its first run after, gets its neutral finding resolved together with its vulnerability record, its vulnerability edge and a carrier. A finding that already has a carrier gains no second one. | `tests/test_collector_neutral.py::TestStoredBeforeTheNeutralShape`. |
 | req-anchore-neutral-7 | The Carrier Follows The Inventory | Backlog | A finding first carried by its image moves to its package when the inventory is later read. | Needs edge removal, which this collector does not send. Until then one carrier, never two: `::TestStoredBeforeTheNeutralShape::test_a_finding_the_image_carries_gains_no_second_carrier_when_the_inventory_arrives`. |
 | req-anchore-neutral-5 | Scanner And Run In The Neutral Shape | Backlog | The Anchore scanner and its runs are also written as `compliance_core`'s scanner and scan-run types with their edges to findings. | Not read by the shared page today. |
+
+### The Standard Pages
+----
+RID: `req-anchore-pages`
+
+Status: `Implemented`
+
+A stack with this plugin and no other page plugin had nowhere to see what was collected. The maintainer approved a list of standard pages on 2026-11-17 and asked for them to be built on 2026-11-18. They read this plugin's own nodes and the `computing_core` nodes it writes, so they work on a stack that has only this plugin's dependencies. The vulnerability page shared across scanners is a different page, in the playground plugin, fed by `req-anchore-neutral`; these do not replace it.
+
+`grift/pages.grift.json`, registered as the `pages` bundle. One batch: 5 pages, 35 panels, 23 searches. Every panel is a tap_web standard type (`table_panel`, `stat_card_panel`, `text_panel`, `html`); every search is Gryphon. The plugin adds no Python, template, stylesheet or script for them.
+
+| Page | Slug | Kind | Job |
+| --- | --- | --- | --- |
+| Anchore Vulnerabilities | `/anchore` | board | Someone deciding what to patch sees what Anchore currently reports, by vulnerability and package, then by image, and opens an image. |
+| Anchore Images | `/anchore/images` | board | Someone checking coverage sees every image Anchore holds, whether it finished analyzing it, and which carry open findings. |
+| Anchore Image | `/anchore/image?digest=` | profile | Someone who picked an image sees Anchore's record of it, every finding on it, current and resolved, and its tags. |
+| Anchore Image SBOM | `/anchore/image/sbom?digest=` | profile | Someone asking what is in an image sees the packages with open findings, every package, and the SBOM documents they came from. |
+| Anchore Collection Health | `/anchore/health` | board | Someone asking whether to trust the other four sees every run, its self-test, how much it read and could not, and the instances collected from. |
+
+#### Design
+
+- **Summary tiles.** Vulnerabilities: open findings, Critical or High, known exploited, with a fix, resolved. Images: images, analyzed, not analyzed. Health: runs, self-test not passed. The two profile pages have no tiles on purpose: a count of 0 for an image Anchore has not analyzed would read as clean.
+- **Three states.** Analysis state is a badge on every image row, and each findings section says that an image not analyzed has no rows because nothing was read. "Fixed In" shows Anchore's `None` as returned (Anchore says there is no fix) and blank where its record carried no fix field. A digest Anchore holds no record for renders the identity table's empty text with a pointer back, and empty tables below it.
+- **Counts and unobserved values.** Gryphon's `!=` is true of a null. So "With A Fix" rules out a finding whose record carried no fix field, and "Not Analyzed" and "Self-Test Not Passed" name the null case in the query, so that a missing state is counted as not done and never as done.
+- **Meaning line.** Each table sits under a text panel that says what a row is and what absence means.
+- **Links.** An image name opens the image page by digest; the image page links to its SBOM; a run links to its full record in the object viewer. An `html` panel at the top of every page links the three boards.
+- **Loud element.** None beyond the red tiles.
+- **Icons.** None: the standard table's `entityType` formatter draws an icon for an entity-type column, and these tables have no such column.
+
+#### What these pages do not do
+
+- **No reasons on the health page.** A run's scopes not read are a list of objects on the run. The standard table shows such a field as 60 characters of JSON, so the page shows the count and links to the run's record. Putting the reasons in a table needs them as rows, which is a missing table capability or a missing node (`unified-systems-com/tap#1239`).
+- **No sort from the search on traversal tables.** Gryphon refuses `ORDER BY` on a traversal pattern, so those tables arrive unsorted and the reader sorts by a column.
+- **No image row with its finding count beside its analysis state.** That needs an optional match from a traversal, which Gryphon v0 refuses. The images page has two tables instead.
+- **One instance assumed in the per-image searches.** They select by digest, not by scanner, so one digest held by two Anchore instances shows both instances' rows together.
+- **No runtime, policy or VEX tables yet.** The data is on the grid; the pages for it are not written.
+- **No fix-centred view.** Ranking fixes by owner is a separate target.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | --- | --- | --- |
+| req-anchore-pages-1 | Five Pages | Implemented | The bundle defines exactly the five pages above at those slugs; the two that need a digest are not discoverable. | `tests/test_pages.py::TestBundle`. |
+| req-anchore-pages-2 | Standard Panels Only | Implemented | Every panel is a tap_web standard type; each table and tile reads exactly one search and shows only fields that search returns; every search is read by a panel. | `::TestBundle`. |
+| req-anchore-pages-3 | Own Vocabulary | Implemented | Every search names only `anchore__` and `computing_core__` types. | `::TestBundle`. |
+| req-anchore-pages-4 | The Searches Run | Implemented | Imported through the real importer over a grid the collector filled, every search executes; current and resolved findings are counted apart; an unknown digest is no rows, not an error. | `::TestSearchesOnACollectedGrid`. |
+| req-anchore-pages-5 | Rendered | Implemented | Each page renders in a browser with its rows and no console error. | Checked by hand on 2026-11-18 in headless Chromium against a dev stack on tap main loaded with invented data through the collector; not an automated test, and not checked against a real Anchore. |
 
 ### v0 Non-Goals
 ----

@@ -50,6 +50,8 @@ DETAILS_COMPLIANCE_FINDING__anchore = "edges/DETAILS_COMPLIANCE_FINDING__anchore
 # The Dimension node for each dimension key this plugin declares (tap#711). No instance data.
 [grift]
 dimension = "grift/dimension.grift.json"
+# The standard pages: vulnerabilities, images, one image, its SBOM, collection health (req-anchore-pages).
+pages = "grift/pages.grift.json"
 
 [[boot.records]]
 name = "ci"
