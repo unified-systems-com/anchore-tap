@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.9](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.8...v0.1.9) (2026-11-19)
+
+
+### Features
+
+* **findings:** write compliance_core's neutral finding beside each Anchore finding ([891f682](https://github.com/unified-systems-com/anchore-tap/commit/891f682d4359004eb45ea06c1d38cc9203ed72cd))
+* **findings:** write compliance_core's neutral finding beside each Anchore finding ([42c42fb](https://github.com/unified-systems-com/anchore-tap/commit/42c42fb3e8889ca9881dc6d1c6c2b8e7bcec0ce7))
+* **pages:** the standard Anchore pages ([0470c4c](https://github.com/unified-systems-com/anchore-tap/commit/0470c4ce32fdd07da46ccd4ab2b98dcd4c955c3b))
+* **pages:** the standard Anchore pages ([a0f2493](https://github.com/unified-systems-com/anchore-tap/commit/a0f24939109be3d4eae3e323d8575021d697ccfd))
+
+
+### Bug Fixes
+
+* **findings:** a later score reaches a record met first without one; a finding has one carrier ([5308a48](https://github.com/unified-systems-com/anchore-tap/commit/5308a48840b7ed616c6505695b8429179db7d878))
+* **findings:** CVSS version 3 wins wherever it is found; a fill returns the record's own dimensions; a finding stored before the neutral shape resolves whole ([59a828c](https://github.com/unified-systems-com/anchore-tap/commit/59a828cf5dd95cf9b52b0cd1feda33ca55cf7e4e))
+* **pages:** a finding with no fix field is not counted as fixable; the manifest test pins both bundles ([b311093](https://github.com/unified-systems-com/anchore-tap/commit/b3110936617781c8b97cc985c62ba50124d62f34))
+
 ## [0.1.8](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.7...v0.1.8) (2026-11-14)
 
 
