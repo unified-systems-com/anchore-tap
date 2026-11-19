@@ -1146,8 +1146,10 @@ class AnchoreCollector(CollectorBase):
         """
         dimensions = store.default_dimensions(neutral.FINDING_TYPE)
         image = decompose.OCI_DIGEST.fullmatch(digest) is not None
-        # WORKAROUND(unified-systems-com/compliance-core-tap#91): the carries edge declares no identity, so
-        # sending it again makes a second edge. It is sent only for a finding nothing carries yet.
+        # One carrier per finding (req-anchore-neutral-2): the edge is sent only for a finding nothing
+        # carries yet, so a finding first carried by its image gains no second carrier when its package
+        # is known later. Before compliance_core v0.8.13 this read also stood in for the edge's missing
+        # identity (compliance-core-tap#91, fixed there); it is no longer needed for that.
         carried = store.carriers_of(neutral.SOURCE, {neutral.source_key(node["node"]) for node in findings})
         for node in findings:
             fields = node["node"]
