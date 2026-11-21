@@ -1,6 +1,6 @@
 manifest_version = "0"
 plugin_version = "0.1.9" # x-release-please-version
-requires_tap = ">=0.3.4"
+requires_tap = ">=0.4.3"
 slug = "anchore"
 name = "TAP Anchore"
 description = "Anchore Enterprise vulnerability findings, SBOMs, VEX statements and inventory, read from its REST API and held on the grid as Anchore returns them."
@@ -56,4 +56,4 @@ pages = "grift/pages.grift.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "622f4b95c8a19f3c6f058327ecd4f3f577e35fd46d91a3bc510ac52ea31908e4"
+sha256 = "6d86d18e55178d679f0f8dee7af0eb138d9af1859b9eb7ee18448c8354dfa0f8"
