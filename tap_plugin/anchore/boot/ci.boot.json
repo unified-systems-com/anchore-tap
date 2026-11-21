@@ -9,8 +9,8 @@
         "source": {
           "type": "git",
           "url": "https://github.com/unified-systems-com/computing-core-tap",
-          "rev": "v0.10.8",
-          "commit": "f244539e7626cb8996238b32a53f0010eafe09d0"
+          "rev": "v0.10.9",
+          "commit": "9995fe301e27ea41e7fe1faae93bfc1f1291371e"
         }
       },
       {
@@ -29,8 +29,8 @@
         "source": {
           "type": "git",
           "url": "https://github.com/unified-systems-com/aws-core-tap",
-          "rev": "v0.8.0",
-          "commit": "9b3496c38d23aafd29feadbd68b2ea640dce4225"
+          "rev": "v0.8.4",
+          "commit": "8d6bfb8c868e57cef7bd9808e9a5c79eee30b028"
         }
       },
       {
