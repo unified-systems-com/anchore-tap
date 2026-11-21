@@ -29,8 +29,8 @@
         "source": {
           "type": "git",
           "url": "https://github.com/unified-systems-com/aws-core-tap",
-          "rev": "v0.8.0",
-          "commit": "9b3496c38d23aafd29feadbd68b2ea640dce4225"
+          "rev": "v0.8.2",
+          "commit": "b21c3030ec93e780361e50ef5757c0d5ca39387a"
         }
       },
       {

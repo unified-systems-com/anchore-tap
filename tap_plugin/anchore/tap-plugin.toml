@@ -56,4 +56,4 @@ pages = "grift/pages.grift.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "622f4b95c8a19f3c6f058327ecd4f3f577e35fd46d91a3bc510ac52ea31908e4"
+sha256 = "d9d312a324a2b6641bac7f773fd9166df195ecf5f1f0a769523050a4e04f4273"
