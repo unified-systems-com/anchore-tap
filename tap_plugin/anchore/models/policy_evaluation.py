@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 
 from django.db import models
 
+from tap_grid.event_time import Moment
 from tap_grid.models import BaseModel
 
 _STR_OR_NULL = {"type": ["string", "null"]}
@@ -32,6 +33,8 @@ class AnchorePolicyEvaluation(BaseModel):
     ENTITY_ICON: ClassVar[str] = "anchore-policy-evaluation"
     DEFAULT_DIMENSIONS: ClassVar[dict[str, str]] = {"anchore.area": "policy"}
     NATURAL_KEY: ClassVar[tuple[str, ...]] = ("scanner_key", "image_digest", "evaluated_tag", "policy_id")
+    # When Anchore evaluated the image against the policy (req-anchore-event-time-2).
+    EVENT_TIME: ClassVar[Moment] = Moment(field="evaluation_time", kind="occurred")
 
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "computing_core__host"}], "edges": [{"type": "EVALUATES_IMAGE__anchore"}]},

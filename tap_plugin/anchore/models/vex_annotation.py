@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 
 from django.db import models
 
+from tap_grid.event_time import Interval
 from tap_grid.models import BaseModel
 
 _STR_OR_NULL = {"type": ["string", "null"]}
@@ -35,6 +36,9 @@ class AnchoreVexAnnotation(BaseModel):
     ENTITY_ICON: ClassVar[str] = "anchore-vex-annotation"
     DEFAULT_DIMENSIONS: ClassVar[dict[str, str]] = {"anchore.area": "annotation"}
     NATURAL_KEY: ClassVar[tuple[str, ...]] = ("scanner_key", "scope_kind", "scope_id", "annotation_id")
+    # When Anchore says the annotation was created; it holds until withdrawn, and Anchore states no
+    # end time. annotation_updated_at is the source editing its record (req-anchore-event-time-2).
+    EVENT_TIME: ClassVar[Interval] = Interval(start="annotation_created_at", kind="created")
 
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "computing_core__host"}], "edges": [{"type": "ANNOTATES_IMAGE__anchore"}]},

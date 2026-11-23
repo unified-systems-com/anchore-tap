@@ -81,6 +81,7 @@ Six consequences shape v0:
 | req-anchore-dimensions | [Dimensions](#dimensions) | Implemented | Each dimension key the plugin stamps has a declared Dimension node; `anchore.instance` on its own nodes only |
 | req-anchore-neutral | [The Neutral Finding](#the-neutral-finding) | Implemented | Beside each Anchore finding, `compliance_core`'s neutral finding with its carrier and vulnerability edges; the shared vulnerability record is created when absent and given Anchore's CVSS where it has none |
 | req-anchore-pages | [The Standard Pages](#the-standard-pages) | Implemented | Five pages over the plugin's own data: vulnerabilities, images, one image, its SBOM, collection health |
+| req-anchore-event-time | [Event Time](#event-time) | Implemented | Each model names the field that says when the thing happened in the world, or states that it has none; no edge type declares one |
 | req-anchore-nongoals | [v0 Non-Goals](#v0-non-goals) | Proposed | What this plugin deliberately does not do, and who owns it |
 
 ### Connection And Credential
@@ -1171,6 +1172,39 @@ A stack with this plugin and no other page plugin had nowhere to see what was co
 | req-anchore-pages-3 | Own Vocabulary | Implemented | Every search names only `anchore__` and `computing_core__` types. | `::TestBundle`. |
 | req-anchore-pages-4 | The Searches Run | Implemented | Imported through the real importer over a grid the collector filled, every search executes; current and resolved findings are counted apart; an unknown digest is no rows, not an error. | `::TestSearchesOnACollectedGrid`. |
 | req-anchore-pages-5 | Rendered | Implemented | Each page renders in a browser with its rows and no console error. | Checked by hand on 2026-11-18 in headless Chromium against a dev stack on tap main loaded with invented data through the collector; not an automated test, and not checked against a real Anchore. |
+
+### Event Time
+----
+RID: `req-anchore-event-time`
+
+Status: `Implemented`
+
+Core carries one event time for every row: when the thing happened or held in the world, as its source states it, apart from when it was collected and when the grid wrote it (`req-grid-entity-event-time` in tap's `spec-grid-entity.md`, from tap 0.4.6). Core derives it from a field the model names. The plugin sets nothing itself and adds no column; it only says which of the fields it already has is that time. The maintainer asked for these declarations on 2026-11-22.
+
+| Model | Declaration | Field | Kind | Why this field |
+| --- | --- | --- | --- | --- |
+| `anchore_finding` | moment | `detected_at` | `first_seen` | When Anchore says it first detected the match. Core's rule is that a finding is declared at its start, not at its last change. `fix_observed_at` is a time about the fix and stays a typed field. |
+| `anchore_image` | interval, no end | `created_at` | `first_seen` | When Anchore made its record of the image, which is when this scanner first held it. It is not when the image was built, so the kind is not `created`. Anchore states no end. |
+| `anchore_runtime_image` | interval, no end | `created_at` | `first_seen` | When Anchore's inventory first recorded the image in that context. `last_seen` is Anchore's last sighting and not a statement that the image stopped running, so it is not the end: core closes an interval only on an end the source states. |
+| `anchore_policy_evaluation` | moment | `evaluation_time` | `occurred` | When Anchore evaluated the image. |
+| `anchore_vex_annotation` | interval, no end | `annotation_created_at` | `created` | When Anchore says the annotation was created. A withdrawn annotation is a state, and Anchore gives no time for it. `annotation_updated_at` is Anchore editing its record. |
+| `anchore_scan_run` | interval | `started_at` to `finished_at` | `occurred` | The run is itself an event with a start and a finish. These are the run's own times, taken from the collector's clock, and are not offered as the collection time of any other object. |
+| `anchore_scanner` | none, stated | | | Anchore gives no time at which a deployment came to exist. |
+
+Every one of these fields is either a date-time column the collector fills from a parsed, zoned time, or, for `detected_at`, Anchore's text as returned. Where Anchore's text carries no zone or does not parse, core leaves the event time empty and warns; the typed field keeps what Anchore sent, and the collector does not repair it (`req-anchore-record`).
+
+No edge type of this plugin declares an event time. None of them carries a time among its properties, and for an edge type none is core's default.
+
+The declarations need tap 0.4.6, so the plugin's minimum tap is 0.4.6 from this change.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-anchore-event-time-1 | Every Model Decides | Implemented | Every model the plugin registers either declares an event time or states that it has none; none is left undeclared. | `tests/test_event_time.py::TestDeclarations`. |
+| req-anchore-event-time-2 | The Declared Field Is Copied | Implemented | A collected finding, image, runtime image, policy evaluation, VEX annotation and run each carry `event_start` equal to the declared field and the declared kind as the `time` dimension; an image's and an annotation's `event_end` is empty and a finished run's is its finish. | `::TestOnACollectedGrid`. |
+| req-anchore-event-time-3 | Scanner Has None | Implemented | A scanner row has no event time and no `time` value. | `::TestOnACollectedGrid`. |
+| req-anchore-event-time-4 | No Edge Declares One | Implemented | No edge definition in the plugin carries an `event_time` entry. | `::TestDeclarations`. |
 
 ### v0 Non-Goals
 ----

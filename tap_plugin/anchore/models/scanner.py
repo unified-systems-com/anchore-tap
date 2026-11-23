@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from tap_grid.event_time import NO_EVENT_TIME, NoEventTime
 from tap_grid.models import BaseModel
 
 
@@ -28,6 +29,9 @@ class AnchoreScanner(BaseModel):
     ENTITY_ICON: ClassVar[str] = "anchore-scanner"
     DEFAULT_DIMENSIONS: ClassVar[dict[str, str]] = {"anchore.area": "run"}
     NATURAL_KEY: ClassVar[tuple[str, ...]] = ("scanner_key",)
+    # Anchore states no time at which a deployment came to exist; reported_version is read fresh on
+    # each run. Stated on purpose (req-anchore-event-time-3).
+    EVENT_TIME: ClassVar[NoEventTime] = NO_EVENT_TIME
 
     # A scanner is only ever the far end: nothing in v0 starts at it.
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = []

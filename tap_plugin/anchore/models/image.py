@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 
 from django.db import models
 
+from tap_grid.event_time import Interval
 from tap_grid.models import BaseModel
 
 _STR_OR_NULL = {"type": ["string", "null"]}
@@ -28,6 +29,9 @@ class AnchoreImage(BaseModel):
     ENTITY_ICON: ClassVar[str] = "anchore-image"
     DEFAULT_DIMENSIONS: ClassVar[dict[str, str]] = {"anchore.area": "image"}
     NATURAL_KEY: ClassVar[tuple[str, ...]] = ("scanner_key", "image_digest")
+    # When Anchore made its record of the image: the first time this scanner saw it, not when the
+    # image was built. Anchore states no end, so the interval stays open (req-anchore-event-time-2).
+    EVENT_TIME: ClassVar[Interval] = Interval(start="created_at", kind="first_seen")
 
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "computing_core__host"}], "edges": [{"type": "RECORDS_IMAGE__anchore"}]},
