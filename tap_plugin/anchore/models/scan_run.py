@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 
 from django.db import models
 
+from tap_grid.event_time import Interval
 from tap_grid.models import BaseModel
 
 #: What a list of scopes holds: each scope a run read, or did not read with the reason.
@@ -40,6 +41,9 @@ class AnchoreScanRun(BaseModel):
     ENTITY_ICON: ClassVar[str] = "anchore-scan-run"
     DEFAULT_DIMENSIONS: ClassVar[dict[str, str]] = {"anchore.area": "run"}
     NATURAL_KEY: ClassVar[tuple[str, ...]] = ("scanner_key", "run_id")
+    # The run is itself an event: it occurred from its start to its finish. These are the run's own
+    # times, not the collection time of some other object (req-anchore-event-time-2).
+    EVENT_TIME: ClassVar[Interval] = Interval(start="started_at", end="finished_at", kind="occurred")
 
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "anchore__anchore_scanner"}], "edges": [{"type": "RUN_OF_SCANNER__anchore"}]},
