@@ -75,7 +75,10 @@ class TestCreate:
         assert (made.container_arn, made.image, made.image_digest) == (CONTAINER, "registry.example/app:1", DIGEST)
         # The placeholder name (rule 4), and nothing Anchore did not report.
         assert made.name == "c1"
-        assert (made.runtime_id, made.last_status, made.tags, made.configuration) == (None, None, {}, {})
+        # Unset means the field's own default in the installed aws_core, which is null for tags from
+        # v0.8.2 (unobserved) and was an empty map before.
+        unset = tuple(type(made)._meta.get_field(name).get_default() for name in ("runtime_id", "last_status", "tags", "configuration"))
+        assert (made.runtime_id, made.last_status, made.tags, made.configuration) == unset
         (made_task,) = nodes("task")
         assert (made_task.task_arn, made_task.cluster_arn, made_task.tags) == (TASK, CLUSTER, {"team": "platform"})
         assert made_task.task_definition_arn == f"{BASE}:task-definition/web:7"
@@ -91,7 +94,11 @@ class TestCreate:
         run_against(monkeypatch, standard())
         for kind in TYPES:
             (made,) = nodes(kind)
-            assert dimension_view(Entity.objects.get(pk=made.entity_id)) == {"tap.cloud": "aws", "aws_account": ACCOUNT, "aws_region": REGION}, kind
+            # The type's own defaults, plus the account and region under the names this aws_core declares.
+            names = store.aws_dimension_names()
+            expected = {**type(made).DEFAULT_DIMENSIONS, names["account"]: ACCOUNT, names["region"]: REGION}
+            assert dimension_view(Entity.objects.get(pk=made.entity_id)) == expected, kind
+            assert set(type(made).DEFAULT_DIMENSIONS) and set(names.values()) <= set(expected)
 
     def test_the_account_and_region_go_under_the_names_the_installed_aws_core_uses(self, tmp_path, monkeypatch):
         """After aws_core's rename its seed declares the new names, and a created node carries those."""
