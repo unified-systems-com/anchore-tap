@@ -23,8 +23,11 @@ NVD = [{"id": "CVE-2024-0001", "type": "Primary", "source": "nvd@nist.gov", "cvs
 
 
 @pytest.fixture(autouse=True)
-def compliance_types_writable():
-    vulnerability_dimensions_declared()
+def compliance_types_writable(request):
+    # Asking the grid what it declares reads the database, so only the tests that write need it.
+    if request.node.get_closest_marker("django_db"):
+        request.getfixturevalue("db")
+        vulnerability_dimensions_declared()
 
 
 def edges(slug: str) -> list[Edge]:

@@ -124,13 +124,16 @@ class TestStamp:
 class TestAgainstTheGrid:
     """The stamped value is the scoping node's key exactly as the grid stored it.
 
-    These need a grid that stores a spine natural key, which the plugin's minimum tap (0.3.4) does.
+    These need a grid that stores a spine natural key, which the plugin's minimum tap does.
     """
 
     def declare(self, *names):
         from tap_grid.services import create_node
+        from tap_plugin.anchore.collectors.anchore_collector import store
 
-        for name in names:
+        # Only the names the grid under test does not already hold: a grid that takes its vocabulary
+        # from a seed refuses a second node of the same name.
+        for name in store.undeclared_dimensions(names):
             assert create_node("dimension", {"name": name, "description": name}).success
 
     def spine(self, model):

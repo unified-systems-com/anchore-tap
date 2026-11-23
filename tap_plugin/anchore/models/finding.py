@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from tap_grid.event_time import Moment
 from tap_grid.models import BaseModel
 
 _STR_OR_NULL = {"type": ["string", "null"]}
@@ -54,6 +55,9 @@ class AnchoreFinding(BaseModel):
         "target_key",
         "package_key",
     )
+    # When Anchore says it first detected the match, as Anchore returned it (req-anchore-event-time-2).
+    # fix_observed_at is a time about the fix, not the finding, and stays a typed field.
+    EVENT_TIME: ClassVar[Moment] = Moment(field="detected_at", kind="first_seen")
 
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "computing_core__host"}], "edges": [{"type": "FOUND_ON_IMAGE__anchore"}]},

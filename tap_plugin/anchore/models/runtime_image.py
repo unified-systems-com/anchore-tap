@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 
 from django.db import models
 
+from tap_grid.event_time import Interval
 from tap_grid.models import BaseModel
 
 
@@ -33,6 +34,10 @@ class AnchoreRuntimeImage(BaseModel):
     ENTITY_ICON: ClassVar[str] = "anchore-runtime-image"
     DEFAULT_DIMENSIONS: ClassVar[dict[str, str]] = {"anchore.area": "runtime"}
     NATURAL_KEY: ClassVar[tuple[str, ...]] = ("scanner_key", "inventory_type", "context", "image_digest")
+    # When Anchore's inventory first recorded the image in this context. last_seen is the source's own
+    # last sighting, not a stated end, so it stays a typed field and the interval stays open
+    # (req-anchore-event-time-2; core rules 7 and 14).
+    EVENT_TIME: ClassVar[Interval] = Interval(start="created_at", kind="first_seen")
 
     OUTBOUND_EDGES: ClassVar[list[dict[str, Any]]] = [
         {"nodes": [{"type": "computing_core__host"}], "edges": [{"type": "OBSERVES_IMAGE__anchore"}]},
