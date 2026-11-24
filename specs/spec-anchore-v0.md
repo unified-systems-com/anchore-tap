@@ -1203,7 +1203,7 @@ The declarations need tap 0.4.6. The minimum tap is 0.4.9 from the spine-copies 
 | --- | --- | :---: | --- | --- |
 | req-anchore-event-time-1 | Every Model Decides | Implemented | Every model the plugin registers either declares an event time or states that it has none; none is left undeclared. | `tests/test_event_time.py::TestDeclarations`. |
 | req-anchore-event-time-2 | The Declared Field Is Copied | Implemented | A collected finding, image, runtime image, policy evaluation, VEX annotation and run each carry `event_start` equal to the declared field and the declared kind as the `tap.time` dimension; an image's and an annotation's `event_end` is empty and a finished run's is its finish. | `::TestOnACollectedGrid`. |
-| req-anchore-event-time-3 | Scanner Has None | Implemented | A scanner row has no event time and no `time` value. | `::TestOnACollectedGrid`. |
+| req-anchore-event-time-3 | Scanner Has None | Implemented | A scanner row has no event time and no `tap.time` value. | `::TestOnACollectedGrid`. |
 | req-anchore-event-time-4 | No Edge Declares One | Implemented | No edge definition in the plugin carries an `event_time` entry. | `::TestDeclarations`. |
 
 ### v0 Non-Goals
