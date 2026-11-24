@@ -44,7 +44,7 @@ CURRENT = "current"
 RESOLVED = "resolved"
 
 
-#: An image digest as the image host's key holds it (computing_core: realm oci-digest).
+#: An image digest as the image host's key holds it (computing_core: host type oci-digest).
 OCI_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 IMAGE_REALM = "oci-digest"
 
@@ -87,7 +87,7 @@ INSTANCE_DIMENSION = "anchore.instance"
 OWN_TYPE_PREFIX = "anchore__"
 
 
-def envelope(ref: str, model: Any, name: str, fields: dict[str, Any]) -> dict[str, Any]:
+def envelope(ref: str, model: Any, name: str, fields: dict[str, Any], key_dimensions: dict[str, Any] | None = None) -> dict[str, Any]:
     """A node of a model this module imports, with the type's dimensions.
 
     A node of one of this plugin's own types also says which instance it came from. Every own
@@ -95,7 +95,7 @@ def envelope(ref: str, model: Any, name: str, fields: dict[str, Any]) -> dict[st
     unscoped: the instance dimension is what a filter or a removal by scope relies on. A node of
     another plugin's type (an image host, an SBOM document) never carries it.
     """
-    dimensions = dict(model.DEFAULT_DIMENSIONS)
+    dimensions = {**model.DEFAULT_DIMENSIONS, **(key_dimensions or {})}
     if model.ENTITY_TYPE.startswith(OWN_TYPE_PREFIX):
         scanner_key = fields.get("scanner_key")
         if not isinstance(scanner_key, str) or not scanner_key:
@@ -162,22 +162,29 @@ def provider_node(ref: str, entity_type: str, name: str, fields: dict[str, Any],
 
 
 def typed_node(ref: str, entity_type: str, name: str, fields: dict[str, Any], dimensions: dict[str, str]) -> dict[str, Any]:
-    """A node of a type named by slug, with the dimensions its model declares."""
+    """A node of a type named by slug, with the dimensions its model declares.
+
+    A key entry among ``fields`` that names a dimension is moved to the node's dimensions.
+    """
+    if any(keys.is_dimension(name) for name in fields):
+        fields, key_dimensions = keys.split(None, fields)
+        dimensions = {**dimensions, **key_dimensions}
     return {"entity": {"ref": ref, "entity_type": entity_type, "name": name[:255] or entity_type, "dimensions": dict(dimensions)}, "node": fields}
 
 
 def host_node(ref: str, digest: str, name: str | None = None, os: str | None = None) -> dict[str, Any]:
-    """The image host for a digest: the computing_core host with realm oci-digest. Written only where none exists.
+    """The image host for a digest: the computing_core host of host type oci-digest. Written only where none exists.
 
     ``name`` and ``os`` are set where Anchore's image record gives them (req-anchore-image-3); a
     host staged for a digest Anchore has no record of carries the digest alone.
     """
-    fields: dict[str, Any] = {**host_key(digest), "kind": "container"}
+    fields, dimensions = keys.split(Host, host_key(digest))
+    fields["kind"] = "container"
     if name:
         fields["name"] = name
     if os:
         fields["os"] = os
-    return envelope(ref, Host, name or digest, fields)
+    return envelope(ref, Host, name or digest, fields, dimensions)
 
 
 def host_fill(ref: str, digest: str, display: str, name: str | None, os: str | None) -> dict[str, Any]:
@@ -185,12 +192,12 @@ def host_fill(ref: str, digest: str, display: str, name: str | None, os: str | N
 
     ``display`` is the host's name as it will stand after the write, which the envelope must carry.
     """
-    fields: dict[str, Any] = host_key(digest)
+    fields, dimensions = keys.split(Host, host_key(digest))
     if name:
         fields["name"] = name
     if os:
         fields["os"] = os
-    return envelope(ref, Host, display, fields)
+    return envelope(ref, Host, display, fields, dimensions)
 
 
 _MAX_HOST_NAME = 255
@@ -413,6 +420,7 @@ def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, A
 
 
 def host_key(digest: str) -> dict[str, str]:
+    """The image host's key as a reference spells it: ``{scheme entry: "oci-digest", "stable_id": digest}``."""
     return {keys.scheme_field(Host): IMAGE_REALM, keys.STABLE_ID: digest}
 
 
