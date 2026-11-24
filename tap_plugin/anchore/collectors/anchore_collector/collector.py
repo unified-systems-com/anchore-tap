@@ -682,7 +682,7 @@ class AnchoreCollector(CollectorBase):
         plan = kubernetes.plan(lists["kubernetes_containers"], lists["kubernetes_pods"], lists["kubernetes_namespaces"], lists["kubernetes_nodes"], credential.settings, started, credential.scanner_key, excluded)
 
         def node_host_key(uid: str) -> dict[str, str]:
-            return {store.scheme_field("computing_core__host"): kubernetes.REALM_NODE_HOST, "stable_id": uid}
+            return {store.scheme_field("computing_core__host"): kubernetes.KUBERNETES_NODE_UID, "stable_id": uid}
 
         def ref_of(kind: str, key: Any) -> str | None:
             return out.kubernetes.get((kind, key)) or shared.kubernetes.get((kind, key))
@@ -705,8 +705,8 @@ class AnchoreCollector(CollectorBase):
                     sent[store.scheme_field(KUBERNETES_TYPES[kind])] = sent.pop(kubernetes.SCHEME)
                 stage(kind, key, KUBERNETES_TYPES[kind], fields.get("name") or str(key), sent)
         for uid, fields in plan.nodes.items():
-            # The machine behind a node is a host under its own realm, written only where the grid has none.
-            if not store.host_exists(kubernetes.REALM_NODE_HOST, uid):
+            # The machine behind a node is a host of its own host type, written only where the grid has none.
+            if not store.host_exists(kubernetes.KUBERNETES_NODE_UID, uid):
                 stage("host", uid, "computing_core__host", fields.get("name") or uid, {**node_host_key(uid), "name": fields.get("name") or ""})
             if ref_of("edge", ("BACKED_BY_HOST", uid)) is None:
                 host_ref = ref_of("host", uid)

@@ -11,7 +11,7 @@ description = "Anchore Enterprise vulnerability findings, SBOMs, VEX statements 
 # names a computing_core type makes it observed. Linking to compliance_core's vulnerability by
 # edge (req-anchore-findings) is a vocabulary reference to review when those edges are added.
 depends_on = [
-  { slug = "computing_core", note = "image host (oci-digest realm), package and sbom_document the Anchore nodes link to; the SBOM parser" },
+  { slug = "computing_core", note = "image host (host type oci-digest), package and sbom_document the Anchore nodes link to; the SBOM parser" },
   { slug = "compliance_core", note = "ABOUT_VULNERABILITY__anchore targets compliance_core__compliance_vulnerability; the collector also writes compliance_core's neutral finding beside each of its own, with the CARRIES_COMPLIANCE_FINDING and CONCERNS_COMPLIANCE_VULNERABILITY edges, and creates a vulnerability record the grid does not hold (req-anchore-neutral)" },
   { slug = "aws_core", optional = true, note = "req-anchore-shared: an ECS container Anchore reports is joined by RUNS_IMAGE to the aws_core__aws_ecs_container with the same container_arn. The type is taken from the registry by name, never imported; no aws_core node or field is written. Absent, the join is recorded as not read." },
 ]
@@ -56,4 +56,4 @@ pages = "grift/pages.grift.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "d9d312a324a2b6641bac7f773fd9166df195ecf5f1f0a769523050a4e04f4273"
+sha256 = "23908569eeeafd9fb66e2b74e8271fcdcee611318691c99d2e57df04714dfc0c"

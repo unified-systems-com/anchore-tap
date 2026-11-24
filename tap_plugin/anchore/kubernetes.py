@@ -24,15 +24,17 @@ from datetime import datetime
 from typing import Any
 
 from tap_plugin.anchore.scope import DIGEST, Settings, is_fresh, passes_reference
+from tap_plugin.computing_core import key_dimensions
 
-#: The cluster realms (req-computing-core-kubernetes, req-anchore-inventory-kubernetes-7).
-REALM_KUBE_SYSTEM = "kube-system-uid"
-REALM_FALLBACK = "anchore-inventory"
+#: The cluster types this plugin keys clusters under: computing_core's conventions for the
+#: tap.computing.kubernetes_cluster_type dimension (req-computing-core-kubernetes, req-anchore-inventory-kubernetes-7).
+KUBE_SYSTEM_UID = key_dimensions.KUBE_SYSTEM_UID
+ANCHORE_INVENTORY = key_dimensions.ANCHORE_INVENTORY
 #: The planner's own name for a cluster's identifier scheme. The field it is written to is named by
 #: computing_core's type and read from it when the node is staged (req-anchore-shared-13).
 SCHEME = "scheme"
-#: The realm of the host row behind a node.
-REALM_NODE_HOST = "kubernetes-node-uid"
+#: The host type of the host row behind a node.
+KUBERNETES_NODE_UID = key_dimensions.KUBERNETES_NODE_UID
 KUBE_SYSTEM = "kube-system"
 #: Stands in a cluster's uid set for a kube-system claim the namespace list does not bear out.
 UNCONFIRMED = ""
@@ -101,7 +103,7 @@ def cluster_of(context: Any) -> str | None:
 class Plan:
     """The Kubernetes objects a run writes, each keyed by its natural key, and the edges between them."""
 
-    #: (realm, stable_id) -> fields
+    #: (cluster type, stable_id) -> fields
     clusters: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     #: uid -> fields
     namespaces: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -119,7 +121,7 @@ class Plan:
     out_of_scope: int = 0
     #: Containers that cannot be written: no usable name, pod id or context, or a pod Anchore does not list.
     unusable: int = 0
-    #: Clusters whose kube-system namespace was not reported, or was ambiguous, so the fallback realm was used.
+    #: Clusters whose kube-system namespace was not reported, or was ambiguous, so this plugin's own cluster type was used.
     fallback_clusters: int = 0
     #: (kind, uid, annotation key) for each annotation left out of a written object because its key is excluded.
     annotations_left_out: set[tuple[str, str, str]] = field(default_factory=set)
@@ -155,16 +157,16 @@ def kube_system_uids(containers: Iterable[Mapping[str, Any]], pods: Mapping[str,
 
 
 def cluster_key(cluster: str, system_uids: set[str] | None, scanner_key: str) -> tuple[str, str] | None:
-    """The cluster's ``(realm, stable_id)``, or None when neither form fits the key column.
+    """The cluster's ``(cluster type, stable_id)``, or None when neither form fits the key column.
 
     The kube-system uid where exactly one was reported. Otherwise the scanner key and the
-    configured name together, as a compact JSON array, under this plugin's own realm: a bare
-    name under a shared realm would merge two instances' clusters called ``prod``.
+    configured name together, as a compact JSON array, under this plugin's own cluster type: a
+    bare name under a shared type would merge two instances' clusters called ``prod``.
     """
     if system_uids is not None and len(system_uids) == 1 and UNCONFIRMED not in system_uids:
-        return REALM_KUBE_SYSTEM, next(iter(system_uids))
+        return KUBE_SYSTEM_UID, next(iter(system_uids))
     stable_id = json.dumps([scanner_key, cluster], separators=(",", ":"), ensure_ascii=False)
-    return (REALM_FALLBACK, stable_id) if len(stable_id) <= _MAX_KEY else None
+    return (ANCHORE_INVENTORY, stable_id) if len(stable_id) <= _MAX_KEY else None
 
 
 def plan(
@@ -221,7 +223,7 @@ def plan(
         cluster_id = cluster_key(cluster, system.get(cluster), scanner_key)
         if cluster_id is not None:
             out.clusters[cluster_id] = {SCHEME: cluster_id[0], "stable_id": cluster_id[1], "name": cluster}
-            if cluster_id[0] == REALM_FALLBACK:
+            if cluster_id[0] == ANCHORE_INVENTORY:
                 fallback.add(cluster)
         namespace_uid = _text(_ident(pod, "namespace_id", "namespace_uid"), _MAX_UID)
         if namespace_uid is not None and namespace_uid in namespace_by_uid:

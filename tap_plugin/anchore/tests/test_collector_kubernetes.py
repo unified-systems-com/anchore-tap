@@ -17,6 +17,7 @@ from tap_grid.registry import get_model_class
 from tap_plugin.anchore.tests.fakes import response
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, OTHER, no_sockets, run_against  # noqa: F401 — no_sockets is autouse
 from tap_plugin.anchore.tests.test_collector_scope import configure, latest_run, not_read, seen, two_images
+from tap_plugin.anchore.tests.conftest import CLUSTER_TYPE, host_of, hosts_of, type_of
 
 TYPES = {kind: f"computing_core__kubernetes_{kind}" for kind in ("cluster", "namespace", "node", "pod", "container")}
 
@@ -65,7 +66,7 @@ class TestKubernetes:
         configure(tmp_path, monkeypatch, {"running_only": True})
         run_against(monkeypatch, cluster())
         (made_cluster,) = all_of("cluster")
-        assert (made_cluster.realm, made_cluster.stable_id, made_cluster.name) == ("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "prod")
+        assert (type_of(made_cluster, CLUSTER_TYPE), made_cluster.stable_id, made_cluster.name) == ("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "prod")
         assert {(n.uid, n.name) for n in all_of("namespace")} == {("ns-default", "default"), ("5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f", "kube-system")}
         assert {(p.uid, p.name, json.dumps(p.labels)) for p in all_of("pod")} == {("p1", "p1-name", '{"app": "web"}'), ("p-dns", "p-dns-name", '{"app": "web"}')}
         (made_node,) = all_of("node")
@@ -84,11 +85,11 @@ class TestKubernetes:
         assert edge_pairs("RUNS_CONTAINER__computing_core") == {("p1-name", "web"), ("p-dns-name", "coredns")}
         assert edge_pairs("REGISTERS_NODE__computing_core") == {("prod", "ip-10-0-1-2")}
         assert edge_pairs("SCHEDULED_ON_NODE__computing_core") == {("p1-name", "ip-10-0-1-2"), ("p-dns-name", "ip-10-0-1-2")}
-        machine = Host.objects.get(realm="kubernetes-node-uid", stable_id="node-1")
+        machine = host_of("kubernetes-node-uid", "node-1")
         assert (machine.name, machine.kind) == ("ip-10-0-1-2", None)
         assert edge_pairs("BACKED_BY_HOST__computing_core") == {("ip-10-0-1-2", "ip-10-0-1-2")}
         runs = {(e.from_entity.name, e.to_entity_id) for e in Edge.objects.filter(edge_type="RUNS_IMAGE__computing_core")}
-        assert runs == {("web", Host.objects.get(realm="oci-digest", stable_id=DIGEST).entity_id), ("coredns", Host.objects.get(realm="oci-digest", stable_id=OTHER).entity_id)}
+        assert runs == {("web", host_of("oci-digest", DIGEST).entity_id), ("coredns", host_of("oci-digest", OTHER).entity_id)}
 
     def test_annotations_are_stored_as_reported(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True})
@@ -142,7 +143,7 @@ class TestKubernetes:
         configure(tmp_path, monkeypatch, {"running_only": True})
         run_against(monkeypatch, cluster(with_kube_system=False))
         (made,) = all_of("cluster")
-        assert made.realm == "anchore-inventory"
+        assert type_of(made, CLUSTER_TYPE) == "anchore-inventory"
         assert json.loads(made.stable_id) == [KEY, "prod"]
         assert made.name == "prod"
 
@@ -162,7 +163,7 @@ class TestKubernetes:
         run_against(monkeypatch, instance)
         assert [len(all_of(kind)) for kind in TYPES] == [1, 2, 1, 2, 2]
         assert get_model_class(TYPES["container"]).objects.get(pod_uid="p1", name="web").container_id == "containerd://restarted"
-        assert Host.objects.filter(realm="kubernetes-node-uid").count() == 1
+        assert hosts_of("kubernetes-node-uid").count() == 1
         assert Edge.objects.filter(edge_type="RUNS_CONTAINER__computing_core").count() == 2
 
     def test_a_context_prefix_limits_what_is_written_and_not_who_the_cluster_is(self, tmp_path, monkeypatch):
@@ -170,7 +171,7 @@ class TestKubernetes:
         run_against(monkeypatch, cluster())
         assert [c.name for c in all_of("container")] == ["web"]
         assert [n.name for n in all_of("namespace")] == ["default"]
-        assert [(c.realm, c.stable_id) for c in all_of("cluster")] == [("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f")]
+        assert [(type_of(c, CLUSTER_TYPE), c.stable_id) for c in all_of("cluster")] == [("kube-system-uid", "5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f")]
 
     def test_a_pod_not_seen_recently_is_not_written(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True}, inventory_max_age_hours=6)

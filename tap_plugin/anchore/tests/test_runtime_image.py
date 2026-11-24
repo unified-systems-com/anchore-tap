@@ -21,8 +21,8 @@ DIGEST = "sha256:" + "a" * 64
 OBSERVED = {"scanner_key": SCANNER_KEY, "inventory_type": "kubernetes", "context": "prod/default", "image_digest": DIGEST}
 
 
-def _create(type_slug: str, payload: dict):
-    result = create_node(type_slug, payload)
+def _create(type_slug: str, payload: dict, dimensions: dict | None = None):
+    result = create_node(type_slug, payload, dimensions=dimensions)
     assert result.success, f"create_node failed: {result.errors}"
     return get_model_class(type_slug).objects.get(entity=Entity.objects.get(pk=result.entity_id))
 
@@ -62,7 +62,7 @@ class TestRuntimeImage:
 
     def test_observes_the_image_host_and_nothing_else(self):
         node = _create(RUNTIME, OBSERVED)
-        image = _create("computing_core__host", {"realm": "oci-digest", "stable_id": DIGEST, "kind": "container"})
+        image = _create("computing_core__host", {"stable_id": DIGEST, "kind": "container"}, dimensions={"tap.computing.host_type": "oci-digest"})
         assert create_edge(node.entity, image.entity, "OBSERVES_IMAGE__anchore") is not None
         with pytest.raises(InvalidEdgeError):
             create_edge(image.entity, node.entity, "OBSERVES_IMAGE__anchore")

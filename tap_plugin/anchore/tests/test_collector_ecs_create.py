@@ -23,7 +23,7 @@ from tap_plugin.anchore.tests.fakes import response
 from tap_plugin.anchore.tests.test_anchore_credential import data, write
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, OTHER, no_sockets, run_against  # noqa: F401 — no_sockets is autouse
 from tap_plugin.anchore.tests.test_collector_scope import configure, container, item, latest_run, not_read, two_images
-from tap_plugin.anchore.tests.conftest import dimension_view
+from tap_plugin.anchore.tests.conftest import dimension_view, host_of
 
 ACCOUNT, REGION = "123456789012", "us-gov-west-1"
 BASE = f"arn:aws-us-gov:ecs:{REGION}:{ACCOUNT}"
@@ -118,7 +118,7 @@ class TestCreate:
         assert edges("RUNS_SERVICE__aws_core") == {(TYPES["cluster"], TYPES["service"])}
         image_edge = Edge.objects.get(edge_type="RUNS_IMAGE__computing_core")
         assert image_edge.from_entity_id == nodes("container")[0].entity_id
-        assert image_edge.to_entity_id == Host.objects.get(realm="oci-digest", stable_id=DIGEST).entity_id
+        assert image_edge.to_entity_id == host_of("oci-digest", DIGEST).entity_id
         assert "link:ecs-containers:unresolved" not in not_read(latest_run())
 
     def test_off_by_default_nothing_is_created(self, tmp_path, monkeypatch):

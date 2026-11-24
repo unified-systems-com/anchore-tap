@@ -12,6 +12,7 @@ from tap_grid.services import create_node
 from tap_plugin.anchore.collectors.anchore_collector import decompose
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, OTHER, Instance, no_sockets, run_against, secrets  # noqa: F401 — fixtures
 from tap_plugin.anchore.tests.test_collector_scope import configure
+from tap_plugin.anchore.tests.conftest import host_of
 
 TAG_TYPE = "computing_core__image_tag"
 IMAGE = {
@@ -27,7 +28,7 @@ IMAGE = {
 
 
 def host(digest: str = DIGEST) -> Host:
-    return Host.objects.get(realm="oci-digest", stable_id=digest)
+    return host_of("oci-digest", digest)
 
 
 def tags() -> dict[str, object]:
@@ -47,12 +48,12 @@ class TestFacts:
         assert host().image_built_at is None
 
     def test_a_host_the_grid_holds_gets_only_the_facts_it_lacks(self, secrets, monkeypatch):
-        assert create_node("computing_core__host", {"realm": "oci-digest", "stable_id": DIGEST, "kind": "container", "name": "theirs", "architecture": "arm64"}).success
+        assert create_node("computing_core__host", {"stable_id": DIGEST, "kind": "container", "name": "theirs", "architecture": "arm64"}, dimensions={"tap.computing.host_type": "oci-digest"}).success
         run_against(monkeypatch, Instance(images=[IMAGE]))
         assert (host().name, host().architecture, host().os, host().image_size_bytes, host().image_layer_count) == ("theirs", "arm64", "debian 12", 123456789012, 7)
 
     def test_a_size_of_zero_another_collector_wrote_is_a_value_and_is_kept(self, secrets, monkeypatch):
-        assert create_node("computing_core__host", {"realm": "oci-digest", "stable_id": DIGEST, "kind": "container", "image_layer_count": 0}).success
+        assert create_node("computing_core__host", {"stable_id": DIGEST, "kind": "container", "image_layer_count": 0}, dimensions={"tap.computing.host_type": "oci-digest"}).success
         run_against(monkeypatch, Instance(images=[IMAGE]))
         assert host().image_layer_count == 0
 

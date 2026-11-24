@@ -21,6 +21,7 @@ from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.tests.test_collector_kubernetes import cluster, container, node, pod
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, findings, no_sockets, run_against, secrets, vuln, Instance  # noqa: F401 — fixtures
 from tap_plugin.anchore.tests.test_collector_scope import configure
+from tap_plugin.anchore.tests.conftest import CLUSTER_TYPE, type_of
 
 EXTRACT = json.loads(build.EXTRACT.read_text(encoding="utf-8"))
 SOURCES = {source.id: source for source in shipped_manifest()}
@@ -145,4 +146,4 @@ class TestARun:
         assert {(n.uid, n.name) for n in namespace_type.objects.all()} == {("ns-default", "default"), (SYSTEM_UID, "kube-system")}
         assert [n.uid for n in get_model_class("computing_core__kubernetes_node").objects.all()] == ["node-1"]
         (made,) = get_model_class("computing_core__kubernetes_cluster").objects.all()
-        assert (made.realm, made.stable_id) == ("kube-system-uid", SYSTEM_UID)
+        assert (type_of(made, CLUSTER_TYPE), made.stable_id) == ("kube-system-uid", SYSTEM_UID)

@@ -1144,7 +1144,7 @@
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (t:computing_core__image_tag)-[:TAGS_IMAGE__computing_core]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "MATCH (t:computing_core__image_tag)-[:TAGS_IMAGE__computing_core]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.dimensions[\"tap.computing.host_type\"] = \"oci-digest\"",
                 "RETURN t.data.registry AS registry, t.data.repository AS repository, t.data.tag AS tag"
               ]
             },
@@ -1178,7 +1178,7 @@
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.dimensions[\"tap.computing.host_type\"] = \"oci-digest\"",
                 "RETURN f.data.vulnerability_id AS vuln, f.data.severity AS severity, f.data.state AS state, f.data.package_name AS package, f.data.package_version AS version, f.data.package_type AS type, f.data.fix AS fix, f.data.is_kev AS kev, f.data.detected_at AS detected"
               ]
             },
@@ -1552,7 +1552,7 @@
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (h:computing_core__host)-[:INSTALLS_PACKAGE__computing_core]->(p:computing_core__package) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "MATCH (h:computing_core__host)-[:INSTALLS_PACKAGE__computing_core]->(p:computing_core__package) WHERE h.data.stable_id = $digest AND h.dimensions[\"tap.computing.host_type\"] = \"oci-digest\"",
                 "RETURN p.data.name AS package, p.data.version AS version, p.data.ecosystem AS ecosystem, p.data.license AS license, p.data.purl AS purl"
               ]
             },
@@ -1586,7 +1586,7 @@
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\" AND f.data.state = \"current\"",
+                "MATCH (f:anchore__anchore_finding)-[:FOUND_ON_IMAGE__anchore]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.dimensions[\"tap.computing.host_type\"] = \"oci-digest\" AND f.data.state = \"current\"",
                 "RETURN f.data.package_name AS package, f.data.package_version AS version, COUNT(f) AS findings"
               ]
             },
@@ -1620,7 +1620,7 @@
             "root": "node",
             "definition": {
               "query": [
-                "MATCH (d:computing_core__sbom_document)-[:DESCRIBES_HOST__computing_core]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.data.realm = \"oci-digest\"",
+                "MATCH (d:computing_core__sbom_document)-[:DESCRIBES_HOST__computing_core]->(h:computing_core__host) WHERE h.data.stable_id = $digest AND h.dimensions[\"tap.computing.host_type\"] = \"oci-digest\"",
                 "RETURN d.data.format AS format, d.data.spec_version AS spec, d.data.component_count AS components, d.data.produced_at AS produced, d.data.generator AS generator, d.data.verified AS verified, d.data.verification_note AS note, d.data.content_digest AS content"
               ]
             },

@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 import tap_plugin.anchore
 from tap_plugin.anchore import keys
 
@@ -14,8 +13,8 @@ def model(*key, entity_type="x__thing"):
 
 
 class TestSchemeField:
-    def test_todays_host_key(self):
-        assert keys.scheme_field(model("realm", "stable_id")) == "realm"
+    def test_a_field_named_key(self):
+        assert keys.scheme_field(model("issuer", "stable_id")) == "issuer"
 
     def test_the_renamed_host_key(self):
         assert keys.scheme_field(model("host_id_scheme", "stable_id")) == "host_id_scheme"
@@ -23,7 +22,7 @@ class TestSchemeField:
     def test_it_is_chosen_by_role_not_position(self):
         assert keys.scheme_field(model("stable_id", "cluster_id_scheme")) == "cluster_id_scheme"
 
-    @pytest.mark.parametrize("key", [("realm",), ("a", "b", "stable_id"), ("stable_id",), ()])
+    @pytest.mark.parametrize("key", [("issuer",), ("a", "b", "stable_id"), ("stable_id",), ()])
     def test_a_key_of_another_shape_is_refused_not_guessed(self, key):
         with pytest.raises(keys.KeyShapeError, match="x__thing"):
             keys.scheme_field(model(*key))
@@ -34,7 +33,7 @@ class TestSchemeField:
 
 
 class TestDimensionEntries:
-    """A host is keyed by a dimension once computing_core moves off ``realm`` (tap#1355)."""
+    """A host is keyed by a dimension and its stable_id (tap#1355)."""
 
     ENTRY = "dimension:tap.computing.host_type"
 
@@ -46,8 +45,8 @@ class TestDimensionEntries:
         assert fields == {"stable_id": "sha256:a", "kind": "container"}
         assert dimensions == {"tap.computing.host_type": "oci-digest"}
 
-    def test_the_old_field_stays_a_field(self):
-        assert keys.split(None, {"realm": "oci-digest", "stable_id": "sha256:a"}) == ({"realm": "oci-digest", "stable_id": "sha256:a"}, {})
+    def test_a_field_entry_stays_a_field(self):
+        assert keys.split(None, {"issuer": "oci-digest", "stable_id": "sha256:a"}) == ({"issuer": "oci-digest", "stable_id": "sha256:a"}, {})
 
     def test_the_spine_key_reads_the_entry_from_a_reference_or_from_the_dimensions(self, monkeypatch):
         import tap_grid.natural_key
@@ -79,8 +78,9 @@ class TestInstalledTypes:
 
     @pytest.mark.django_db
     def test_host_and_cluster_and_ecs_keys_resolve(self):
-        from tap_grid.registry import get_model_class
         from tap_plugin.anchore.collectors.anchore_collector import decompose, store
+
+        from tap_grid.registry import get_model_class
 
         host = get_model_class("computing_core__host")
         digest = "sha256:" + "a" * 64
@@ -91,9 +91,12 @@ class TestInstalledTypes:
 
 
 def test_no_source_file_writes_out_a_foreign_key_field_name():
-    """The ratchet: a host's or cluster's scheme field, and an ECS type's own ARN field, appear nowhere as literals."""
+    """The ratchet: a host's or cluster's scheme entry, and an ECS type's own ARN field, appear nowhere as literals.
+
+    The scheme is read from the owning type's key; its dimension's name is never written out here.
+    """
     root = Path(tap_plugin.anchore.__file__).parent
-    literal = re.compile(r"""["']realm["']|\brealm=|["'](container|task|service|cluster)_arn["']\s*[:\]]\s*arn\b|_arn__in""")
+    literal = re.compile(r"""["'](dimension:)?tap\.computing\.(host_type|kubernetes_cluster_type)["']|["'](container|task|service|cluster)_arn["']\s*[:\]]\s*arn\b|_arn__in""")
     found = [
         f"{path.relative_to(root)}:{number}"
         for path in sorted(root.rglob("*.py"))

@@ -13,6 +13,7 @@ from tap_plugin.anchore.models.image import AnchoreImage
 from tap_plugin.anchore.models.runtime_image import AnchoreRuntimeImage
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, OTHER, Instance, findings, no_sockets, run_against, secrets, vuln  # noqa: F401 — fixtures
 from tap_plugin.anchore.tests.test_collector_scope import configure, item
+from tap_plugin.anchore.tests.conftest import host_of
 
 IMAGE = {
     "image_digest": DIGEST,
@@ -31,7 +32,7 @@ IMAGE = {
 
 
 def host(digest: str = DIGEST) -> Host:
-    return Host.objects.get(realm="oci-digest", stable_id=digest)
+    return host_of("oci-digest", digest)
 
 
 @pytest.mark.django_db
@@ -67,18 +68,18 @@ class TestTheHostsName:
         assert (host().name, host().os, host().kind) == ("registry.example/app:1.4", "debian 12", "container")
 
     def test_a_host_the_grid_holds_gets_only_what_it_lacks(self, secrets, monkeypatch):
-        assert create_node("computing_core__host", {"realm": "oci-digest", "stable_id": DIGEST, "kind": "container", "name": "ghcr.io/theirs/app:9"}).success
+        assert create_node("computing_core__host", {"stable_id": DIGEST, "kind": "container", "name": "ghcr.io/theirs/app:9"}, dimensions={"tap.computing.host_type": "oci-digest"}).success
         run_against(monkeypatch, Instance(images=[IMAGE]))
         assert (host().name, host().os) == ("ghcr.io/theirs/app:9", "debian 12")
 
     def test_a_host_with_both_already_is_left_alone(self, secrets, monkeypatch):
-        assert create_node("computing_core__host", {"realm": "oci-digest", "stable_id": DIGEST, "kind": "container", "name": "theirs", "os": "alpine 3.20"}).success
+        assert create_node("computing_core__host", {"stable_id": DIGEST, "kind": "container", "name": "theirs", "os": "alpine 3.20"}, dimensions={"tap.computing.host_type": "oci-digest"}).success
         collector = run_against(monkeypatch, Instance(images=[IMAGE]))
         assert (host().name, host().os) == ("theirs", "alpine 3.20")
         assert Host.objects.filter(stable_id=DIGEST).count() == 1 and collector is not None
 
     def test_a_bare_host_from_an_earlier_run_is_named_on_the_next(self, secrets, monkeypatch):
-        assert create_node("computing_core__host", {"realm": "oci-digest", "stable_id": DIGEST, "kind": "container"}).success
+        assert create_node("computing_core__host", {"stable_id": DIGEST, "kind": "container"}, dimensions={"tap.computing.host_type": "oci-digest"}).success
         run_against(monkeypatch, Instance(images=[IMAGE]))
         assert (host().name, host().os) == ("registry.example/app:1.4", "debian 12")
 

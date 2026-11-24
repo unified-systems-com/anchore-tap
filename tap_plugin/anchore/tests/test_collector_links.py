@@ -26,15 +26,15 @@ from tap_plugin.anchore.tests.test_collector_run import DIGEST, KEY, OTHER, Inst
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.host import Host
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
-from tap_plugin.anchore.tests.conftest import vulnerability_dimensions_declared
+from tap_plugin.anchore.tests.conftest import type_of, vulnerability_dimensions_declared
 
 
 def edges(slug):
     return list(Edge.objects.filter(edge_type=slug).select_related("from_entity", "to_entity"))
 
 
-def make(entity_type, payload):
-    result = create_node(entity_type, payload)
+def make(entity_type, payload, dimensions=None):
+    result = create_node(entity_type, payload, dimensions=dimensions)
     assert result.success, result.errors
 
 
@@ -43,13 +43,13 @@ class TestImageHost:
     def test_findings_point_at_the_image_host_which_is_written_with_only_its_digest(self, secrets, monkeypatch):
         run_against(monkeypatch, Instance())
         host = Host.objects.get()
-        assert (host.realm, host.stable_id, host.kind, host.name) == ("oci-digest", DIGEST, "container", "")
+        assert (type_of(host), host.stable_id, host.kind, host.name) == ("oci-digest", DIGEST, "container", "")
         found = edges("FOUND_ON_IMAGE__anchore")
         assert len(found) == 2 and {e.to_entity_id for e in found} == {host.entity_id}
         assert {e.from_entity.entity_type for e in found} == {"anchore__anchore_finding"}
 
     def test_an_existing_host_is_linked_and_never_rewritten(self, secrets, monkeypatch):
-        make(Host.ENTITY_TYPE, {"realm": "oci-digest", "stable_id": DIGEST, "kind": "container", "name": "ghcr.io/example/app:1"})
+        make(Host.ENTITY_TYPE, {"stable_id": DIGEST, "kind": "container", "name": "ghcr.io/example/app:1"}, dimensions={"tap.computing.host_type": "oci-digest"})
         run_against(monkeypatch, Instance())
         host = Host.objects.get()
         assert host.name == "ghcr.io/example/app:1" and len(edges("FOUND_ON_IMAGE__anchore")) == 2

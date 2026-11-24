@@ -40,8 +40,8 @@ FINDING = {
 FINDING_KEY = {k: FINDING[k] for k in get_model_class("anchore__anchore_finding").NATURAL_KEY}
 
 
-def _create(type_slug: str, payload: dict):
-    result = create_node(type_slug, payload)
+def _create(type_slug: str, payload: dict, dimensions: dict | None = None):
+    result = create_node(type_slug, payload, dimensions=dimensions)
     assert result.success, f"create_node failed: {result.errors}"
     return get_model_class(type_slug).objects.get(entity=Entity.objects.get(pk=result.entity_id))
 
@@ -197,7 +197,7 @@ class TestFinding:
 
     def test_edges_to_the_image_and_package(self):
         finding = _create("anchore__anchore_finding", FINDING)
-        host = _create("computing_core__host", {"realm": "assert", "stable_id": "image-under-test", "kind": "container"})
+        host = _create("computing_core__host", {"stable_id": "image-under-test", "kind": "container"}, dimensions={"tap.computing.host_type": "assert"})
         package = _create("computing_core__package", {"ecosystem": "deb", "name": "openssl", "version": "1.1.1"})
         for target, slug in ((host, "FOUND_ON_IMAGE__anchore"), (package, "FOUND_IN_PACKAGE__anchore")):
             edge = create_edge(finding.entity, target.entity, slug)
