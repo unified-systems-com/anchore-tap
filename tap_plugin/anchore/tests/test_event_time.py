@@ -46,7 +46,7 @@ def spine(row) -> tuple:
     """A typed row's event time on the spine: start, end, and the kind held as its `time` dimension."""
     entity = row.entity
     entity.refresh_from_db()
-    return entity.event_start, entity.event_end, dimension_view(entity).get("time")
+    return entity.event_start, entity.event_end, dimension_view(entity).get("tap.time")
 
 
 class TestDeclarations:

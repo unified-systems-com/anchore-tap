@@ -78,7 +78,7 @@ class TestAnnotations:
         assert (held["anchore.area"], held["anchore.instance"]) == ("annotation", KEY)
         # The image scope is there too where the grid under test declares it, and the kind of the
         # annotation's event time, which the grid derives (req-anchore-event-time). Nothing else is.
-        assert set(held) <= {"anchore.area", "anchore.instance", "tap.computing.host", "time"}
+        assert set(held) <= {"anchore.area", "anchore.instance", "tap.computing.host", "tap.time"}
 
     def test_a_null_package_scope_stays_null(self, secrets, monkeypatch):
         run_against(monkeypatch, server(entry(package=None)))
