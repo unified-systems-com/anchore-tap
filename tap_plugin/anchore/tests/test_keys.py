@@ -33,6 +33,37 @@ class TestSchemeField:
             keys.scheme_field(type("Keyless", (), {"NATURAL_KEY": None, "ENTITY_TYPE": "x__keyless"}))
 
 
+class TestDimensionEntries:
+    """A host is keyed by a dimension once computing_core moves off ``realm`` (tap#1355)."""
+
+    ENTRY = "dimension:tap.computing.host_type"
+
+    def test_the_dimension_entry_is_the_scheme(self):
+        assert keys.scheme_field(model(self.ENTRY, "stable_id")) == self.ENTRY
+
+    def test_a_dimension_entry_goes_to_the_dimensions_and_a_field_stays_a_field(self):
+        fields, dimensions = keys.split(None, {self.ENTRY: "oci-digest", "stable_id": "sha256:a", "kind": "container"})
+        assert fields == {"stable_id": "sha256:a", "kind": "container"}
+        assert dimensions == {"tap.computing.host_type": "oci-digest"}
+
+    def test_the_old_field_stays_a_field(self):
+        assert keys.split(None, {"realm": "oci-digest", "stable_id": "sha256:a"}) == ({"realm": "oci-digest", "stable_id": "sha256:a"}, {})
+
+    def test_the_spine_key_reads_the_entry_from_a_reference_or_from_the_dimensions(self, monkeypatch):
+        import tap_grid.natural_key
+
+        # The values core's composer is handed are the point here; its coercion needs a real model.
+        monkeypatch.setattr(tap_grid.natural_key, "compose_natural_key", lambda model, properties: "|".join(properties.values()))
+        host = model(self.ENTRY, "stable_id", entity_type="x__host")
+        from_reference = keys.spine_key(host, {self.ENTRY: "oci-digest", "stable_id": "sha256:a"})
+        from_node = keys.spine_key(host, {"stable_id": "sha256:a"}, {"tap.computing.host_type": "oci-digest"})
+        assert from_reference == from_node == "oci-digest|sha256:a"
+
+    def test_a_missing_entry_composes_nothing(self):
+        """A hole is None before any coercion, as core's composer says."""
+        assert keys.spine_key(type("Fake", (), {"NATURAL_KEY": (self.ENTRY, "stable_id"), "ENTITY_TYPE": "x__host", "_meta": None}), {"stable_id": "sha256:a"}) is None
+
+
 class TestSoleField:
     @pytest.mark.parametrize("name", ["task_arn", "arn"])
     def test_the_one_field_before_and_after_the_rename(self, name):

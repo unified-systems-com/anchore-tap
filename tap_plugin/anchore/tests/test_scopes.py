@@ -11,28 +11,35 @@ from tap_plugin.anchore.tests.conftest import dimension_view
 D = "sha256:" + "a" * 64
 
 
-def node(ref: str, entity_type: str, **fields) -> dict:
-    return {"entity": {"ref": ref, "entity_type": entity_type, "name": ref, "dimensions": {}}, "node": fields}
+def node(ref: str, entity_type: str, dimensions: dict | None = None, **fields) -> dict:
+    return {"entity": {"ref": ref, "entity_type": entity_type, "name": ref, "dimensions": dict(dimensions or {})}, "node": fields}
 
 
 def edge(slug: str, source: str, target: str) -> dict:
     return {"entity": {"ref": f"{source}>{target}", "entity_type": "edge", "name": slug, "dimensions": {}}, "edge": {"edge_type": slug, "from_ref": source, "to_ref": target, "properties": {}}}
 
 
-def compose(entity_type: str, values) -> str | None:
-    """A stand-in for the grid's composer: the fields a type is keyed by, joined."""
-    keyed = {scopes.HOST_TYPE: ("realm", "stable_id"), scopes.CLUSTER_TYPE: ("realm", "stable_id"), scopes.NAMESPACE_TYPE: ("uid",)}[entity_type]
-    parts = [values.get(name) for name in keyed]
+HOST_TYPE_ENTRY = "dimension:tap.computing.host_type"
+CLUSTER_TYPE_ENTRY = "dimension:tap.computing.kubernetes_cluster_type"
+
+
+def compose(entity_type: str, values, dimensions=None) -> str | None:
+    """A stand-in for the grid's composer: the entries a type is keyed by, joined.
+
+    A dimension entry is read from the key reference, or else from the node's dimensions, as core reads it.
+    """
+    keyed = {scopes.HOST_TYPE: (HOST_TYPE_ENTRY, "stable_id"), scopes.CLUSTER_TYPE: (CLUSTER_TYPE_ENTRY, "stable_id"), scopes.NAMESPACE_TYPE: ("uid",)}[entity_type]
+    parts = [values.get(name) if name in values or not name.startswith("dimension:") else (dimensions or {}).get(name.removeprefix("dimension:")) for name in keyed]
     return None if any(part is None for part in parts) else "|".join(parts)
 
 
 def host_key(digest: str) -> dict:
-    return {"realm": "oci-digest", "stable_id": digest}
+    return {HOST_TYPE_ENTRY: "oci-digest", "stable_id": digest}
 
 
 def staged():
     nodes = [
-        node("c", scopes.CLUSTER_TYPE, realm="kube-system-uid", stable_id="cl-1", name="prod"),
+        node("c", scopes.CLUSTER_TYPE, {"tap.computing.kubernetes_cluster_type": "kube-system-uid"}, stable_id="cl-1", name="prod"),
         node("ns", scopes.NAMESPACE_TYPE, uid="ns-1", name="default"),
         node("p", scopes.POD_TYPE, uid="p-1"),
         node("k", scopes.CONTAINER_TYPE, pod_uid="p-1", name="web"),
@@ -46,14 +53,15 @@ def staged():
         node("e", "anchore__anchore_policy_evaluation", image_digest=D),
         node("r", "anchore__anchore_runtime_image", image_digest=D),
         node("s", "anchore__anchore_scanner", scanner_key="k"),
-        node("h", scopes.HOST_TYPE, realm="oci-digest", stable_id=D),
+        node("h", scopes.HOST_TYPE, {"tap.computing.host_type": "oci-digest"}, stable_id=D),
     ]
     edges = [edge("CONTAINS_NAMESPACE__computing_core", "c", "ns"), edge("CONTAINS_POD__computing_core", "ns", "p"), edge("RUNS_CONTAINER__computing_core", "p", "k")]
     return nodes, edges
 
 
 def dimensions(nodes) -> dict[str, dict]:
-    return {n["entity"]["ref"]: n["entity"]["dimensions"] for n in nodes}
+    """The scope dimensions each node carries. A host's and a cluster's own key dimension is identity, not scope, and is left out."""
+    return {n["entity"]["ref"]: {name: value for name, value in n["entity"]["dimensions"].items() if name in scopes.ALL} for n in nodes}
 
 
 class TestStamp:
@@ -101,10 +109,10 @@ class TestStamp:
 
     def test_a_key_that_cannot_be_composed_is_not_stamped(self):
         nodes, edges = staged()
-        scopes.stamp(nodes, edges, scopes.ALL, lambda entity_type, values: None, host_key)
+        scopes.stamp(nodes, edges, scopes.ALL, lambda entity_type, values, dimensions: None, host_key)
         assert all(d == {} for d in dimensions(nodes).values())
 
-    @pytest.mark.parametrize("declared, composer", [(set(), compose), (scopes.ALL, lambda entity_type, values: None)])
+    @pytest.mark.parametrize("declared, composer", [(set(), compose), (scopes.ALL, lambda entity_type, values, dimensions: None)])
     def test_a_scope_a_builder_left_behind_is_dropped_when_this_does_not_stamp_it(self, declared, composer):
         nodes, edges = staged()
         by_ref = {n["entity"]["ref"]: n for n in nodes}
@@ -204,7 +212,7 @@ class TestAgainstTheGrid:
         from tap_plugin.anchore.tests.test_collector_scope import configure
 
         self.declare(*scopes.ALL)
-        monkeypatch.setattr(keys, "spine_key", lambda model, values: None)
+        monkeypatch.setattr(keys, "spine_key", lambda model, values, dimensions=None: None)
         configure(tmp_path, monkeypatch, {"running_only": True})
         collector = run_against(monkeypatch, cluster())
         assert not [e for e in Entity.objects.exclude(entity_type="dimension") if scopes.ALL & set(dimension_view(e))]

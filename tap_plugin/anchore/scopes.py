@@ -31,8 +31,9 @@ OWN_TYPE_PREFIX = "anchore__"
 #: A whole image digest. Anything else names no image host, so it scopes nothing.
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
-#: Composes a type's natural key from field values, or None when it cannot (a hole, an older grid).
-Compose = Callable[[str, Mapping[str, Any]], str | None]
+#: Composes a type's natural key from a key reference or a node's fields, and the node's dimensions
+#: for a key entry that names a dimension; None when it cannot (a hole, an older grid).
+Compose = Callable[[str, Mapping[str, Any], Mapping[str, Any] | None], str | None]
 
 
 def image_digest_of(node: Mapping[str, Any]) -> str | None:
@@ -85,7 +86,7 @@ def stamp(nodes: Iterable[dict[str, Any]], edges: Iterable[Mapping[str, Any]], d
         if node["entity"]["entity_type"].startswith(OWN_TYPE_PREFIX):
             digest = image_digest_of(node)
             if digest is not None:
-                put(node, HOST, compose(HOST_TYPE, host_key(digest)))
+                put(node, HOST, compose(HOST_TYPE, host_key(digest), None))
 
     by_ref = {node["entity"].get("ref"): node for node in nodes}
     parent: dict[str, dict[str, str]] = {"CONTAINS_NAMESPACE__computing_core": {}, "CONTAINS_POD__computing_core": {}, "RUNS_CONTAINER__computing_core": {}}
@@ -96,7 +97,9 @@ def stamp(nodes: Iterable[dict[str, Any]], edges: Iterable[Mapping[str, Any]], d
 
     def key_of(ref: str | None, entity_type: str) -> str | None:
         node = by_ref.get(ref)
-        return compose(entity_type, node["node"]) if node is not None and node["entity"]["entity_type"] == entity_type else None
+        if node is None or node["entity"]["entity_type"] != entity_type:
+            return None
+        return compose(entity_type, node["node"], node["entity"].get("dimensions"))
 
     for ref, node in by_ref.items():
         entity_type = node["entity"]["entity_type"]

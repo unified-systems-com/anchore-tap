@@ -45,7 +45,7 @@ def current_target_keys(scanner_key: str) -> set[str]:
 
 
 def image_host_exists(digest: str) -> bool:
-    """Whether the grid already holds the image host for a digest (computing_core: realm oci-digest).
+    """Whether the grid already holds the image host for a digest (computing_core: host type oci-digest).
 
     The collector writes a host only where none exists, so it never rewrites a record another
     collector filled in.
@@ -106,9 +106,20 @@ def natural_key_of(node: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(fields, tuple) or not fields:
         return None
     values = node.get("node", {})
-    if any("." in name or values.get(name) is None for name in fields):
-        return None
-    return {"entity_type": entity_type, "key": {name: values[name] for name in fields}}
+    held = node.get("entity", {}).get("dimensions", {})
+    key: dict[str, Any] = {}
+    for name in fields:
+        if keys.is_dimension(name):
+            # A dimension entry is read from the node's dimensions, as core reads it, never from the payload.
+            value = held.get(keys.dimension_name(name))
+        elif "." in name:
+            return None
+        else:
+            value = values.get(name)
+        if value is None:
+            return None
+        key[name] = value
+    return {"entity_type": entity_type, "key": key}
 
 
 def current_vex_annotations(scanner_key: str, scope_kind: str, scope_id: str) -> list[AnchoreVexAnnotation]:
@@ -200,10 +211,10 @@ def ecs_key(kind: str) -> str | None:
         return None
 
 
-def spine_key(entity_type: str, values: Any) -> str | None:
+def spine_key(entity_type: str, values: Any, dimensions: Any = None) -> str | None:
     """The natural key of a node of a registered type as the grid stores it; None when it cannot be composed."""
     try:
-        return keys.spine_key(get_model_class(entity_type), values)
+        return keys.spine_key(get_model_class(entity_type), values, dimensions)
     except (KeyError, keys.KeyShapeError):
         return None
 
@@ -357,13 +368,19 @@ def default_dimensions(entity_type: str) -> dict[str, str]:
 
 
 def _hosts(scheme: str, stable_id: str) -> Any:
-    """The live hosts under one identifier scheme and identifier, by whatever the host's key fields are called."""
-    return Host.objects.filter(**{keys.scheme_field(Host): scheme, keys.STABLE_ID: stable_id})
+    """The live hosts under one identifier scheme and identifier, by whatever the host's key entries are called.
+
+    Core's generated search reads a field entry as a column and a dimension entry as a match on the
+    row's dimensions, so this asks the same question the grid's own lookup asks.
+    """
+    from tap_grid.natural_key import search
+
+    return search(Host.objects.all(), {keys.scheme_field(Host): scheme, keys.STABLE_ID: stable_id})
 
 
-def host_exists(realm: str, stable_id: str) -> bool:
-    """Whether the grid holds a live host under this realm and identifier."""
-    return _hosts(realm, stable_id).exists()
+def host_exists(scheme: str, stable_id: str) -> bool:
+    """Whether the grid holds a live host under this identifier scheme and identifier."""
+    return _hosts(scheme, stable_id).exists()
 
 
 def refused_annotation_keys() -> frozenset[str] | None:
