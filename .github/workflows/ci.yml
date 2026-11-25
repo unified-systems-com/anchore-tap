@@ -5,7 +5,8 @@
 # No `harness_ref` (that is an override for the nightly and debugging, never a PR default)
 # and no `boot_profile` (retired form): the in-package tap_plugin/anchore/boot/ci.boot.json
 # IS the opt-in, and conformance fails closed without it (req-boot-bootstrap-ci-record-6).
-# The `uses:` pin is tap main at 24cd178d01b9 (2026-10-30).
+# The `uses:` pin is tap v0.5.0 (af6c940e52bc, 2026-11-25). The harness core comes from
+# requires_tap (the floor tag), not from this pin, which only picks the workflow logic.
 name: ci
 
 on:
