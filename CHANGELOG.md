@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.10](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.9...v0.1.10) (2026-11-25)
+
+
+### Features
+
+* **event-time:** each model names its event time; minimum tap 0.4.6 ([85d8bae](https://github.com/unified-systems-com/anchore-tap/commit/85d8baee1cc498383437602bd511e4787ba07500))
+* **event-time:** each model names its event time; minimum tap 0.4.6 ([787ec9d](https://github.com/unified-systems-com/anchore-tap/commit/787ec9df503cc0f67a82175855bc38aac6815637))
+* **keys:** a host's and a cluster's scheme may be a dimension entry ([e374952](https://github.com/unified-systems-com/anchore-tap/commit/e374952e72f85f325139a63333a4aa6f0e4ddc45))
+* **keys:** a host's and a cluster's scheme may be a dimension entry ([5d09ce2](https://github.com/unified-systems-com/anchore-tap/commit/5d09ce293d7556a7d18c7d0b7a3115ce4ff69fb3))
+
+
+### Documentation
+
+* **spec:** a scanner has no tap.time value ([ab2fa7a](https://github.com/unified-systems-com/anchore-tap/commit/ab2fa7a03324cbb2f7a9c51ac071b95e6a6f562c))
+* **spec:** the event-time kind is the tap.time dimension ([b690774](https://github.com/unified-systems-com/anchore-tap/commit/b690774c1ad71e9ba8f463801ef5a156349460e6))
+* **spec:** the last realm in the spec ([7204660](https://github.com/unified-systems-com/anchore-tap/commit/72046605a081bc7b5ced4d5272c1bc9d9ed329e5))
+
 ## [0.1.9](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.8...v0.1.9) (2026-11-19)
 
 

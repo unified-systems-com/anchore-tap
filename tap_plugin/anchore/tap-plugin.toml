@@ -1,5 +1,5 @@
 manifest_version = "0"
-plugin_version = "0.1.9" # x-release-please-version
+plugin_version = "0.1.10" # x-release-please-version
 requires_tap = ">=0.4.9"
 slug = "anchore"
 name = "TAP Anchore"
@@ -56,4 +56,4 @@ pages = "grift/pages.grift.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "57739059d714ec55f9dbb208c54dc962a0b739793f8cf4d0cfc6a4499394aa41"
+sha256 = "b799310f199685957f7dbcdd465d8fc24217677d3b631aaab382f316804464a5"
