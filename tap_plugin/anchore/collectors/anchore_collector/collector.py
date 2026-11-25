@@ -40,6 +40,7 @@ from typing import Any, ClassVar
 from tap import secrets_root
 
 from tap_cares.collectors import CeilingExceeded, CollectorBase, run_with_ceiling
+from tap_grid.grift.upgrade import build_header
 from tap_plugin.anchore import batching, kubernetes, neutral, scopes
 from tap_plugin.computing_core.sbom import SbomParseError, Verification, parse_cyclonedx
 from tap_plugin.anchore import scope as scoping
@@ -1386,7 +1387,11 @@ class AnchoreCollector(CollectorBase):
                 "nodes": nodes,
                 "edges": edges,
             })
-        return {"metadata": {"grift_version": "0"}, "_reserved": {}, "batches": out}
+        document: dict[str, Any] = {"metadata": {}, "_reserved": {}, "batches": out}
+        # The header core states for a document this grid writes: format "1", the spine's version and
+        # every type's (req-grift-header-versions). Core refuses format "0" (tap#1284).
+        document["metadata"] = build_header(document)
+        return document
 
 
 def _contract_dir() -> Path:

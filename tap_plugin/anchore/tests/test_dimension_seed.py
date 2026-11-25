@@ -106,6 +106,7 @@ class TestInstanceDimension:
         assert INSTANCE_DIMENSION not in decompose.typed_node("r", "computing_core__kubernetes_pod", "p", {"uid": "u"}, {"tap.computing": "runtime"})["entity"]["dimensions"]
 
 
+@pytest.mark.django_db  # the header names the grid's spine and type versions (build_header reads the catalog)
 class TestDocumentGuard:
     """The check at the run's one exit: it holds whichever function built a node."""
 
