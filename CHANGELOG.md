@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.11](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.10...v0.1.11) (2026-11-25)
+
+
+### Bug Fixes
+
+* run on the tap v0.5.0 floor, where history rows carry the event time ([3603910](https://github.com/unified-systems-com/anchore-tap/commit/36039104341a3238ed1d6b716cfc4221dc2f98db))
+* run on the tap v0.5.0 floor, where history rows carry the event time ([dd4187b](https://github.com/unified-systems-com/anchore-tap/commit/dd4187bbd055161073a6fbde7722d16dbf2fb224))
+
 ## [0.1.10](https://github.com/unified-systems-com/anchore-tap/compare/v0.1.9...v0.1.10) (2026-11-25)
 
 
