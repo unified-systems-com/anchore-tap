@@ -42,10 +42,38 @@ def vulnerability_dimensions_declared() -> None:
 @pytest.fixture
 def aws_dimensions_declared():
     """Skip unless the grid under test will accept the aws_core ECS nodes this plugin creates."""
-    from tap_grid.registry import get_model_class
     from tap_plugin.anchore.collectors.anchore_collector import store
+
+    from tap_grid.registry import get_model_class
 
     names = set(store.aws_dimension_names().values())
     for entity_type in store.ECS_TYPES.values():
         names |= set(get_model_class(entity_type).DEFAULT_DIMENSIONS)
     needs_declared(*names)
+
+
+#: The dimension that says whose numbering a host's or a cluster's stable_id comes from (computing_core 0.11).
+HOST_TYPE = "tap.computing.host_type"
+CLUSTER_TYPE = "tap.computing.kubernetes_cluster_type"
+
+
+def hosts_of(host_type: str, stable_id: str | None = None):
+    """The live hosts of one host type, and one identifier where given, found as core finds them."""
+    from tap_plugin.computing_core.models.host import Host
+
+    from tap_grid.natural_key import search
+
+    if stable_id is not None:
+        return search(Host.objects.all(), {f"dimension:{HOST_TYPE}": host_type, "stable_id": stable_id})
+    return Host.objects.filter(entity__in=[h.entity for h in Host.objects.select_related("entity") if dimension_view(h.entity).get(HOST_TYPE) == host_type])
+
+
+def host_of(host_type: str, stable_id: str):
+    """The one live host of a host type and identifier."""
+    return hosts_of(host_type, stable_id).get()
+
+
+def type_of(row, dimension: str = HOST_TYPE):
+    """A host's host type, or with ``CLUSTER_TYPE`` a cluster's cluster type, as its dimensions hold it."""
+    row.entity.refresh_from_db()
+    return dimension_view(row.entity).get(dimension)

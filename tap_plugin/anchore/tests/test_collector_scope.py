@@ -22,6 +22,7 @@ from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.tests.fakes import response
 from tap_plugin.anchore.tests.test_anchore_credential import data, write
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, OTHER, Instance, no_sockets, run_against, vuln  # noqa: F401 — no_sockets is autouse
+from tap_plugin.anchore.tests.conftest import host_of, hosts_of
 
 ABSENT = "sha256:" + "ef" * 32
 ECR = "123456789012.dkr.ecr.us-gov-west-1.amazonaws.com"
@@ -95,7 +96,7 @@ class TestRunningOnly:
         assert observed.last_seen is not None and observed.created_at is None
         edge = Edge.objects.get(edge_type="OBSERVES_IMAGE__anchore")
         assert edge.from_entity_id == observed.entity_id
-        assert Host.objects.get(pk=Host.objects.get(realm="oci-digest", stable_id=DIGEST).pk).entity_id == edge.to_entity_id
+        assert Host.objects.get(pk=host_of("oci-digest", DIGEST).pk).entity_id == edge.to_entity_id
 
     def test_a_record_not_seen_recently_is_not_running(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True}, inventory_max_age_hours=6)
@@ -120,7 +121,7 @@ class TestRunningOnly:
         assert "scope:not-in-anchore" in not_read(run)[f"image:{ABSENT}"]
         assert AnchoreFinding.objects.count() == 0
         assert AnchoreRuntimeImage.objects.get().image_digest == ABSENT
-        assert Host.objects.filter(realm="oci-digest", stable_id=ABSENT).count() == 1
+        assert hosts_of("oci-digest", ABSENT).count() == 1
 
     def test_out_of_scope_resolves_nothing(self, tmp_path, monkeypatch):
         configure(tmp_path, monkeypatch, {"running_only": True})

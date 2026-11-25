@@ -59,6 +59,7 @@ class TestSplit:
         assert batching.split(NODES, EDGES, 0, by_name) == ([(NODES, EDGES)], None)
 
 
+@pytest.mark.django_db  # the header names the grid's spine and type versions (build_header reads the catalog)
 class TestTheDocument:
     def test_a_run_that_fits_one_batch_describes_itself_as_it_always_did(self):
         from tap_plugin.anchore.collectors.anchore_collector.collector import AnchoreCollector

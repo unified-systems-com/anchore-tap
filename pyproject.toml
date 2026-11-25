@@ -17,7 +17,7 @@ dynamic = ["version"]
 # package and sbom_document types the Anchore nodes link to. `requests` is the read-only client's
 # transport (req-anchore-client); it uses the system OpenSSL through Python's ssl module.
 dependencies = [
-    "computing-core-tap",
+    "computing-core-tap>=0.11.0",
     "requests>=2.34.2,<3",
 ]
 

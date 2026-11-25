@@ -13,6 +13,7 @@ from tap_grid.models import Edge
 from tap_plugin.anchore.models.scan_run import AnchoreScanRun
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, Instance, findings, no_sockets, run_against, secrets, vuln  # noqa: F401 — fixtures
 from tap_plugin.anchore.tests.test_collector_scope import configure
+from tap_plugin.anchore.tests.conftest import type_of
 
 BASE = "sha256:" + "b" * 64
 ROOT = "sha256:" + "c" * 64
@@ -94,7 +95,7 @@ class TestAncestors:
         run_against(monkeypatch, server)
         assert built_on() == {(DIGEST, ROOT), (DIGEST, BASE)}
         # An ancestor's host is a stub: the digest and nothing Anchore did not say.
-        assert Host.objects.get(stable_id=BASE).realm == "oci-digest"
+        assert type_of(Host.objects.get(stable_id=BASE)) == "oci-digest"
         assert f"ancestors:{DIGEST}" in run().scopes_read
 
     def test_a_second_run_writes_no_second_edge(self, secrets, monkeypatch):

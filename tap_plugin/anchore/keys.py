@@ -1,7 +1,7 @@
 """The key field names of types this plugin writes but does not own, read from the type itself.
 
-computing_core and aws_core own their types and may rename a key field: a host's ``realm`` became
-the dimension ``tap.computing.host_type`` (tap#1355), and an aws_core type's ``<kind>_arn`` is to
+computing_core and aws_core own their types and may rename a key entry: a host's issuer is the
+dimension ``tap.computing.host_type`` (tap#1355), and an aws_core type's ``<kind>_arn`` is to
 become ``arn``. A name
 written out here would break every write and every lookup on the day of the rename, in a release
 already installed. So the name is taken from the model's ``NATURAL_KEY`` at run time, by the role
@@ -47,8 +47,8 @@ def dimension_name(entry: str) -> str:
 def scheme_field(model: Any) -> str:
     """The entry beside ``stable_id`` in a two-part key: the one that names who issued the identifier.
 
-    A field name on an older type (``realm``), or a dimension entry
-    (``dimension:tap.computing.host_type``) once the type keys on a dimension. Either is how a key
+    A field name, or a dimension entry (``dimension:tap.computing.host_type``) where the type keys
+    on a dimension. Either is how a key
     reference (``from_key``, ``to_key``) spells it; :func:`split` says where it goes in a node.
     """
     key = _natural_key(model)

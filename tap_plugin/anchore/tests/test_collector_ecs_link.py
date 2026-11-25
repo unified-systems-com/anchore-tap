@@ -17,6 +17,7 @@ from tap_grid.services import create_node
 from tap_plugin.anchore.collectors.anchore_collector import store
 from tap_plugin.anchore.tests.test_collector_run import DIGEST, OTHER, no_sockets, run_against  # noqa: F401 — no_sockets is autouse
 from tap_plugin.anchore.tests.test_collector_scope import configure, container, item, latest_run, not_read, two_images
+from tap_plugin.anchore.tests.conftest import host_of
 
 ACCOUNT = "123456789012"
 ECS = "aws_core__aws_ecs_container"
@@ -50,7 +51,7 @@ class TestEcsLink:
         edge = runs_image_edges()[0]
         assert len(runs_image_edges()) == 1
         assert edge.from_entity_id == node.entity_id
-        assert edge.to_entity_id == Host.objects.get(realm="oci-digest", stable_id=DIGEST).entity_id
+        assert edge.to_entity_id == host_of("oci-digest", DIGEST).entity_id
         node.refresh_from_db()
         assert (node.name, node.image, node.last_status, node.image_digest) == ("web", "registry.example/app:1", "RUNNING", None)
         assert Entity.objects.get(pk=node.entity_id).version == version

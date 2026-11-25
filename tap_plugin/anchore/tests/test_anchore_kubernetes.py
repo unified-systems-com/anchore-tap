@@ -77,8 +77,8 @@ class TestChain:
 class TestClusterIdentity:
     def test_without_kube_system_the_key_is_scoped_to_the_scanner(self):
         got = planned([container("p1")], [pod("p1")])
-        ((realm, stable_id),) = got.clusters
-        assert realm == "anchore-inventory"
+        ((cluster_type, stable_id),) = got.clusters
+        assert cluster_type == "anchore-inventory"
         assert stable_id == '["[\\"https://anchore.example:8228/v2\\",\\"acct\\"]","prod"]'
         assert got.fallback_clusters == 1
 
@@ -90,16 +90,16 @@ class TestClusterIdentity:
     def test_two_kube_system_uids_under_one_name_are_not_trusted(self):
         pods = [pod("p1"), pod("p-a", namespace="5f4c1c9e-0b0a-4e1f-9c7d-1a2b3c4d5e6f"), pod("p-b", namespace="ns-other-system")]
         got = planned([container("p1"), container("p-a", "dns", "prod/kube-system"), container("p-b", "dns", "prod/kube-system")], pods)
-        assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
+        assert {cluster_type for cluster_type, _ in got.clusters} == {"anchore-inventory"}
 
     def test_a_kube_system_context_over_another_namespace_does_not_key_the_cluster(self):
         """The context says kube-system; the pod's namespace is the one named default."""
         got = planned([container("p1", "dns", "prod/kube-system")], [pod("p1", namespace="ns-default")])
-        assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
+        assert {cluster_type for cluster_type, _ in got.clusters} == {"anchore-inventory"}
 
     def test_a_kube_system_namespace_anchore_does_not_list_does_not_key_the_cluster(self):
         got = planned([container("p1", "dns", "prod/kube-system")], [pod("p1", namespace="ns-unlisted")])
-        assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
+        assert {cluster_type for cluster_type, _ in got.clusters} == {"anchore-inventory"}
 
     def test_repository_prefixes_narrow_placement(self):
         """A container whose image is outside the repository prefixes is not written (req-anchore-scope-8)."""
@@ -174,7 +174,7 @@ class TestIdentifierNames:
         """An instance could return its own row id under ``id``; only a UUID is a namespace UID."""
         namespaces = [{"id": "ns-default", "name": "default", "labels": {}}, {"id": "42", "name": "kube-system", "labels": {}}]
         got = kubernetes.plan([container("p1"), container("p-dns", "coredns", "prod/kube-system")], [pod("p1"), pod("p-dns", namespace="42")], namespaces, NODES, settings(), NOW, KEY)
-        assert {realm for realm, _ in got.clusters} == {"anchore-inventory"}
+        assert {cluster_type for cluster_type, _ in got.clusters} == {"anchore-inventory"}
         assert "42" in got.namespaces
 
     def test_an_unscheduled_pod_with_a_null_node_id_is_written_without_a_node(self):

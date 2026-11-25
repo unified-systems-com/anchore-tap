@@ -19,6 +19,7 @@ from typing import Any
 import jsonschema
 from django.db import models as dj_models
 
+from tap_plugin.computing_core import key_dimensions
 from tap_plugin.computing_core.models.host import Host
 from tap_plugin.computing_core.models.sbom_document import SbomDocument
 
@@ -46,7 +47,7 @@ RESOLVED = "resolved"
 
 #: An image digest as the image host's key holds it (computing_core: host type oci-digest).
 OCI_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-IMAGE_REALM = "oci-digest"
+IMAGE_HOST_TYPE = key_dimensions.OCI_DIGEST
 
 #: The SBOM source id -> the format name recorded on the document. cyclonedx and spdx are the names
 #: computing_core uses; Anchore's native document is named for Anchore, not for any tool inside it.
@@ -421,7 +422,7 @@ def image_node(ref: str, scanner_key: str, image: dict[str, Any]) -> dict[str, A
 
 def host_key(digest: str) -> dict[str, str]:
     """The image host's key as a reference spells it: ``{scheme entry: "oci-digest", "stable_id": digest}``."""
-    return {keys.scheme_field(Host): IMAGE_REALM, keys.STABLE_ID: digest}
+    return {keys.scheme_field(Host): IMAGE_HOST_TYPE, keys.STABLE_ID: digest}
 
 
 #: The longest inventory type and context the runtime image node can hold.
