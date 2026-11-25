@@ -9,8 +9,8 @@
         "source": {
           "type": "git",
           "url": "https://github.com/unified-systems-com/computing-core-tap",
-          "rev": "v0.11.2",
-          "commit": "e07aeac47a1a4d1ba65ac75bc76077e3616dcd55"
+          "rev": "v0.11.3",
+          "commit": "df8456bba14584981826eb5ba61bce13aa46c3e9"
         }
       },
       {
@@ -19,8 +19,8 @@
         "source": {
           "type": "git",
           "url": "https://github.com/unified-systems-com/compliance-core-tap",
-          "rev": "v0.8.15",
-          "commit": "d45aa0b90fcd34cc16e70030bc9740b6dd7702f7"
+          "rev": "v0.8.16",
+          "commit": "b1384a29873ab244c2dc02519398bef2cde02341"
         }
       },
       {
@@ -29,8 +29,8 @@
         "source": {
           "type": "git",
           "url": "https://github.com/unified-systems-com/aws-core-tap",
-          "rev": "v0.9.1",
-          "commit": "ae8cb12bfb5cfbff064f3cece56396cbbb15ca26"
+          "rev": "v0.9.3",
+          "commit": "4766d7573c4e69972c37ac733dec6a333160bf15"
         }
       },
       {

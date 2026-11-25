@@ -1195,7 +1195,7 @@ Every one of these fields is either a date-time column the collector fills from 
 
 No edge type of this plugin declares an event time. None of them carries a time among its properties, and for an edge type none is core's default.
 
-The declarations need tap 0.4.6. The minimum tap is 0.4.9 from the spine-copies migration (2026-11-24), where core renamed the grid-derived dimension that carries the kind from `time` to `tap.time`.
+The declarations need tap 0.4.6. The minimum tap is 0.4.9 from the spine-copies migration (2026-11-24), where core renamed the grid-derived dimension that carries the kind from `time` to `tap.time`. From tap 0.5.0 (2026-11-25) the minimum is 0.5.0. Core's history rows carry each version's event time (`req-grid-history-event-time`), and boot refuses a plugin whose history tables lack `event_start`, `event_end` or `event_precision`, so migration 0009 adds them to the seven history tables.
 
 #### Acceptance Criteria
 
