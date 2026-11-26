@@ -29,3 +29,7 @@ jobs:
     with:
       plugin_slug: anchore
       assignee: notgeorge   # no CODEOWNERS in this repo: the org's maintainer login
+      # 360 covers ONE measured run (hard-things Q80a), not a permanent limit. The parity
+      # check's stock Django migrate took 4,004s here before 0.5.0's history migration
+      # (tap#1288) and now runs past the 90-minute default; the final value follows that run.
+      migrations_timeout_minutes: 360
